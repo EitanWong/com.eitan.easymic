@@ -1,0 +1,16 @@
+{
+    "name": "Eitan.EasyMic.Demo",
+    "rootNamespace": "Eitan.EasyMic.Demo",
+    "references": [
+        "Eitan.EasyMic"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

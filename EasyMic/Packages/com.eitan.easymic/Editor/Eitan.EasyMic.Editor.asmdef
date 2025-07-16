@@ -1,0 +1,18 @@
+{
+    "name": "Eitan.EasyMic.Editor",
+    "rootNamespace": "Eitan.EasyMic.Editor",
+    "references": [
+        "GUID:ffbca9e1633ba48bca018caa0d7f0a71"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

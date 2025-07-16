@@ -1,0 +1,24 @@
+{
+    "name": "SoundIO.Runtime",
+    "references": [],
+    "includePlatforms": [
+        "Editor",
+        "LinuxStandalone64",
+        "macOSStandalone",
+        "WindowsStandalone64"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "Unity",
+            "expression": "2021.2.0b6",
+            "define": "USE_UNITY_UNSAFE_UTILITY"
+        }
+    ],
+    "noEngineReferences": false
+}
