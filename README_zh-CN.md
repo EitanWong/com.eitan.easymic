@@ -1,487 +1,313 @@
-<div align="center">
-  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="120" height="120">
-  
-  # 🎙️ Easy Mic for Unity
-  
-  **专业实时音频录制和处理插件**
-  
-  [![Unity Version](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity3d.com/get-unity/download)
-  [![License](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE.md)
-  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey.svg)](#系统要求)
-  
-  <p align="center">
-    <strong>🇨🇳 中文版</strong> | 
-    <a href="README.md">🇺🇸 English</a>
-  </p>
-  
-  <p align="center">
-    <em>完美适配 AI 数字人 • 语音交互应用 • 实时音频处理</em>
-  </p>
-</div>
+<p align="right">
+  <a href="README.md">English</a>
+</p>
 
----
+# Easy Mic for Unity 🎤
 
-<div align="center">
-  <h2>🎯 什么是 Easy Mic？</h2>
-  
-  <p><strong>Easy Mic</strong> 是专为 Unity 开发者设计的<strong>专业实时音频录制和处理插件</strong>，特别适用于开发<strong>语音交互应用</strong>、<strong>AI 数字人</strong>和<strong>实时音频处理项目</strong>。</p>
-</div>
+<p align="center">
+  <img src="Documentation~/images/easymic-logo.png" alt="Easy Mic Logo" width="200"/>
+</p>
 
-<table align="center">
-  <tr>
-    <td align="center" width="20%">
-      <br>
-      🤖<br>
-      <strong>AI 数字人</strong><br>
-      <em>语音交互系统</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🗣️<br>
-      <strong>实时语音聊天</strong><br>
-      <em>实时对话系统</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎙️<br>
-      <strong>语音命令</strong><br>
-      <em>识别系统</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      📞<br>
-      <strong>VoIP 通信</strong><br>
-      <em>通信应用</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎮<br>
-      <strong>语音游戏</strong><br>
-      <em>语音控制游戏</em>
-      <br><br>
-    </td>
-  </tr>
-</table>
-
-<div align="center">
-  <p><em>Easy Mic 为您的应用程序提供<strong>低延迟、高质量的音频基础</strong>。</em></p>
-</div>
-
----
-
-## 🎬 实际演示
-
-<div align="center">
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
-    <img src="https://img.shields.io/badge/🎥_观看演示-B站-ff69b4.svg?style=for-the-badge" alt="观看演示">
-  </a>
-  
-  <p><strong>Unity数字人麦克风录音插件</strong><br>
-  <em>解决数字人对话打断回声消除问题</em></p>
-  
-  <p>这个视频演示了 Easy Mic 如何解决 AI 对话系统中的关键音频挑战，特别是由回声和音频反馈引起的<strong>对话打断问题</strong>。</p>
-</div>
-
----
+**Easy Mic** 是一款革命性的Unity高性能、低延迟音频录制插件，彻底改变了音频捕获和处理方式。它提供对原始麦克风数据的直接访问，并引入了强大的可编程音频处理流水线，让开发者能够轻松创建复杂的实时音频工作流。
 
 ## ✨ 核心功能
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="50%">
-        <h3>🎤 超低延迟录音</h3>
-        <ul align="left">
-          <li>✅ 原生后端实现最小音频延迟</li>
-          <li>✅ 实时处理适用于实时系统</li>
-          <li>✅ 跨平台支持</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h3>⛓️ 可编程音频管道</h3>
-        <ul align="left">
-          <li>✅ 模块化设计与可链式处理器</li>
-          <li>✅ 动态运行时配置</li>
-          <li>✅ 内置和自定义处理器</li>
-        </ul>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" width="50%">
-        <h3>🛡️ 类型安全与性能优先</h3>
-        <ul align="left">
-          <li>✅ 零GC音频处理</li>
-          <li>✅ 编译时安全</li>
-          <li>✅ 线程安全操作</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h3>🔧 开发者友好</h3>
-        <ul align="left">
-          <li>✅ 简单API设计</li>
-          <li>✅ 全面文档</li>
-          <li>✅ 活跃社区支持</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-</div>
+*   **🎤 超低延迟录制**: 使用优化的原生后端库以最小延迟捕获麦克风音频，完美适用于实时应用和交互体验。
+*   **🔊 原始音频缓冲区访问**: 直接访问来自麦克风的未处理音频数据，为您提供音频操作和处理的完全控制权。
+*   **⛓️ 可编程处理流水线**: Easy Mic的核心特性 - 动态构建、修改和优化音频处理器链。可在不中断音频流的情况下实时添加、删除或重新排序处理器。
+*   **💻 真正的跨平台支持**: 在Windows、macOS、Linux、Android和iOS上提供统一API，具有平台优化的原生实现。
+*   **🧩 丰富的内置处理器库**: 为常见音频任务提供全面的预构建处理器集合，开箱即用。
+*   **🔌 可扩展架构**: 专为未来扩展而设计，支持自定义处理器和第三方集成。
 
----
+## 🚀 音频处理流水线
 
-## 💎 EasyMic APM 扩展包 - 专业 3A 音频处理
+Easy Mic的革命性方法围绕其灵活、可编程的音频流水线展开。录制激活时，音频数据流经您定义的可自定义处理器链：
 
-<div align="center">
-  <img src="https://img.shields.io/badge/🔊_解决_AI_对话打断问题-专业解决方案-gold.svg?style=for-the-badge" alt="APM解决方案">
-  
-  <p>对于从事 <strong>Unity AI 数字人项目</strong>的开发者，我们提供 <strong>EasyMic APM（音频处理模块）</strong>扩展包。</p>
-</div>
+```
+🎙️ 麦克风输入 → [处理器 A] → [处理器 B] → [处理器 C] → 🔊 最终输出
+```
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="33%">
-        🔇<br>
-        <strong>AEC</strong><br>
-        <em>声学回声消除</em><br>
-        消除回声和反馈
-      </td>
-      <td align="center" width="33%">
-        📢<br>
-        <strong>AGC</strong><br>
-        <em>自动增益控制</em><br>
-        维持一致的音频电平
-      </td>
-      <td align="center" width="33%">
-        🎯<br>
-        <strong>ANS</strong><br>
-        <em>声学噪声抑制</em><br>
-        减少背景噪音
-      </td>
-    </tr>
-  </table>
-</div>
+这种模块化架构让您能够：
+- **混合搭配** 处理器以创建自定义音频工作流
+- **实时修改** 录制期间的处理链
+- **性能优化** 通过仅使用必要的处理器
+- **轻松调试** 通过隔离特定的处理阶段
 
-<div align="center">
-  <p><strong>📧 联系：</strong> <a href="mailto:unease-equity-5c@icloud.com">unease-equity-5c@icloud.com</a> | <strong>💬 B站：</strong> 发送私信</p>
-  
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
-    <img src="https://img.shields.io/badge/🎥_演示视频-在B站观看-ff69b4.svg" alt="演示视频">
-  </a>
-</div>
+## 🛠️ 内置音频处理器
 
----
+Easy Mic 配备了全面的音频处理器套件：
 
-## 🚀 快速开始
+### 核心处理器
+*   **📼 `AudioCapturer`**: 高性能音频捕获到内存缓冲区或直接文件输出，支持多种格式。
+*   **🔄 `AudioDownmixer`**: 智能多通道到单声道转换，具有可配置的混音算法。
+*   **🔇 `VolumeGateFilter`**: 高级噪声门，具有可自定义的阈值、攻击和释放参数。
+*   **🔁 `LoopbackPlayer`**: 用于监控和测试应用的实时音频回环。
 
-<div align="left">
-  <h3>📦 安装</h3>
-    <ol align="left">
-      <li>打开 Unity Package Manager</li>
-      <li>点击 <code>+</code> → <code>Add package from git URL...</code></li>
-      <li>输入: <code>https://github.com/EitanWong/com.eitan.easymic.git#upm</code></li>
-      <li>点击 <code>Add</code></li>
-    </ol>
-  <h3>📋 导入示例场景</h3>
-    <ol align="left">
-      <li>导入 Easy Mic 后，前往 <strong>Package Manager</strong></li>
-      <li>在 "In Project" 包中找到 <strong>EasyMic</strong></li>
-      <li>展开 <strong>Samples</strong> 部分</li>
-      <li>点击 "Recording Example" 旁边的 <strong>Import</strong></li>
-      <li>打开导入的场景查看麦克风录制演示</li>
-    </ol>
+### AI 集成
+*   **🗣️ `SherpaRealtimeSpeechRecognizer`**: 使用Sherpa-ONNX引擎的尖端实时语音转文本。**需要：** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
+
+### 专业音频增强 💎
+对于需要录音棚品质音频的生产就绪应用，请考虑 **EasyMic 音频处理模块 (APM)**：
+
+*   **🚫 AEC (声学回声消除)**: 消除声学回声，实现水晶般清晰的语音通信
+*   **🔇 ANS (自动噪声抑制)**: 在保持语音质量的同时去除背景噪声
+*   **📊 AGC (自动增益控制)**: 自动维护一致的音频电平
+
+**非常适合AI数字人和虚拟主播**: 解决了基于Unity的对话AI应用中系统输出干扰麦克风输入的关键回声问题。
+
+📧 **对APM感兴趣？** 联系：[unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+🛒 **第三方商店即将推出** 便于购买和许可。
+
+## 📦 安装
+
+### 方法1：Unity包管理器（推荐）
+1. 打开Unity包管理器 (`Window > Package Manager`)
+2. 点击 `+` 按钮 → `Add package from git URL...`
+3. 输入：`https://github.com/EitanWong/com.eitan.easymic.git#upm`
+4. 点击 `Add`
+
+### 方法2：手动安装
+1. 从 [GitHub发布页面](https://github.com/EitanWong/com.eitan.easymic/releases) 下载最新版本
+2. 解压并放置在项目的 `Packages` 文件夹中
+3. Unity将自动检测并导入包
+
+## ▶️ 快速入门指南
+
+### 基础录制示例
+```csharp
+using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Core.Processors;
+using UnityEngine;
+
+public class SimpleRecorder : MonoBehaviour
+{
+    private RecordingHandle _recordingHandle;
+    private AudioCapturer _audioCapturer;
+    private AudioClip _recordedClip;
+
+    void Start()
+    {
+        // 初始化并检查可用设备
+        EasyMicAPI.Refresh();
+        var devices = EasyMicAPI.Devices;
+        
+        if (devices.Length == 0)
+        {
+            Debug.LogError("未找到麦克风设备。");
+            return;
+        }
+
+        // 使用最佳设置开始录制
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz48000,  // 高质量采样率
+            Channel.Mono        // 单声道以提高效率
+        );
+
+        if (!_recordingHandle.IsValid)
+        {
+            Debug.LogError("开始录制失败。");
+            return;
+        }
+
+        // 创建并配置音频捕获器
+        _audioCapturer = new AudioCapturer(); 
+        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
+
+        Debug.Log("🎙️ 开始录制5秒钟...");
+        
+        // 5秒后自动停止
+        Invoke(nameof(StopRecording), 5f);
+    }
+
+    void StopRecording()
+    {
+        if (!_recordingHandle.IsValid) return;
+
+        // 停止录制并检索音频
+        EasyMicAPI.StopRecording(_recordingHandle);
+        _recordedClip = _audioCapturer.GetCapturedAudioClip();
+
+        if (_recordedClip != null)
+        {
+            Debug.Log($"✅ 录制完成！持续时间：{_recordedClip.length:F2}秒");
+            
+            // 可选：播放录制的音频
+            var audioSource = GetComponent<AudioSource>();
+            if (audioSource != null)
+                audioSource.PlayOneShot(_recordedClip);
+        }
+        
+        _recordingHandle = default;
+    }
+
+    void OnDestroy()
+    {
+        // 清理资源
+        if (_recordingHandle.IsValid)
+            EasyMicAPI.StopRecording(_recordingHandle);
+    }
+}
+```
+
+### 高级流水线示例
+```csharp
+using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Core.Processors;
+using UnityEngine;
+
+public class AdvancedAudioPipeline : MonoBehaviour
+{
+    private RecordingHandle _recordingHandle;
+    private VolumeGateFilter _noiseGate;
+    private AudioDownmixer _downmixer;
+    private AudioCapturer _capturer;
+
+    void Start()
+    {
+        EasyMicAPI.Refresh();
+        var devices = EasyMicAPI.Devices;
+        
+        // 开始立体声录制
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz44100, 
+            Channel.Stereo
+        );
+
+        if (!_recordingHandle.IsValid) return;
+
+        // 构建处理流水线
+        _noiseGate = new VolumeGateFilter { Threshold = 0.01f };
+        _downmixer = new AudioDownmixer();
+        _capturer = new AudioCapturer();
+
+        // 按顺序添加处理器
+        EasyMicAPI.AddProcessor(_recordingHandle, _noiseGate);   // 1. 去噪
+        EasyMicAPI.AddProcessor(_recordingHandle, _downmixer);  // 2. 转换为单声道
+        EasyMicAPI.AddProcessor(_recordingHandle, _capturer);   // 3. 捕获结果
+
+        Debug.Log("🔧 高级流水线已激活，包含噪声门和降混");
+    }
     
-  <div align="center">
-    <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/how-to-import-samples.png" alt="如何导入示例" width="600">
-    <p><em>通过 Package Manager 导入 Recording Example 示例场景</em></p>
-  </div>
-  
-  <h3>⚡ 基本使用</h3>
-    <div align="left">
-      <pre><code>// 初始化
-EasyMicAPI.Refresh();
-var handle = EasyMicAPI.StartRecording();
-
-// 添加处理器
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(handle, capturer);
-
-// 获取音频
-var clip = capturer.GetCapturedAudioClip();</code></pre>
-    </div>
-</div>
-
----
-
-## 📚 文档
-
-<div align="center">
-  <h3>📖 完整文档可用</h3>
-  
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md">
-          📘<br><strong>入门指南</strong><br>
-          <em>安装和第一步</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/core-concepts.md">
-          🏗️<br><strong>核心概念</strong><br>
-          <em>架构概览</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/audio-pipeline.md">
-          ⛓️<br><strong>音频管道</strong><br>
-          <em>处理系统</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/processors.md">
-          🧩<br><strong>处理器</strong><br>
-          <em>可用组件</em>
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/api-reference.md">
-          ⚡<br><strong>API 参考</strong><br>
-          <em>完整文档</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/best-practices.md">
-          💡<br><strong>最佳实践</strong><br>
-          <em>优化技巧</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/troubleshooting.md">
-          🔧<br><strong>故障排除</strong><br>
-          <em>常见解决方案</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/examples.md">
-          🚀<br><strong>示例</strong><br>
-          <em>案例代码</em>
-        </a>
-      </td>
-    </tr>
-  </table>
-  
-  <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/">
-      <img src="https://img.shields.io/badge/🇺🇸_English_Documentation-Complete_Documentation-blue.svg" alt="English Documentation">
-    </a>
-  </p>
-</div>
-
----
+    // ... 其余实现
+}
+```
 
 ## 🎯 使用场景
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        🤖<br>
-        <strong>AI 数字人</strong>
-        <ul align="left">
-          <li>实时语音交互</li>
-          <li>带回声消除的对话AI</li>
-          <li>自然语言处理</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        🎮<br>
-        <strong>游戏应用</strong>
-        <ul align="left">
-          <li>多人游戏语音聊天</li>
-          <li>语音控制命令</li>
-          <li>实时音频效果</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        📞<br>
-        <strong>通信应用</strong>
-        <ul align="left">
-          <li>VoIP 应用程序</li>
-          <li>视频会议工具</li>
-          <li>实时音频流</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        🎙️<br>
-        <strong>内容创作</strong>
-        <ul align="left">
-          <li>播客录制工具</li>
-          <li>配音应用程序</li>
-          <li>音频内容工作流</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-</div>
+### 🤖 AI与虚拟角色
+- **数字人对话**: 无回声干扰的清晰语音交互
+- **语音控制NPC**: 游戏角色的实时语音识别
+- **虚拟主播**: 虚拟网红的专业品质语音捕获
 
----
+### 🎮 游戏应用
+- **语音聊天系统**: 多人游戏的低延迟通信
+- **语音命令**: 游戏机制的响应式语音控制
+- **音频录制**: 游戏内语音消息和回放系统
 
-## 📋 系统要求
+### 📱 交互应用
+- **语音助手**: 构建自定义语音AI应用
+- **语言学习**: 发音练习和反馈系统
+- **音频制作**: 实时音频处理和效果
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        <strong>Unity</strong><br>
-        2021.3 LTS 或更高版本
-      </td>
-      <td align="center" width="25%">
-        <strong>平台</strong><br>
-        Windows, macOS, Linux<br>
-        Android, iOS
-      </td>
-      <td align="center" width="25%">
-        <strong>依赖</strong><br>
-        .NET Standard 2.1+
-      </td>
-      <td align="center" width="25%">
-        <strong>权限</strong><br>
-        需要麦克风访问权限
-      </td>
-    </tr>
-  </table>
-</div>
+## 🔧 系统要求
 
----
+- **Unity**: 2021.3 LTS 或更高版本
+- **平台**: Windows, macOS, Linux, Android, iOS
+- **麦克风**: 任何系统识别的音频输入设备
+- **内存**: 最小开销，高效的原生实现
+
+## 📚 文档与支持
+
+- 📖 **[完整文档](Documentation~/README.md)**: 全面的指南和API参考
+- 💻 **[示例项目](Samples~/)**: 即用的示例和教程
+- 🐛 **[问题跟踪](https://github.com/EitanWong/com.eitan.easymic/issues)**: 错误报告和功能请求
+- 💬 **[讨论区](https://github.com/EitanWong/com.eitan.easymic/discussions)**: 社区支持和技巧
+
+## 🤝 贡献
+
+欢迎贡献！请阅读我们的 [贡献指南](CONTRIBUTING.md) 和 [行为准则](CODE_OF_CONDUCT.md)。
 
 ## 📄 许可证
 
-<div align="center">
-  <p>本项目采用 <strong>GPLv3 许可证</strong> - 详见 <a href="LICENSE.md">LICENSE.md</a> 文件。</p>
-  
-  <table>
-    <tr>
-      <td align="center" width="50%">
-        <h4>✅ 开源友好</h4>
-        <ul align="left">
-          <li>开源项目免费使用</li>
-          <li>允许商业使用（需遵守GPL）</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h4>⚠️ 商业项目</h4>
-        <ul align="left">
-          <li>需要公开源代码</li>
-          <li>分发时必须遵守GPL</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-  
-</div>
+本项目采用 **GPLv3 许可证** 授权。详情请参见 [LICENSE.md](LICENSE.md)。
+
+### 重要许可证要点：
+- ✅ **免费使用** 用于个人和商业项目
+- ✅ **修改和分发** 在相同许可证条款下
+- ✅ **包含在开源项目中** 无限制
+- ⚠️ **Copyleft要求**: 衍生作品也必须在GPLv3下开源
+
+## 🚨 为什么严格遵守开源协议至关重要？
+
+### 开源协议不是建议，而是法律义务
+
+在当今的软件开发世界中，开源软件已成为创新的基石。然而，**许多开发者和企业对开源协议的理解存在严重误区**，错误地认为"开源"等同于"免费随意使用"。这种认知不仅是错误的，更可能导致严重的法律后果。
+
+### GPLv3协议的核心要求
+
+**GPLv3不是普通的MIT或Apache许可证**。它是一个强Copyleft协议，核心要求包括：
+
+1. **🔒 代码共享义务**: 如果您修改了本项目代码并在任何形式的软件产品中使用（包括但不限于商业软件、SaaS服务、移动应用等），您**必须**将修改后的完整代码以GPLv3协议开源。
+
+2. **📋 协议传递性**: 任何包含或链接GPLv3代码的软件，其整体也必须采用GPLv3协议。这意味着您的整个项目可能都需要开源。
+
+3. **⚖️ 法律约束力**: 这些不是"建议"或"最佳实践"，而是具有法律约束力的要求。违反可能面临版权侵权诉讼。
+
+### 真实案例与警示
+
+近年来，已有多家公司因违反GPL协议而面临法律诉讼，包括：
+- **重大法律案件**: 多家知名公司因未遵守GPL要求而被诉讼，最终支付巨额赔偿
+- **业务影响**: 被迫开源核心代码，或停止使用相关软件
+- **声誉损失**: 在开发者社区中的信誉受损
+
+### 如何正确使用GPLv3软件
+
+#### ✅ 合规使用方式：
+1. **开源项目**: 在其他GPLv3或兼容协议的开源项目中使用
+2. **内部使用**: 仅在组织内部使用，不对外分发
+3. **遵循义务**: 如需分发，完整遵守所有GPLv3要求
+
+#### ❌ 违规使用方式：
+1. **商业软件闭源**: 在闭源商业软件中包含GPLv3代码
+2. **部分开源**: 只开源修改部分，隐藏其他相关代码  
+3. **协议变更**: 试图将GPLv3代码改为其他许可证
+
+### 对于中国开发者的特别提醒
+
+在中国的软件开发环境中，对开源协议的重视程度仍有待提高。但请注意：
+
+1. **📈 法律环境变化**: 中国的知识产权保护日益严格，开源协议违规的法律风险正在增加
+2. **🌍 国际业务**: 如果您的软件面向国际市场，必须遵守国际开源协议标准
+3. **🏢 企业责任**: 作为开发者，您有责任向您的雇主或客户说明开源协议的要求
+
+### 我的立场与承诺
+
+作为Easy Mic的作者，我选择GPLv3协议有以下考虑：
+
+1. **🛡️ 保护开源生态**: 确保对社区的贡献能够回馈给整个社区
+2. **⚡ 推动创新**: 鼓励更多开源创新，而非闭源垄断
+3. **💪 维护权益**: 保护原创者和贡献者的合法权益
+
+**我将积极维护自己的权益，对于违反GPLv3协议的行为，我保留采取法律行动的权利。**
+
+### 如果您需要商业许可
+
+如果GPLv3的Copyleft要求与您的商业需求不符，我也理解这种情况。请通过以下方式联系我讨论**商业许可方案**：
+
+📧 **商业许可咨询**: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)
+
+我愿意在合理的条件下提供更灵活的许可选项。
+
+### 结语
+
+开源软件的繁荣需要每一位开发者的共同维护。遵守开源协议不仅是法律要求，更是对整个开发者社区的尊重和责任。
+
+**让我们一起建设一个健康、可持续的开源生态环境！** 🌱
 
 ---
 
-## 🤝 社区与支持
+**由 [Eitan](https://github.com/EitanWong) 用 ❤️ 制作**
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="33%">
-        🐛<br>
-        <strong>问题与错误报告</strong><br>
-        <a href="https://github.com/EitanWong/com.eitan.easymic/issues">GitHub Issues</a><br>
-        <em>请先查看 <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/troubleshooting.md">故障排除</a></em>
-      </td>
-      <td align="center" width="33%">
-        💬<br>
-        <strong>社区讨论</strong><br>
-        <a href="https://github.com/EitanWong/com.eitan.easymic/discussions">GitHub Discussions</a><br>
-        <em>分享项目并获得帮助</em>
-      </td>
-      <td align="center" width="33%">
-        📧<br>
-        <strong>专业支持</strong><br>
-        <a href="mailto:unease-equity-5c@icloud.com">邮件</a> | B站私信<br>
-        <em>提供技术指导</em>
-      </td>
-    </tr>
-  </table>
-</div>
-
----
-
-## 🌟 为什么选择 Easy Mic？
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>生产就绪</strong><br>
-        <em>经过实战检验的架构，适用于商业应用</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>开发者导向</strong><br>
-        <em>丰富的文档、示例和社区支持</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>性能优化</strong><br>
-        <em>零GC音频处理以获得最大性能</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>灵活架构</strong><br>
-        <em>模块化设计允许轻松定制和扩展</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>跨平台</strong><br>
-        <em>单一API适用于所有主要Unity平台</em>
-      </td>
-    </tr>
-  </table>
-</div>
-
----
-
-<div align="center">
-  <h2>🚀 准备构建令人惊叹的语音交互应用？</h2>
-  
-  <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md">
-      <img src="https://img.shields.io/badge/📘_立即开始-blue.svg?style=for-the-badge" alt="立即开始">
-    </a>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/examples.md">
-      <img src="https://img.shields.io/badge/🚀_查看示例-green.svg?style=for-the-badge" alt="查看示例">
-    </a>
-    <a href="mailto:unease-equity-5c@icloud.com">
-      <img src="https://img.shields.io/badge/💎_联系获取APM-gold.svg?style=for-the-badge" alt="联系APM">
-    </a>
-  </p>
-  
-  <hr>
-  
-  <p>
-    <strong>Made with ❤️ by <a href="https://github.com/EitanWong">Eitan</a></strong><br>
-    <em>如果 Easy Mic 对您的项目有帮助，请给我们一个 ⭐！</em>
-  </p>
-  
-  <p>
-    <a href="https://github.com/EitanWong/com.eitan.easymic/stargazers">
-      <img src="https://img.shields.io/github/stars/EitanWong/com.eitan.easymic?style=social" alt="GitHub stars">
-    </a>
-    <a href="https://github.com/EitanWong/com.eitan.easymic/network/members">
-      <img src="https://img.shields.io/github/forks/EitanWong/com.eitan.easymic?style=social" alt="GitHub forks">
-    </a>
-  </p>
-</div>
+*赋能开发者在Unity中创造出色的音频体验*

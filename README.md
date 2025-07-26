@@ -1,482 +1,249 @@
-<div align="center">
-  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="120" height="120">
-  
-  # 🎙️ Easy Mic for Unity
-  
-  **Professional Real-time Audio Recording & Processing Plugin**
-  
-  [![Unity Version](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity3d.com/get-unity/download)
-  [![License](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE.md)
-  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey.svg)](#system-requirements)
-  
-  <p align="center">
-    <a href="README_zh-CN.md">🇨🇳 中文版</a> | 
-    <strong>🇺🇸 English</strong>
-  </p>
-  
-  <p align="center">
-    <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Processing</em>
-  </p>
-</div>
+## 中文开发者请注意 📝
+**如果您是中文开发者，强烈建议您阅读 [中文文档](README_zh-CN.md) 以获得更详细的说明和重要的开源协议信息。**
 
----
+<p align="right">
+  <a href="README_zh-CN.md">中文</a>
+</p>
 
-<div align="center">
-  <h2>🎯 What is Easy Mic?</h2>
-  
-  <p><strong>Easy Mic</strong> is a professional <strong>real-time audio recording and processing plugin</strong> designed specifically for Unity developers working on <strong>voice-interactive applications</strong>, <strong>AI digital humans</strong>, and <strong>real-time audio processing projects</strong>.</p>
-</div>
+# Easy Mic for Unity 🎤
 
-<table align="center">
-  <tr>
-    <td align="center" width="20%">
-      <br>
-      🤖<br>
-      <strong>AI Digital Humans</strong><br>
-      <em>Voice interaction systems</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🗣️<br>
-      <strong>Real-time Voice Chat</strong><br>
-      <em>Live conversation systems</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎙️<br>
-      <strong>Voice Commands</strong><br>
-      <em>Recognition systems</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      📞<br>
-      <strong>VoIP & Comms</strong><br>
-      <em>Communication apps</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎮<br>
-      <strong>Voice Gaming</strong><br>
-      <em>Voice-controlled games</em>
-      <br><br>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="Documentation~/images/easymic-logo.png" alt="Easy Mic Logo" width="200"/>
+</p>
 
-<div align="center">
-  <p><em>Easy Mic provides the <strong>low-latency, high-quality audio foundation</strong> your application needs.</em></p>
-</div>
+**Easy Mic** is a high-performance, low-latency audio recording plugin for Unity that revolutionizes audio capture and processing. It provides direct access to raw microphone data and introduces a powerful programmable audio processing pipeline, enabling developers to create sophisticated real-time audio workflows with ease.
 
----
+## ✨ Core Features
 
-## 🎬 See It In Action
+*   **🎤 Ultra Low-Latency Recording**: Captures microphone audio with minimal delay using optimized native backend libraries, perfect for real-time applications and interactive experiences.
+*   **🔊 Raw Audio Buffer Access**: Direct access to unprocessed audio data from the microphone, giving you complete control over audio manipulation and processing.
+*   **⛓️ Programmable Processing Pipeline**: The heart of Easy Mic - dynamically build, modify, and optimize chains of audio processors. Add, remove, or reorder processors in real-time without interrupting the audio stream.
+*   **💻 True Cross-Platform Support**: Unified API across Windows, macOS, Linux, Android, and iOS with platform-optimized native implementations.
+*   **🧩 Rich Built-in Processor Library**: Comprehensive collection of pre-built processors for common audio tasks, ready to use out of the box.
+*   **🔌 Extensible Architecture**: Designed for future expansion with custom processor support and third-party integrations.
 
-<div align="center">
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
-    <img src="https://img.shields.io/badge/🎥_Watch_Demo-Bilibili-ff69b4.svg?style=for-the-badge" alt="Watch Demo">
-  </a>
-  
-  <p><strong>Unity Digital Human Microphone Recording Plugin</strong><br>
-  <em>Solving Echo Cancellation for Conversational AI</em></p>
-  
-  <p>This video demonstrates how Easy Mic solves critical audio challenges in AI conversation systems, particularly the <strong>conversation interruption problem</strong> caused by echo and audio feedback.</p>
-</div>
+## 🚀 The Audio Processing Pipeline
 
----
+Easy Mic's revolutionary approach centers around its flexible, programmable audio pipeline. When recording is active, audio data flows through a customizable chain of processors you define:
 
-## ✨ Key Features
+```
+🎙️ Mic Input → [Processor A] → [Processor B] → [Processor C] → 🔊 Final Output
+```
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="50%">
-        <h3>🎤 Ultra-Low Latency Recording</h3>
-        <ul align="left">
-          <li>✅ Native backend for minimal audio delay</li>
-          <li>✅ Real-time processing for live systems</li>
-          <li>✅ Cross-platform support</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h3>⛓️ Programmable Audio Pipeline</h3>
-        <ul align="left">
-          <li>✅ Modular design with chainable processors</li>
-          <li>✅ Dynamic runtime configuration</li>
-          <li>✅ Built-in & custom processors</li>
-        </ul>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" width="50%">
-        <h3>🛡️ Type-Safe & Performance-First</h3>
-        <ul align="left">
-          <li>✅ Zero-GC audio processing</li>
-          <li>✅ Compile-time safety</li>
-          <li>✅ Thread-safe operations</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h3>🔧 Developer-Friendly</h3>
-        <ul align="left">
-          <li>✅ Simple API design</li>
-          <li>✅ Comprehensive documentation</li>
-          <li>✅ Active community support</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-</div>
+This modular architecture allows you to:
+- **Mix and match** processors to create custom audio workflows
+- **Real-time modification** of the processing chain during recording
+- **Performance optimization** by only using necessary processors
+- **Easy debugging** by isolating specific processing stages
 
----
+## 🛠️ Built-in Audio Processors
 
-## 💎 EasyMic APM Extension - Professional 3A Audio Processing
+Easy Mic ships with a comprehensive suite of audio processors:
 
-<div align="center">
-  <img src="https://img.shields.io/badge/🔊_Solve_AI_Conversation_Interruption-Professional_Solution-gold.svg?style=for-the-badge" alt="APM Solution">
-  
-  <p>For developers working on <strong>Unity AI digital human projects</strong>, we offer the <strong>EasyMic APM (Audio Processing Module)</strong> extension.</p>
-</div>
+### Core Processors
+*   **📼 `AudioCapturer`**: High-performance audio capture to memory buffers or direct file output with multiple format support.
+*   **🔄 `AudioDownmixer`**: Intelligent multi-channel to mono conversion with configurable mixing algorithms.
+*   **🔇 `VolumeGateFilter`**: Advanced noise gate with customizable threshold, attack, and release parameters.
+*   **🔁 `LoopbackPlayer`**: Real-time audio loopback for monitoring and testing applications.
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="33%">
-        🔇<br>
-        <strong>AEC</strong><br>
-        <em>Acoustic Echo Cancellation</em><br>
-        Eliminates echo and feedback
-      </td>
-      <td align="center" width="33%">
-        📢<br>
-        <strong>AGC</strong><br>
-        <em>Automatic Gain Control</em><br>
-        Maintains consistent audio levels
-      </td>
-      <td align="center" width="33%">
-        🎯<br>
-        <strong>ANS</strong><br>
-        <em>Acoustic Noise Suppression</em><br>
-        Reduces background noise
-      </td>
-    </tr>
-  </table>
-</div>
+### AI Integration
+*   **🗣️ `SherpaRealtimeSpeechRecognizer`**: Cutting-edge real-time speech-to-text using the Sherpa-ONNX engine. **Requires:** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
 
-<div align="center">
-  <p><strong>📧 Contact:</strong> <a href="mailto:unease-equity-5c@icloud.com">unease-equity-5c@icloud.com</a> | <strong>💬 Bilibili:</strong> Send private message</p>
-  
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
-    <img src="https://img.shields.io/badge/🎥_Demo_Video-Watch_on_Bilibili-ff69b4.svg" alt="Demo Video">
-  </a>
-</div>
+### Professional Audio Enhancement 💎
+For production-ready applications requiring studio-quality audio, consider the **EasyMic Audio Processing Module (APM)**:
 
----
+*   **🚫 AEC (Acoustic Echo Cancellation)**: Eliminates acoustic echoes for crystal-clear voice communication
+*   **🔇 ANS (Automatic Noise Suppression)**: Removes background noise while preserving speech quality  
+*   **📊 AGC (Automatic Gain Control)**: Maintains consistent audio levels automatically
 
-## 🚀 Quick Start
+**Perfect for AI Digital Humans & Virtual Anchors**: Solves the critical echo problem in Unity-based conversational AI applications where system output interferes with microphone input.
 
-<div align="left">
-  <h3>📦 Installation</h3>
-    <ol align="left">
-      <li>Open Unity Package Manager</li>
-      <li>Click <code>+</code> → <code>Add package from git URL...</code></li>
-      <li>Enter: <code>https://github.com/EitanWong/com.eitan.easymic.git#upm</code></li>
-      <li>Click <code>Add</code></li>
-    </ol>
-  <h3>📋 Import Sample Scene</h3>
-    <ol align="left">
-      <li>After importing Easy Mic, go to <strong>Package Manager</strong></li>
-      <li>Find <strong>EasyMic</strong> in "In Project" packages</li>
-      <li>Expand <strong>Samples</strong> section</li>
-      <li>Click <strong>Import</strong> next to "Recording Example"</li>
-      <li>Open the imported scene to see microphone recording demo</li>
-    </ol>
+📧 **Interested in APM?** Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+🛒 **Third-party store coming soon** for easy purchase and licensing.
+
+## 📦 Installation
+
+### Method 1: Unity Package Manager (Recommended)
+1. Open Unity Package Manager (`Window > Package Manager`)
+2. Click the `+` button → `Add package from git URL...`
+3. Enter: `https://github.com/EitanWong/com.eitan.easymic.git#upm`
+4. Click `Add`
+
+### Method 2: Manual Installation
+1. Download the latest release from [GitHub Releases](https://github.com/EitanWong/com.eitan.easymic/releases)
+2. Extract and place in your project's `Packages` folder
+3. Unity will automatically detect and import the package
+
+## ▶️ Quick Start Guide
+
+### Basic Recording Example
+```csharp
+using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Core.Processors;
+using UnityEngine;
+
+public class SimpleRecorder : MonoBehaviour
+{
+    private RecordingHandle _recordingHandle;
+    private AudioCapturer _audioCapturer;
+    private AudioClip _recordedClip;
+
+    void Start()
+    {
+        // Initialize and check for available devices
+        EasyMicAPI.Refresh();
+        var devices = EasyMicAPI.Devices;
+        
+        if (devices.Length == 0)
+        {
+            Debug.LogError("No microphone devices found.");
+            return;
+        }
+
+        // Start recording with optimal settings
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz48000,  // High quality sample rate
+            Channel.Mono        // Mono for efficiency
+        );
+
+        if (!_recordingHandle.IsValid)
+        {
+            Debug.LogError("Failed to start recording.");
+            return;
+        }
+
+        // Create and configure audio capturer
+        _audioCapturer = new AudioCapturer(); 
+        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
+
+        Debug.Log("🎙️ Recording started for 5 seconds...");
+        
+        // Auto-stop after 5 seconds
+        Invoke(nameof(StopRecording), 5f);
+    }
+
+    void StopRecording()
+    {
+        if (!_recordingHandle.IsValid) return;
+
+        // Stop recording and retrieve audio
+        EasyMicAPI.StopRecording(_recordingHandle);
+        _recordedClip = _audioCapturer.GetCapturedAudioClip();
+
+        if (_recordedClip != null)
+        {
+            Debug.Log($"✅ Recording complete! Duration: {_recordedClip.length:F2}s");
+            
+            // Optional: Play the recorded audio
+            var audioSource = GetComponent<AudioSource>();
+            if (audioSource != null)
+                audioSource.PlayOneShot(_recordedClip);
+        }
+        
+        _recordingHandle = default;
+    }
+
+    void OnDestroy()
+    {
+        // Cleanup resources
+        if (_recordingHandle.IsValid)
+            EasyMicAPI.StopRecording(_recordingHandle);
+    }
+}
+```
+
+### Advanced Pipeline Example
+```csharp
+using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Core.Processors;
+using UnityEngine;
+
+public class AdvancedAudioPipeline : MonoBehaviour
+{
+    private RecordingHandle _recordingHandle;
+    private VolumeGateFilter _noiseGate;
+    private AudioDownmixer _downmixer;
+    private AudioCapturer _capturer;
+
+    void Start()
+    {
+        EasyMicAPI.Refresh();
+        var devices = EasyMicAPI.Devices;
+        
+        // Start recording in stereo
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz44100, 
+            Channel.Stereo
+        );
+
+        if (!_recordingHandle.IsValid) return;
+
+        // Build processing pipeline
+        _noiseGate = new VolumeGateFilter { Threshold = 0.01f };
+        _downmixer = new AudioDownmixer();
+        _capturer = new AudioCapturer();
+
+        // Add processors in order
+        EasyMicAPI.AddProcessor(_recordingHandle, _noiseGate);   // 1. Remove noise
+        EasyMicAPI.AddProcessor(_recordingHandle, _downmixer);  // 2. Convert to mono
+        EasyMicAPI.AddProcessor(_recordingHandle, _capturer);   // 3. Capture result
+
+        Debug.Log("🔧 Advanced pipeline active with noise gate and downmixing");
+    }
     
-  <div align="center">
-    <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/how-to-import-samples.png" alt="How to Import Samples" width="600">
-    <p><em>Import the Recording Example sample scene via Package Manager</em></p>
-  </div>
-  
-  <h3>⚡ Basic Usage</h3>
-    <div align="left">
-      <pre><code>// Initialize
-EasyMicAPI.Refresh();
-var handle = EasyMicAPI.StartRecording();
-
-// Add processors
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(handle, capturer);
-
-// Get audio
-var clip = capturer.GetCapturedAudioClip();</code></pre>
-    </div>
-</div>
-
----
-
-## 📚 Documentation
-
-<div align="center">
-  <h3>📖 Complete Documentation Available</h3>
-  
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md">
-          📘<br><strong>Getting Started</strong><br>
-          <em>Installation & first steps</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/core-concepts.md">
-          🏗️<br><strong>Core Concepts</strong><br>
-          <em>Architecture overview</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/audio-pipeline.md">
-          ⛓️<br><strong>Audio Pipeline</strong><br>
-          <em>Processing system</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/processors.md">
-          🧩<br><strong>Processors</strong><br>
-          <em>Available components</em>
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/api-reference.md">
-          ⚡<br><strong>API Reference</strong><br>
-          <em>Complete documentation</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/best-practices.md">
-          💡<br><strong>Best Practices</strong><br>
-          <em>Optimization tips</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/troubleshooting.md">
-          🔧<br><strong>Troubleshooting</strong><br>
-          <em>Common solutions</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/examples.md">
-          🚀<br><strong>Examples</strong><br>
-          <em>Example code</em>
-        </a>
-      </td>
-    </tr>
-  </table>
-  
-  <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/">
-      <img src="https://img.shields.io/badge/🇨🇳_中文文档-Complete_Chinese_Documentation-red.svg" alt="Chinese Documentation">
-    </a>
-  </p>
-</div>
-
----
+    // ... rest of implementation
+}
+```
 
 ## 🎯 Use Cases
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        🤖<br>
-        <strong>AI Digital Humans</strong>
-        <ul align="left">
-          <li>Real-time voice interaction</li>
-          <li>Conversation AI with echo cancellation</li>
-          <li>Natural language processing</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        🎮<br>
-        <strong>Gaming Applications</strong>
-        <ul align="left">
-          <li>Voice chat in multiplayer</li>
-          <li>Voice commands for control</li>
-          <li>Real-time audio effects</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        📞<br>
-        <strong>Communication Apps</strong>
-        <ul align="left">
-          <li>VoIP applications</li>
-          <li>Video conferencing tools</li>
-          <li>Real-time audio streaming</li>
-        </ul>
-      </td>
-      <td align="center" width="25%">
-        🎙️<br>
-        <strong>Content Creation</strong>
-        <ul align="left">
-          <li>Podcast recording tools</li>
-          <li>Voice-over applications</li>
-          <li>Audio content workflows</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-</div>
+### 🤖 AI & Virtual Characters
+- **Digital Human Conversations**: Crystal-clear voice interaction without echo interference
+- **Voice-Controlled NPCs**: Real-time speech recognition for game characters
+- **Virtual Streamers**: Professional-quality voice capture for virtual influencers
 
----
+### 🎮 Gaming Applications  
+- **Voice Chat Systems**: Low-latency communication for multiplayer games
+- **Voice Commands**: Responsive voice control for game mechanics
+- **Audio Recording**: In-game voice message and replay systems
 
-## 📋 System Requirements
+### 📱 Interactive Applications
+- **Voice Assistants**: Building custom voice AI applications
+- **Language Learning**: Pronunciation practice and feedback systems
+- **Audio Production**: Real-time audio processing and effects
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="25%">
-        <strong>Unity</strong><br>
-        2021.3 LTS or higher
-      </td>
-      <td align="center" width="25%">
-        <strong>Platforms</strong><br>
-        Windows, macOS, Linux<br>
-        Android, iOS
-      </td>
-      <td align="center" width="25%">
-        <strong>Dependencies</strong><br>
-        .NET Standard 2.1+
-      </td>
-      <td align="center" width="25%">
-        <strong>Permissions</strong><br>
-        Microphone access required
-      </td>
-    </tr>
-  </table>
-</div>
+## 🔧 System Requirements
 
----
+- **Unity**: 2021.3 LTS or later
+- **Platforms**: Windows, macOS, Linux, Android, iOS
+- **Microphone**: Any system-recognized audio input device
+- **Memory**: Minimal overhead, efficient native implementation
+
+## 📚 Documentation & Support
+
+- 📖 **[Full Documentation](Documentation~/README.md)**: Comprehensive guides and API reference
+- 💻 **[Sample Projects](Samples~/)**: Ready-to-run examples and tutorials  
+- 🐛 **[Issue Tracker](https://github.com/EitanWong/com.eitan.easymic/issues)**: Bug reports and feature requests
+- 💬 **[Discussions](https://github.com/EitanWong/com.eitan.easymic/discussions)**: Community support and tips
+
+## 🤝 Contributing
+
+We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## 📄 License
 
-<div align="center">
-  <p>This project is licensed under the <strong>GPLv3 License</strong> - see the <a href="LICENSE.md">LICENSE.md</a> file for details.</p>
-  
-  <table>
-    <tr>
-      <td align="center" width="50%">
-        <h4>✅ Open Source Friendly</h4>
-        <ul align="left">
-          <li>Free to use in open source projects</li>
-          <li>Commercial use allowed with GPL compliance</li>
-        </ul>
-      </td>
-      <td align="center" width="50%">
-        <h4>⚠️ Commercial Projects</h4>
-        <ul align="left">
-          <li>Source code disclosure required</li>
-          <li>GPL compliance mandatory for distribution</li>
-        </ul>
-      </td>
-    </tr>
-  </table>
-  
-</div>
+This project is licensed under the **GPLv3 License**. See [LICENSE.md](LICENSE.md) for details.
+
+### Key License Points:
+- ✅ **Free to use** for personal and commercial projects
+- ✅ **Modify and distribute** under the same license terms  
+- ✅ **Include in open-source** projects without restrictions
+- ⚠️ **Copyleft requirement**: Derivative works must also be open-source under GPLv3
 
 ---
 
-## 🤝 Community & Support
+**Made with ❤️ by [Eitan](https://github.com/EitanWong)**
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="33%">
-        🐛<br>
-        <strong>Issues & Bug Reports</strong><br>
-        <a href="https://github.com/EitanWong/com.eitan.easymic/issues">GitHub Issues</a><br>
-        <em>Check <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/troubleshooting.md">Troubleshooting</a> first</em>
-      </td>
-      <td align="center" width="33%">
-        💬<br>
-        <strong>Community Discussion</strong><br>
-        <a href="https://github.com/EitanWong/com.eitan.easymic/discussions">GitHub Discussions</a><br>
-        <em>Share projects & get help</em>
-      </td>
-      <td align="center" width="33%">
-        📧<br>
-        <strong>Professional Support</strong><br>
-        <a href="mailto:unease-equity-5c@icloud.com">Email</a> | Bilibili PM<br>
-        <em>Provide technical support</em>
-      </td>
-    </tr>
-  </table>
-</div>
-
----
-
-## 🌟 Why Choose Easy Mic?
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Developer-Focused</strong><br>
-        <em>Extensive documentation, examples, and community support</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Performance-Optimized</strong><br>
-        <em>Zero-GC audio processing for maximum performance</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Flexible Architecture</strong><br>
-        <em>Modular design allows easy customization and extension</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Cross-Platform</strong><br>
-        <em>Single API works across all major Unity platforms</em>
-      </td>
-    </tr>
-  </table>
-</div>
-
----
-
-<div align="center">
-  <h2>🚀 Ready to Build Amazing Voice-Interactive Applications?</h2>
-  
-  <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md">
-      <img src="https://img.shields.io/badge/📘_Get_Started_Now-blue.svg?style=for-the-badge" alt="Get Started">
-    </a>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/examples.md">
-      <img src="https://img.shields.io/badge/🚀_View_Examples-green.svg?style=for-the-badge" alt="View Examples">
-    </a>
-    <a href="mailto:unease-equity-5c@icloud.com">
-      <img src="https://img.shields.io/badge/💎_Contact_for_APM-gold.svg?style=for-the-badge" alt="Contact APM">
-    </a>
-  </p>
-  
-  <hr>
-  
-  <p>
-    <strong>Made with ❤️ by <a href="https://github.com/EitanWong">Eitan</a></strong><br>
-    <em>Star ⭐ this repo if Easy Mic helps your project!</em>
-  </p>
-  
-  <p>
-    <a href="https://github.com/EitanWong/com.eitan.easymic/stargazers">
-      <img src="https://img.shields.io/github/stars/EitanWong/com.eitan.easymic?style=social" alt="GitHub stars">
-    </a>
-    <a href="https://github.com/EitanWong/com.eitan.easymic/network/members">
-      <img src="https://img.shields.io/github/forks/EitanWong/com.eitan.easymic?style=social" alt="GitHub forks">
-    </a>
-  </p>
-</div>
+*Empowering developers to create amazing audio experiences in Unity*
