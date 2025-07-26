@@ -86,3 +86,9 @@ StreamingAssets.meta
 # ====================== #
 # Project Specific Links #
 # ====================== #
+
+# ================== #
+# Custom Exclusions  #
+# ================== #
+EasyMic/Packages/com.eitan.easymic.apm/
+EasyMic/Assets/Demo/Samples/AudioProcessing/
