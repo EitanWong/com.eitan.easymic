@@ -42,7 +42,11 @@ namespace Eitan.EasyMic.Runtime
             _context = Native.AllocateContext();
             var result = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, _context);
             if (result != Native.Result.Success)
+            {
+
                 throw new InvalidOperationException($"Unable to init context. {result}");
+            }
+
 
             Refresh();
         }
@@ -60,9 +64,13 @@ namespace Eitan.EasyMic.Runtime
 
         private void Dispose(bool disposing)
         {
-            if (_disposed) return;
+            if (_disposed)
+            {
+                return;
+            }
 
             // Stop all recordings
+
             StopAllRecordings();
 
             // Free unmanaged resources
@@ -81,7 +89,10 @@ namespace Eitan.EasyMic.Runtime
             }
 
             if (_gcHandle.IsAllocated)
+            {
                 _gcHandle.Free();
+            }
+
 
             _disposed = true;
         }
@@ -107,13 +118,20 @@ namespace Eitan.EasyMic.Runtime
 
         public void StopRecording(RecordingHandle handle)
         {
-            if (!handle.IsValid) return;
+            if (!handle.IsValid)
+            {
+                return;
+            }
+
 
             RecordingSession session;
             lock (_operateLock)
             {
                 if (!_activeRecordings.TryGetValue(handle.Id, out session))
+                {
                     return;
+                }
+
 
                 _activeRecordings.Remove(handle.Id);
             }
@@ -139,7 +157,11 @@ namespace Eitan.EasyMic.Runtime
 
         public void AddProcessor(RecordingHandle handle, IAudioWorker processor)
         {
-            if (!handle.IsValid) return;
+            if (!handle.IsValid)
+            {
+                return;
+            }
+
 
             lock (_operateLock)
             {
@@ -152,7 +174,11 @@ namespace Eitan.EasyMic.Runtime
 
         public void RemoveProcessor(RecordingHandle handle, IAudioWorker processor)
         {
-            if (!handle.IsValid) return;
+            if (!handle.IsValid)
+            {
+                return;
+            }
+
 
             lock (_operateLock)
             {
@@ -166,7 +192,11 @@ namespace Eitan.EasyMic.Runtime
         public RecordingInfo GetRecordingInfo(RecordingHandle handle)
         {
             if (!handle.IsValid)
+            {
+
                 return new RecordingInfo();
+            }
+
 
             lock (_operateLock)
             {
@@ -199,24 +229,37 @@ namespace Eitan.EasyMic.Runtime
                 out var playbackDeviceCount, out var captureDeviceCount);
 
             if (result != Native.Result.Success)
+            {
+
                 throw new InvalidOperationException("Unable to get devices.");
+            }
+
 
             var deviceCount = (int)captureDeviceCount;
 
             try
             {
                 if (pCaptureDevices == IntPtr.Zero || captureDeviceCount == IntPtr.Zero)
+                {
+
                     return Array.Empty<MicDevice>();
+                }
+
 
                 return pCaptureDevices.ReadArray<MicDevice>(deviceCount);
             }
             finally
             {
                 if (pPlaybackDevices != IntPtr.Zero)
+                {
                     Native.Free(pPlaybackDevices);
+                }
 
                 if (pCaptureDevices != IntPtr.Zero)
+                {
                     Native.Free(pCaptureDevices);
+                }
+
             }
         }
 
@@ -224,7 +267,11 @@ namespace Eitan.EasyMic.Runtime
         private void ThrowIfDisposed()
         {
             if (_disposed)
+            {
+
                 throw new ObjectDisposedException(nameof(MicSystem));
+            }
+
         }
 
         #endregion
@@ -374,7 +421,11 @@ namespace Eitan.EasyMic.Runtime
             // Instance method to handle the callback
             private void HandleAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
-                if (_disposed) return;
+                if (_disposed)
+                {
+                    return;
+                }
+
 
                 var sampleCount = (int)(length * _channelCount);
                 try
@@ -394,7 +445,12 @@ namespace Eitan.EasyMic.Runtime
 
             public void Dispose()
             {
-                if (_disposed) return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+
                 _disposed = true; // Set disposed flag immediately to stop any in-flight callbacks.
 
                 // Remove from session lookup
@@ -439,7 +495,10 @@ namespace Eitan.EasyMic.Runtime
 
                 // Finally, free the GC Handle
                 if (_gcHandle.IsAllocated)
+                {
                     _gcHandle.Free();
+                }
+
             }
 
             private unsafe Span<T> GetSpan<T>(IntPtr ptr, int length) where T : unmanaged
@@ -457,7 +516,11 @@ namespace Eitan.EasyMic.Runtime
         public static T[] ReadArray<T>(this IntPtr ptr, int count) where T : struct
         {
             if (ptr == IntPtr.Zero || count <= 0)
+            {
+
                 return Array.Empty<T>();
+            }
+
 
             var result = new T[count];
             var elementSize = Marshal.SizeOf<T>();

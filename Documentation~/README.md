@@ -1,49 +1,53 @@
-# com.eitan.easymic
+# Easy Mic Documentation
 
-[![Discord](https://img.shields.io/discord/855294214065487932.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/xQgMW9ufN4) [![openupm](https://img.shields.io/npm/v/com.eitan.easymic?label=openupm&registry_uri=https://package.openupm.com)](https://openupm.com/packages/com.eitan.easymic/) [![openupm](https://img.shields.io/badge/dynamic/json?color=brightgreen&label=downloads&query=%24.downloads&suffix=%2Fmonth&url=https%3A%2F%2Fpackage.openupm.com%2Fdownloads%2Fpoint%2Flast-month%2Fcom.eitan.easymic)](https://openupm.com/packages/com.eitan.easymic/)
+Welcome to the comprehensive documentation for Easy Mic - a high-performance, low-latency audio recording and processing plugin for Unity.
 
-A EitanWong.EasyMic package for the [Unity](https://unity.com/) Game Engine.
+## 📚 Documentation Structure
 
-## Installing
+### English Documentation
+- **[Getting Started](en/getting-started.md)** - Quick setup and first steps
+- **[Core Concepts](en/core-concepts.md)** - Understanding EasyMic's architecture  
+- **[Audio Pipeline](en/audio-pipeline.md)** - Deep dive into the processing pipeline
+- **[API Reference](en/api-reference.md)** - Complete API documentation
+- **[Built-in Processors](en/processors.md)** - Guide to all included processors
+- **[Best Practices](en/best-practices.md)** - Tips for optimal performance
+- **[Troubleshooting](en/troubleshooting.md)** - Common issues and solutions
+- **[Examples](en/examples.md)** - Code samples and use cases
 
-Requires Unity 2021.3 LTS or higher.
+### 中文文档
+- **[快速入门](zh-CN/getting-started.md)** - 快速设置和第一步
+- **[核心概念](zh-CN/core-concepts.md)** - 理解 EasyMic 的架构
+- **[音频流水线](zh-CN/audio-pipeline.md)** - 深入了解处理流水线
+- **[API 参考](zh-CN/api-reference.md)** - 完整的 API 文档
+- **[内置处理器](zh-CN/processors.md)** - 所有包含处理器的指南
+- **[最佳实践](zh-CN/best-practices.md)** - 优化性能的技巧
+- **[故障排除](zh-CN/troubleshooting.md)** - 常见问题和解决方案
+- **[示例](zh-CN/examples.md)** - 代码示例和用例
 
-The recommended installation method is though the unity package manager and [OpenUPM](https://openupm.com/packages/com.eitan.easymic).
+## 🔗 Quick Links
 
-### Via Unity Package Manager and OpenUPM
+- **English**: [🚀 Getting Started](en/getting-started.md) | [🏗️ Core Concepts](en/core-concepts.md) | [⚡ API Reference](en/api-reference.md)
+- **中文**: [🚀 快速入门](zh-CN/getting-started.md) | [🏗️ 核心概念](zh-CN/core-concepts.md) | [⚡ API 参考](zh-CN/api-reference.md)
 
-#### Terminal
+## 📦 Installation
 
+### Requirements
+- Unity 2021.3 LTS or higher
+- Supported platforms: Windows, macOS, Linux, Android, iOS
+
+### Via Unity Package Manager
+1. Open Unity Package Manager (`Window > Package Manager`)
+2. Click the `+` button → `Add package from git URL...`
+3. Enter: `https://github.com/EitanWong/com.eitan.easymic.git#upm`
+4. Click `Add`
+
+### Via OpenUPM (Recommended)
 ```terminal
 openupm add com.eitan.easymic
 ```
 
-#### Manual
+For detailed installation instructions, see [Getting Started](en/getting-started.md).
 
-- Open your Unity project settings
-- Select the `Package Manager`
-![scoped-registries](images/package-manager-scopes.png)
-- Add the OpenUPM package registry:
-  - Name: `OpenUPM`
-  - URL: `https://package.openupm.com`
-  - Scope(s):
-    - `com.eitan.easymic`
-- Open the Unity Package Manager window
-- Change the Registry from Unity to `My Registries`
-- Add the `EitanWong.EasyMic` package
+---
 
-### Via Unity Package Manager and Git url
-
-> [!WARNING]
-> This repo has dependencies on other repositories! You are responsible for adding these on your own.
-
-- Open your Unity Package Manager
-- Add package from git url: `https://github.com/EitanWongWong/com.eitan.easymic.git#upm`
-
-## Documentation
-
-### Project Setup
-
-```csharp
-// TODO
-```
+**Made with ❤️ by [Eitan](https://github.com/EitanWong)**

@@ -33,7 +33,7 @@ using System.Collections.Generic;
 
 public static class AudioExtension {
 
-	const int HEADER_SIZE = 44;
+    private const int HEADER_SIZE = 44;
 
 	public static bool Save(this AudioClip clip, string filename = null) {
 		//if filename is null, use current time as filename
@@ -114,7 +114,7 @@ public static class AudioExtension {
 		return clip;
 	}
 
-	static FileStream CreateEmpty(string filepath) {
+    private static FileStream CreateEmpty(string filepath) {
 		var fileStream = new FileStream(filepath, FileMode.Create);
 	    byte emptyByte = new byte();
 
@@ -126,7 +126,7 @@ public static class AudioExtension {
 		return fileStream;
 	}
 
-	static void ConvertAndWrite(FileStream fileStream, AudioClip clip) {
+    private static void ConvertAndWrite(FileStream fileStream, AudioClip clip) {
 		// FIXED: Properly handle multi-channel audio data
 		
 		// Total samples = samples per channel * number of channels
@@ -159,7 +159,7 @@ public static class AudioExtension {
 		Debug.Log($"[WavUtils] Wrote {bytesData.Length} bytes of audio data");
 	}
 
-	static void WriteHeader(FileStream fileStream, AudioClip clip) {
+    private static void WriteHeader(FileStream fileStream, AudioClip clip) {
 		var hz = clip.frequency;
 		var channels = clip.channels;
 		var samplesPerChannel = clip.samples; // This is samples per channel, not total samples

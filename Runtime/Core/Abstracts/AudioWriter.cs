@@ -14,7 +14,7 @@ namespace Eitan.EasyMic.Runtime {
         /// </summary>
         public sealed override void OnAudioPass(Span<float> audiobuffer, AudioState state)
         {
-            if (!IsInitialized) return;
+            if (!IsInitialized) { return; }
             OnAudioWrite(audiobuffer, state);
         }
 

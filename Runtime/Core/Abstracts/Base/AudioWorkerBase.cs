@@ -18,7 +18,7 @@ namespace Eitan.EasyMic.Runtime
 
         public virtual void Dispose()
         {
-            if (IsDisposed) return;
+            if (IsDisposed) { return; }
                 IsDisposed = true;
             IsInitialized = false;
         }
