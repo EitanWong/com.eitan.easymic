@@ -20,8 +20,11 @@ namespace Eitan.EasyMic.Runtime{
         public override void OnAudioWrite(Span<float> audiobuffer, AudioState state)
         {
             if (!IsInitialized || state.ChannelCount <= 1)
+            {
                 return;
+            }
             // Perform real-time downmix directly on the buffer
+
             PerformRealTimeDownmix(audiobuffer, state.ChannelCount);
             state.ChannelCount = 1;
             state.Length = audiobuffer.Length / _originalChannelCount;

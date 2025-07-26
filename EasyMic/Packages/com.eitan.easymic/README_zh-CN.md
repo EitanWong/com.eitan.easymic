@@ -1,54 +1,79 @@
-
 <p align="right">
   <a href="README.md">English</a>
 </p>
 
-# Easy Mic for Unity
+# Easy Mic for Unity 🎤
 
 <p align="center">
   <img src="Documentation~/images/easymic-logo.png" alt="Easy Mic Logo" width="200"/>
 </p>
 
-**Easy Mic** 是一款用于 Unity 的高性能、低延迟音频录制插件。它提供对原始麦克风数据的直接访问，并引入了可编程的音频处理流水线，让开发者可以串联使用内置的模块来创建复杂的实时音频工作流。
+**Easy Mic** 是一款革命性的Unity高性能、低延迟音频录制插件，彻底改变了音频捕获和处理方式。它提供对原始麦克风数据的直接访问，并引入了强大的可编程音频处理流水线，让开发者能够轻松创建复杂的实时音频工作流。
 
 ## ✨ 核心功能
 
-*   **🎤 低延迟音频录制**: 通过利用原生后端库，以最小的延迟捕获麦克风音频，非常适合实时应用。
-*   **🔊 原始音频数据**: 直接访问来自麦克风的原始音频缓冲区，完全控制声音数据。
-*   **⛓️ 可编程处理流水线**: Easy Mic 的核心功能。动态构建音频处理链。您可以随时添加、删除或重新排序处理器。
-*   **💻 跨平台支持**: 为包括 Windows、macOS、Linux、Android 和 iOS 在内的主要平台提供统一的 API。
-*   **🧩 内置处理器**: 自带一套预置的处理器，用于常见的音频任务。
+*   **🎤 超低延迟录制**: 使用优化的原生后端库以最小延迟捕获麦克风音频，完美适用于实时应用和交互体验。
+*   **🔊 原始音频缓冲区访问**: 直接访问来自麦克风的未处理音频数据，为您提供音频操作和处理的完全控制权。
+*   **⛓️ 可编程处理流水线**: Easy Mic的核心特性 - 动态构建、修改和优化音频处理器链。可在不中断音频流的情况下实时添加、删除或重新排序处理器。
+*   **💻 真正的跨平台支持**: 在Windows、macOS、Linux、Android和iOS上提供统一API，具有平台优化的原生实现。
+*   **🧩 丰富的内置处理器库**: 为常见音频任务提供全面的预构建处理器集合，开箱即用。
+*   **🔌 可扩展架构**: 专为未来扩展而设计，支持自定义处理器和第三方集成。
 
 ## 🚀 音频处理流水线
 
-Easy Mic 的强大之处在于其可编程的流水线。当麦克风激活时，它会将音频数据流经您定义的一系列“处理器”。每个处理器接收音频数据，执行操作，然后将修改后的数据传递给链中的下一个处理器。
+Easy Mic的革命性方法围绕其灵活、可编程的音频流水线展开。录制激活时，音频数据流经您定义的可自定义处理器链：
 
-`麦克风输入 -> [处理器 A] -> [处理器 B] -> [处理器 C] -> 最终输出`
+```
+🎙️ 麦克风输入 → [处理器 A] → [处理器 B] → [处理器 C] → 🔊 最终输出
+```
 
-这使您可以轻松地组合提供的模块以满足您的需求。
+这种模块化架构让您能够：
+- **混合搭配** 处理器以创建自定义音频工作流
+- **实时修改** 录制期间的处理链
+- **性能优化** 通过仅使用必要的处理器
+- **轻松调试** 通过隔离特定的处理阶段
 
-## 🛠️ 内置处理器
+## 🛠️ 内置音频处理器
 
-Easy Mic 目前包含以下开箱即用的模块：
+Easy Mic 配备了全面的音频处理器套件：
 
-*   **`AudioCapturer`**: 将输入的音频数据捕获到缓冲区或保存到文件。
-*   **`AudioDownmixer`**: 将多通道音频（例如立体声）转换为单通道音频（单声道）。
-*   **`VolumeGateFilter`**: 一个噪声门，只有当音量高于特定阈值时才允许音频通过。
-*   **`SherpaRealtimeSpeechRecognizer`**: 使用 Sherpa-ONNX 引擎提供实时的语音转文本功能。**注意：** 此处理器需要先安装 [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) 插件。
+### 核心处理器
+*   **📼 `AudioCapturer`**: 高性能音频捕获到内存缓冲区或直接文件输出，支持多种格式。
+*   **🔄 `AudioDownmixer`**: 智能多通道到单声道转换，具有可配置的混音算法。
+*   **🔇 `VolumeGateFilter`**: 高级噪声门，具有可自定义的阈值、攻击和释放参数。
+*   **🔁 `LoopbackPlayer`**: 用于监控和测试应用的实时音频回环。
 
-*（注意：创建自定义处理器的功能计划在未来版本中开放。）*
+### AI 集成
+*   **🗣️ `SherpaRealtimeSpeechRecognizer`**: 使用Sherpa-ONNX引擎的尖端实时语音转文本。**需要：** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
+
+### 专业音频增强 💎
+对于需要录音棚品质音频的生产就绪应用，请考虑 **EasyMic 音频处理模块 (APM)**：
+
+*   **🚫 AEC (声学回声消除)**: 消除声学回声，实现水晶般清晰的语音通信
+*   **🔇 ANS (自动噪声抑制)**: 在保持语音质量的同时去除背景噪声
+*   **📊 AGC (自动增益控制)**: 自动维护一致的音频电平
+
+**非常适合AI数字人和虚拟主播**: 解决了基于Unity的对话AI应用中系统输出干扰麦克风输入的关键回声问题。
+
+📧 **对APM感兴趣？** 联系：[unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+🛒 **第三方商店即将推出** 便于购买和许可。
 
 ## 📦 安装
 
-1.  打开 Unity 包管理器 (`Window > Package Manager`)。
-2.  点击左上角的 `+` 按钮，选择 "Add package from git URL..."。
-3.  输入仓库 URL: `https://github.com/EitanWong/com.eitan.easymic.git`
-4.  点击 "Add"。
+### 方法1：Unity包管理器（推荐）
+1. 打开Unity包管理器 (`Window > Package Manager`)
+2. 点击 `+` 按钮 → `Add package from git URL...`
+3. 输入：`https://github.com/EitanWong/com.eitan.easymic.git#upm`
+4. 点击 `Add`
 
-## ▶️ 快速入门
+### 方法2：手动安装
+1. 从 [GitHub发布页面](https://github.com/EitanWong/com.eitan.easymic/releases) 下载最新版本
+2. 解压并放置在项目的 `Packages` 文件夹中
+3. Unity将自动检测并导入包
 
-这是一个如何录制一个5秒音频片段的基本示例。
+## ▶️ 快速入门指南
 
+### 基础录制示例
 ```csharp
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Core.Processors;
@@ -62,17 +87,22 @@ public class SimpleRecorder : MonoBehaviour
 
     void Start()
     {
-        // 刷新设备列表以确保其为最新
+        // 初始化并检查可用设备
         EasyMicAPI.Refresh();
         var devices = EasyMicAPI.Devices;
+        
         if (devices.Length == 0)
         {
             Debug.LogError("未找到麦克风设备。");
             return;
         }
 
-        // 1. 使用默认设备开始录制并获取一个句柄
-        _recordingHandle = EasyMicAPI.StartRecording(devices[0].Name);
+        // 使用最佳设置开始录制
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz48000,  // 高质量采样率
+            Channel.Mono        // 单声道以提高效率
+        );
 
         if (!_recordingHandle.IsValid)
         {
@@ -80,13 +110,13 @@ public class SimpleRecorder : MonoBehaviour
             return;
         }
 
-        // 2. 创建一个 AudioCapturer 处理器来捕获音频数据
+        // 创建并配置音频捕获器
         _audioCapturer = new AudioCapturer(); 
         EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
 
-        Debug.Log("开始录制5秒钟...");
-
-        // 在此示例中，5秒后停止录制
+        Debug.Log("🎙️ 开始录制5秒钟...");
+        
+        // 5秒后自动停止
         Invoke(nameof(StopRecording), 5f);
     }
 
@@ -94,47 +124,190 @@ public class SimpleRecorder : MonoBehaviour
     {
         if (!_recordingHandle.IsValid) return;
 
-        // 3. 通过句柄停止录制
+        // 停止录制并检索音频
         EasyMicAPI.StopRecording(_recordingHandle);
-
-        // 4. 从处理器中获取捕获到的音频片段
         _recordedClip = _audioCapturer.GetCapturedAudioClip();
 
         if (_recordedClip != null)
         {
-            Debug.Log($"录制完成。创建的 AudioClip 长度为: {_recordedClip.length}s");
-            // 现在你可以用一个 AudioSource 来播放这个片段了
-            // GetComponent<AudioSource>().PlayOneShot(_recordedClip);
+            Debug.Log($"✅ 录制完成！持续时间：{_recordedClip.length:F2}秒");
+            
+            // 可选：播放录制的音频
+            var audioSource = GetComponent<AudioSource>();
+            if (audioSource != null)
+                audioSource.PlayOneShot(_recordedClip);
         }
         
-        // 使句柄无效
         _recordingHandle = default;
     }
 
     void OnDestroy()
     {
-        // 确保在对象销毁时停止录制
+        // 清理资源
         if (_recordingHandle.IsValid)
-        {
             EasyMicAPI.StopRecording(_recordingHandle);
-        }
     }
 }
 ```
 
+### 高级流水线示例
+```csharp
+using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Core.Processors;
+using UnityEngine;
+
+public class AdvancedAudioPipeline : MonoBehaviour
+{
+    private RecordingHandle _recordingHandle;
+    private VolumeGateFilter _noiseGate;
+    private AudioDownmixer _downmixer;
+    private AudioCapturer _capturer;
+
+    void Start()
+    {
+        EasyMicAPI.Refresh();
+        var devices = EasyMicAPI.Devices;
+        
+        // 开始立体声录制
+        _recordingHandle = EasyMicAPI.StartRecording(
+            devices[0].Name, 
+            SampleRate.Hz44100, 
+            Channel.Stereo
+        );
+
+        if (!_recordingHandle.IsValid) return;
+
+        // 构建处理流水线
+        _noiseGate = new VolumeGateFilter { Threshold = 0.01f };
+        _downmixer = new AudioDownmixer();
+        _capturer = new AudioCapturer();
+
+        // 按顺序添加处理器
+        EasyMicAPI.AddProcessor(_recordingHandle, _noiseGate);   // 1. 去噪
+        EasyMicAPI.AddProcessor(_recordingHandle, _downmixer);  // 2. 转换为单声道
+        EasyMicAPI.AddProcessor(_recordingHandle, _capturer);   // 3. 捕获结果
+
+        Debug.Log("🔧 高级流水线已激活，包含噪声门和降混");
+    }
+    
+    // ... 其余实现
+}
+```
+
+## 🎯 使用场景
+
+### 🤖 AI与虚拟角色
+- **数字人对话**: 无回声干扰的清晰语音交互
+- **语音控制NPC**: 游戏角色的实时语音识别
+- **虚拟主播**: 虚拟网红的专业品质语音捕获
+
+### 🎮 游戏应用
+- **语音聊天系统**: 多人游戏的低延迟通信
+- **语音命令**: 游戏机制的响应式语音控制
+- **音频录制**: 游戏内语音消息和回放系统
+
+### 📱 交互应用
+- **语音助手**: 构建自定义语音AI应用
+- **语言学习**: 发音练习和反馈系统
+- **音频制作**: 实时音频处理和效果
+
+## 🔧 系统要求
+
+- **Unity**: 2021.3 LTS 或更高版本
+- **平台**: Windows, macOS, Linux, Android, iOS
+- **麦克风**: 任何系统识别的音频输入设备
+- **内存**: 最小开销，高效的原生实现
+
+## 📚 文档与支持
+
+- 📖 **[完整文档](Documentation~/README.md)**: 全面的指南和API参考
+- 💻 **[示例项目](Samples~/)**: 即用的示例和教程
+- 🐛 **[问题跟踪](https://github.com/EitanWong/com.eitan.easymic/issues)**: 错误报告和功能请求
+- 💬 **[讨论区](https://github.com/EitanWong/com.eitan.easymic/discussions)**: 社区支持和技巧
+
+## 🤝 贡献
+
+欢迎贡献！请阅读我们的 [贡献指南](CONTRIBUTING.md) 和 [行为准则](CODE_OF_CONDUCT.md)。
+
 ## 📄 许可证
 
-该项目采用 [GPLv3 许可证](LICENSE.md) 授权。
+本项目采用 **GPLv3 许可证** 授权。详情请参见 [LICENSE.md](LICENSE.md)。
 
-### 为什么遵守开源协议如此重要？
+### 重要许可证要点：
+- ✅ **免费使用** 用于个人和商业项目
+- ✅ **修改和分发** 在相同许可证条款下
+- ✅ **包含在开源项目中** 无限制
+- ⚠️ **Copyleft要求**: 衍生作品也必须在GPLv3下开源
 
-在开源的世界里，代码的自由共享和修改是建立在相互尊重和信任的基础之上的。GPLv3 协议就是这种信任的法律保障。它赋予了你使用、修改和分享本软件的自由，但同时也设定了一些基本规则，以确保这种自由能够传递给每一个使用者。
+## 🚨 为什么严格遵守开源协议至关重要？
 
-**简单来说，GPLv3 的核心要求是：**
+### 开源协议不是建议，而是法律义务
 
-1.  **代码共享**：如果你修改了本项目的代码，并将其用于公开发布的产品或软件中，你也必须将你的修改同样以 GPLv3 协议开源。这保证了社区的贡献能够回馈给整个社区。
-2.  **责任与义务**：这不仅仅是“免费使用”。当你选择使用本软件时，你就选择了接受 GPLv3 协议的条款。这是一种责任，也是对原作者和其他贡献者辛勤工作的尊重。
+在当今的软件开发世界中，开源软件已成为创新的基石。然而，**许多开发者和企业对开源协议的理解存在严重误区**，错误地认为"开源"等同于"免费随意使用"。这种认知不仅是错误的，更可能导致严重的法律后果。
 
-我之所以在此特别强调，是因为许多开发者可能无意中忽略了开源协议的重要性。不遵守协议不仅可能引发法律风险，更重要的是，它会损害整个开源社区的健康发展。一个健康的社区需要每一位参与者的共同维护。
+### GPLv3协议的核心要求
 
-**请务必认真阅读并遵守 GPLv3 协议。这不仅是对我工作的尊重，也是维护一个健康、繁荣的开源生态环境的重要一环。感谢你的理解与合作！**
+**GPLv3不是普通的MIT或Apache许可证**。它是一个强Copyleft协议，核心要求包括：
+
+1. **🔒 代码共享义务**: 如果您修改了本项目代码并在任何形式的软件产品中使用（包括但不限于商业软件、SaaS服务、移动应用等），您**必须**将修改后的完整代码以GPLv3协议开源。
+
+2. **📋 协议传递性**: 任何包含或链接GPLv3代码的软件，其整体也必须采用GPLv3协议。这意味着您的整个项目可能都需要开源。
+
+3. **⚖️ 法律约束力**: 这些不是"建议"或"最佳实践"，而是具有法律约束力的要求。违反可能面临版权侵权诉讼。
+
+### 真实案例与警示
+
+近年来，已有多家公司因违反GPL协议而面临法律诉讼，包括：
+- **重大法律案件**: 多家知名公司因未遵守GPL要求而被诉讼，最终支付巨额赔偿
+- **业务影响**: 被迫开源核心代码，或停止使用相关软件
+- **声誉损失**: 在开发者社区中的信誉受损
+
+### 如何正确使用GPLv3软件
+
+#### ✅ 合规使用方式：
+1. **开源项目**: 在其他GPLv3或兼容协议的开源项目中使用
+2. **内部使用**: 仅在组织内部使用，不对外分发
+3. **遵循义务**: 如需分发，完整遵守所有GPLv3要求
+
+#### ❌ 违规使用方式：
+1. **商业软件闭源**: 在闭源商业软件中包含GPLv3代码
+2. **部分开源**: 只开源修改部分，隐藏其他相关代码  
+3. **协议变更**: 试图将GPLv3代码改为其他许可证
+
+### 对于中国开发者的特别提醒
+
+在中国的软件开发环境中，对开源协议的重视程度仍有待提高。但请注意：
+
+1. **📈 法律环境变化**: 中国的知识产权保护日益严格，开源协议违规的法律风险正在增加
+2. **🌍 国际业务**: 如果您的软件面向国际市场，必须遵守国际开源协议标准
+3. **🏢 企业责任**: 作为开发者，您有责任向您的雇主或客户说明开源协议的要求
+
+### 我的立场与承诺
+
+作为Easy Mic的作者，我选择GPLv3协议有以下考虑：
+
+1. **🛡️ 保护开源生态**: 确保对社区的贡献能够回馈给整个社区
+2. **⚡ 推动创新**: 鼓励更多开源创新，而非闭源垄断
+3. **💪 维护权益**: 保护原创者和贡献者的合法权益
+
+**我将积极维护自己的权益，对于违反GPLv3协议的行为，我保留采取法律行动的权利。**
+
+### 如果您需要商业许可
+
+如果GPLv3的Copyleft要求与您的商业需求不符，我也理解这种情况。请通过以下方式联系我讨论**商业许可方案**：
+
+📧 **商业许可咨询**: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)
+
+我愿意在合理的条件下提供更灵活的许可选项。
+
+### 结语
+
+开源软件的繁荣需要每一位开发者的共同维护。遵守开源协议不仅是法律要求，更是对整个开发者社区的尊重和责任。
+
+**让我们一起建设一个健康、可持续的开源生态环境！** 🌱
+
+---
+
+**由 [Eitan](https://github.com/EitanWong) 用 ❤️ 制作**
+
+*赋能开发者在Unity中创造出色的音频体验*
