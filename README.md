@@ -186,6 +186,20 @@
       <li>Enter: <code>https://github.com/EitanWong/com.eitan.easymic.git#upm</code></li>
       <li>Click <code>Add</code></li>
     </ol>
+  <h3>📋 Import Sample Scene</h3>
+    <ol align="left">
+      <li>After importing Easy Mic, go to <strong>Package Manager</strong></li>
+      <li>Find <strong>EasyMic</strong> in "In Project" packages</li>
+      <li>Expand <strong>Samples</strong> section</li>
+      <li>Click <strong>Import</strong> next to "Recording Example"</li>
+      <li>Open the imported scene to see microphone recording demo</li>
+    </ol>
+    
+  <div align="center">
+    <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/how-to-import-samples.png" alt="How to Import Samples" width="600">
+    <p><em>Import the Recording Example sample scene via Package Manager</em></p>
+  </div>
+  
   <h3>⚡ Basic Usage</h3>
     <div align="left">
       <pre><code>// Initialize
@@ -257,7 +271,7 @@ var clip = capturer.GetCapturedAudioClip();</code></pre>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/examples.md">
           🚀<br><strong>Examples</strong><br>
-          <em>Real-world code</em>
+          <em>Example code</em>
         </a>
       </td>
     </tr>

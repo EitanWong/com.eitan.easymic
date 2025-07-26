@@ -186,6 +186,20 @@
       <li>输入: <code>https://github.com/EitanWong/com.eitan.easymic.git#upm</code></li>
       <li>点击 <code>Add</code></li>
     </ol>
+  <h3>📋 导入示例场景</h3>
+    <ol align="left">
+      <li>导入 Easy Mic 后，前往 <strong>Package Manager</strong></li>
+      <li>在 "In Project" 包中找到 <strong>EasyMic</strong></li>
+      <li>展开 <strong>Samples</strong> 部分</li>
+      <li>点击 "Recording Example" 旁边的 <strong>Import</strong></li>
+      <li>打开导入的场景查看麦克风录制演示</li>
+    </ol>
+    
+  <div align="center">
+    <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/how-to-import-samples.png" alt="如何导入示例" width="600">
+    <p><em>通过 Package Manager 导入 Recording Example 示例场景</em></p>
+  </div>
+  
   <h3>⚡ 基本使用</h3>
     <div align="left">
       <pre><code>// 初始化
