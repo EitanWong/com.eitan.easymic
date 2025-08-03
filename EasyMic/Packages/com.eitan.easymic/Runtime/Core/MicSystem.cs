@@ -47,9 +47,13 @@ namespace Eitan.EasyMic.Runtime
                 throw new InvalidOperationException($"Unable to init context. {result}");
             }
 
+            // Register for Unity application quit events to ensure cleanup
+            Application.quitting += OnApplicationQuitting;
 
             Refresh();
         }
+
+        
 
         ~MicSystem()
         {
@@ -64,13 +68,16 @@ namespace Eitan.EasyMic.Runtime
 
         private void Dispose(bool disposing)
         {
+            
             if (_disposed)
             {
                 return;
             }
 
-            // Stop all recordings
+            // Unregister from Unity application quit events
+            Application.quitting -= OnApplicationQuitting;
 
+            // Stop all recordings
             StopAllRecordings();
 
             // Free unmanaged resources
@@ -220,6 +227,11 @@ namespace Eitan.EasyMic.Runtime
 
         #region Private Methods
 
+        private void OnApplicationQuitting()
+        {
+            // Ensure all recordings are stopped when Unity application quits
+            StopAllRecordings();
+        }
 
         private MicDevice[] GetDevices()
         {

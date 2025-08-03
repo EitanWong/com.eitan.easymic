@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Eitan.SherpaOnnxUnity.Runtime;
 
-namespace Eitan.EasyMic.Runtime
+namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 {
     /// <summary>
     /// A robust, real-time speech recognizer that processes audio streams off the main thread.

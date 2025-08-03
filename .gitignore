@@ -92,3 +92,9 @@ StreamingAssets.meta
 # ================== #
 EasyMic/Packages/com.eitan.easymic.apm/
 EasyMic/Assets/Demo/Samples/AudioProcessing/
+
+# ================== #
+# AI Stuff  #
+# ================== #
+CLAUDE.md
+GEMINI.md
