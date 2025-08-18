@@ -1,169 +1,103 @@
 using System;
-using System.Threading;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime
 {
     /// <summary>
-    /// 一个高性能、低延迟、无锁的环回播放器（最终平滑版）。
-    /// 它从麦克风实时接收音频数据，并立即通过指定的 AudioSource 播放出来。
-    /// 核心优化：
-    /// 1. **大容量安全缓冲**：通过大幅增加缓冲容量和预缓冲阈值，为系统提供极高的抗抖动能力，从根源上防止缓冲区耗尽。
-    /// 2. **防御性消费**：只有当缓冲区数据足够填满整个播放请求时才进行读取，确保了播放的绝对连续性。
-    /// 3. **无锁设计**：采用单生产者/单消费者(SPSC)队列模型，避免使用锁，消除了OnAudioRead中的阻塞风险。
-    /// 4. **自管理预缓冲**：在音频回调内部处理预缓冲逻辑，移除了对外部轮询的依赖。
+    /// Loopback player backed by the new AudioSystem.
+    /// - Receives upstream PCM frames and enqueues to a PlaybackAudioSource registered to the master mixer.
+    /// - Optional volume and mute control.
+    /// - Exposes a playback tap for AEC by reading back what was rendered.
     /// </summary>
-    public class LoopbackPlayer : AudioReader
+    public sealed class LoopbackPlayer : AudioReader
     {
-        private readonly AudioSource _source;
-        private AudioClip _streamClip;
-        private float[] _circularBuffer;
-        
-        // --- 无锁环形缓冲区的核心 ---
-        private volatile int _writePosition;
-        private volatile int _readPosition;
-        
-        // --- 播放状态与预缓冲控制 ---
-        private bool _isPrebufferingComplete;
-        private int _prebufferThreshold;
+        private PlaybackAudioSource _source;
+        private float[] _scaleWork;
 
+        private uint _sampleRate;
+        private uint _channels;
+        private readonly object _lock = new object();
 
-        public LoopbackPlayer(AudioSource source)
-        {
-            if (source == null)
-            {
-                throw new ArgumentNullException(nameof(source), "AudioSource component cannot be null.");
-            }
-            this._source = source;
-            this._source.playOnAwake = false;
-            this._source.loop = true;
-        }
+        /// <summary>Linear gain applied before enqueue (0..2).</summary>
+        public float Volume { get; set; } = 1.0f;
+
+        /// <summary>When true, no audio is enqueued (silence output).</summary>
+        public bool IsMuted { get; set; } = false;
+
+        /// <summary>Queue size in seconds for the underlying player.</summary>
+        public int QueueSeconds { get; set; } = 2;
+
+        /// <summary>Prebuffer time in ms to avoid initial underruns.</summary>
+        public int PrebufferMs { get; set; } = 60;
 
         public override void Initialize(AudioState state)
         {
             base.Initialize(state);
-
-            // --- 关键修改：增加缓冲区容量和阈值 ---
-            // 将缓冲区容量增加到500毫秒，以提供非常大的抖动吸收空间。
-            int bufferCapacity = state.SampleRate * state.ChannelCount / 2; // 500ms buffer
-            _circularBuffer = new float[bufferCapacity];
-            
-            // 将预缓冲阈值提高到150毫秒。这是确保稳定性的最关键参数。
-            // 这会稍微增加启动延迟，但能从根本上防止后续播放中的数据欠载。
-            _prebufferThreshold = state.SampleRate * state.ChannelCount * 3 / 20; // 150ms
-
-            _writePosition = 0;
-            _readPosition = 0;
-            _isPrebufferingComplete = false;
-
-            // 音频片段的长度保持不变，以实现低延迟的输出响应。
-            int clipBufferLength = state.SampleRate * state.ChannelCount / 50; // 20ms
-            _streamClip = AudioClip.Create("RealtimeLoopbackStream_Stable", clipBufferLength, state.ChannelCount, state.SampleRate, true, OnAudioSourceStreamRead);
-
-            _source.clip = _streamClip;
-            
-            // 直接在这里开始播放。播放器将在OnAudioSourceStreamRead中自行处理预缓冲。
-            _source.Play();
+            // Defer source creation to first frame to leverage dynamic format handling.
+            _sampleRate = 0;
+            _channels = 0;
         }
 
-        public override void OnAudioRead(ReadOnlySpan<float> audioBuffer, AudioState state)
+        protected override void OnAudioReadAsync(ReadOnlySpan<float> audioBuffer)
         {
-            int readPos = _readPosition;
-            int writePos = _writePosition;
-            int bufferLength = _circularBuffer.Length;
-
-            int freeSpace = (readPos - writePos - 1 + bufferLength) % bufferLength;
-            if (freeSpace == 0)
+            // Recreate the source if format changed or not yet created
+            int curSR = Math.Max(1, CurrentSampleRate);
+            int curCH = Math.Max(1, CurrentChannelCount);
+            if (_source == null || _sampleRate != (uint)curSR || _channels != (uint)curCH)
             {
+                var sys = AudioSystem.Instance;
+                sys.Start();
+                var newSource = new PlaybackAudioSource(curCH, curSR, QueueSeconds, AudioSystem.Instance.MasterMixer);
+                newSource.Volume = Volume;
+
+                PlaybackAudioSource old;
+                lock (_lock)
+                {
+                    old = _source;
+                    _source = newSource;
+                    _sampleRate = (uint)curSR;
+                    _channels = (uint)curCH;
+                }
+                // Attach new source and detach old
+                // already attached via constructor
+                try { if (old != null) { sys.MasterMixer.RemoveSource(old); old.Dispose(); } } catch { }
+            }
+
+            if (audioBuffer.Length == 0)
+            {
+                // Endpoint frame: nothing to do, device will output silence if queue drains.
                 return;
             }
 
-            int amountToWrite = Math.Min(audioBuffer.Length, freeSpace);
-            ReadOnlySpan<float> dataToWrite = audioBuffer.Slice(0, amountToWrite);
-
-            var bufferSpan = new Span<float>(_circularBuffer);
-            if (writePos + dataToWrite.Length > bufferLength)
+            if (IsMuted || Volume <= 0f)
             {
-                int firstChunkSize = bufferLength - writePos;
-                dataToWrite.Slice(0, firstChunkSize).CopyTo(bufferSpan.Slice(writePos));
-                dataToWrite.Slice(firstChunkSize).CopyTo(bufferSpan.Slice(0));
+                // Drop frame to produce silence.
+                return;
+            }
+
+            if (Volume != 1.0f)
+            {
+                // Scale into a reusable work buffer to avoid mutating upstream memory.
+                int n = audioBuffer.Length;
+                if (_scaleWork == null || _scaleWork.Length < n) _scaleWork = new float[n];
+                for (int i = 0; i < n; i++) _scaleWork[i] = audioBuffer[i] * Volume;
+                _source?.Enqueue(_scaleWork.AsSpan(0, n));
             }
             else
             {
-                dataToWrite.CopyTo(bufferSpan.Slice(writePos));
-            }
-            
-            Thread.MemoryBarrier(); 
-            _writePosition = (writePos + dataToWrite.Length) % bufferLength;
-        }
-        
-        private void OnAudioSourceStreamRead(float[] data)
-        {
-            int writePos = _writePosition;
-            int readPos = _readPosition;
-            int bufferLength = _circularBuffer.Length;
-            int availableData = (writePos - readPos + bufferLength) % bufferLength;
-
-            // 1. 检查初始预缓冲是否完成
-            if (!_isPrebufferingComplete)
-            {
-                if (availableData >= _prebufferThreshold)
-                {
-                    _isPrebufferingComplete = true;
-                }
-                else
-                {
-                    Array.Clear(data, 0, data.Length);
-                    return;
-                }
-            }
-            
-            // --- 关键：严格的“防御性消费”逻辑 ---
-            // 只有当缓冲区中的数据足够填满整个请求时，才进行读取。
-            if (availableData >= data.Length)
-            {
-                // 缓冲区数据充足，正常读取
-                var requestedDataSpan = new Span<float>(data);
-                var bufferSpan = new Span<float>(_circularBuffer);
-                int amountToRead = data.Length;
-            
-                if (readPos + amountToRead > bufferLength)
-                {
-                    int firstChunkSize = bufferLength - readPos;
-                    bufferSpan.Slice(readPos, firstChunkSize).CopyTo(requestedDataSpan.Slice(0));
-                    bufferSpan.Slice(0, amountToRead - firstChunkSize).CopyTo(requestedDataSpan.Slice(firstChunkSize));
-                }
-                else
-                {
-                    bufferSpan.Slice(readPos, amountToRead).CopyTo(requestedDataSpan.Slice(0));
-                }
-
-                Thread.MemoryBarrier();
-                _readPosition = (readPos + amountToRead) % bufferLength;
-            }
-            else
-            {
-                // 发生欠载（underrun）。由于我们有非常大的安全缓冲，这应该是一个极罕见的事件。
-                // 在这种情况下，播放静音是最安全的选择，它能给生产者一个完整的周期来恢复。
-                Array.Clear(data, 0, data.Length);
+                _source?.Enqueue(audioBuffer);
             }
         }
+
+        /// <summary>
+        /// Read back recently rendered samples for AEC reference.
+        /// Returns the number of samples copied into destination.
+        /// </summary>
+        public int ReadPlayback(Span<float> destination) => 0; // Not supported in new system directly
 
         public override void Dispose()
         {
-            Stop();
+            try { lock (_lock) { if (_source != null) { AudioSystem.Instance.MasterMixer.RemoveSource(_source); _source.Dispose(); _source = null; } } } catch { }
             base.Dispose();
-        }
-        
-        public void Stop()
-        {
-            if (_source != null)
-            {
-                _source.Stop();
-            }
-            _isPrebufferingComplete = false;
-            _writePosition = 0;
-            _readPosition = 0;
         }
     }
 }

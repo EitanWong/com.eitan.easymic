@@ -55,6 +55,15 @@ namespace EasyMic.Editor.Integrations
                 coreTypeFullName: "Eitan.SherpaOnnxUnity.Runtime.Integration.SherpaOnnxAnchor"
             ),
 
+            // --- Configuration for EasyMic APM (3A) Integration ---
+            // We use an anchor type to detect the presence of the APM package.
+            // Please ensure the APM package defines this type; otherwise, update the name below
+            // to match the actual anchor type in the APM assembly.
+            new IntegrationDefinition(
+                symbolToDefine: "EASYMIC_APM_INTEGRATION",
+                coreTypeFullName: "Eitan.EasyMic.Apm.Runtime.Integration.ApmAnchor"
+            ),
+
             // To add another integration, add a new entry here. For example:
             // new IntegrationDefinition(
             //     symbolToDefine: "EASYMIC_ANOTHER_PLUGIN_INTEGRATION",

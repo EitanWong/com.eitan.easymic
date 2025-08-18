@@ -12,7 +12,7 @@ namespace Eitan.EasyMic.Runtime
         private static bool IsGranted;
         // 安卓权限的字符串常量
 
-#if PLATFORM_ANDROID
+#if UNITY_ANDROID
         private const string PERMISSION_RECORD_AUDIO = "android.permission.RECORD_AUDIO";
 #endif
 
@@ -24,7 +24,7 @@ namespace Eitan.EasyMic.Runtime
             // 针对桌面平台和编辑器的优化：直接视为已授权，并立即返回。
 #if UNITY_STANDALONE || UNITY_EDITOR
             return true;
-#elif PLATFORM_ANDROID
+#elif UNITY_ANDROID
             if (!IsGranted){
                 IsGranted = Permission.HasUserAuthorizedPermission(Permission.Microphone);
                 if(!IsGranted){

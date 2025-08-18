@@ -32,7 +32,8 @@ namespace Eitan.EasyMic.Samples
         #endregion
 
         private RecordingHandle handle;
-        private AudioCapturer capture;
+        private AudioWorkerBlueprint _bpCapture;
+        private AudioWorkerBlueprint _bpDownmix;
         private int _maxCaptureDuration = 30;
 
         // MODIFIED: 简化isRecording的判断逻辑
@@ -65,8 +66,11 @@ namespace Eitan.EasyMic.Samples
             _resultPanel.gameObject.SetActive(false);
             _downmixToggle.isOn = true;
 
-
             OnRefreshButtonPressed();
+
+            // Prepare blueprints (no worker instances leak outside sessions)
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(_maxCaptureDuration), key: "capture");
+            _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
         }
 
         private void Update()
@@ -151,7 +155,8 @@ namespace Eitan.EasyMic.Samples
         {
             if (isRecording) // 如果正在录音 -> 停止录音
             {
-                _audioClip = capture.GetCapturedAudioClip();
+                var cap = EasyMicAPI.GetProcessor<AudioCapturer>(handle, _bpCapture);
+                _audioClip = cap != null ? cap.GetCapturedAudioClip() : null;
                 EasyMicAPI.StopRecording(handle);
                 handle = default; // 重置句柄
 
@@ -187,15 +192,11 @@ namespace Eitan.EasyMic.Samples
 
                 if (_downmixToggle.isOn)
                 {
-                    // 添加缩混处理器
-                    EasyMicAPI.AddProcessor(handle, new AudioDownmixer());
+                    // 添加缩混处理器（基于蓝图创建会话实例）
+                    EasyMicAPI.AddProcessor(handle, _bpDownmix);
                 }
 
-                if (capture == null)
-                {
-                    capture = new AudioCapturer(_maxCaptureDuration);
-                }
-                EasyMicAPI.AddProcessor(handle, capture);
+                EasyMicAPI.AddProcessor(handle, _bpCapture);
 
                 // 更新UI到“录制中”状态
                 _recordButton.GetComponentInChildren<Text>().text = "Stop Recording";
