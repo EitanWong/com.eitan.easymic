@@ -16,19 +16,17 @@ namespace Eitan.EasyMic.Runtime{
 
         public override void Initialize(AudioState state)
         {
-            // Total number of float values needed for the buffer.
-            int totalSamples = state.Length * _maxCaptureDuration;
+            // 使用采样率与通道数推导容量，避免依赖 state.Length 初始化值
+            int totalSamples = Math.Max(1, state.SampleRate * state.ChannelCount * _maxCaptureDuration);
             _audioBuffer = new AudioBuffer(totalSamples);
             _audioState = state;
             base.Initialize(state);
- 
         }
 
-        public override void OnAudioRead(ReadOnlySpan<float> audiobuffer, AudioState state)
+        protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            _audioBuffer.Write(audiobuffer);
-            if (_audioState != state)
-                _audioState = state;
+            // 整帧入队；不足则丢弃，保证帧原子性
+            _audioBuffer.TryWriteExact(audiobuffer);
         }
 
         /// <summary>

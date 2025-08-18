@@ -54,7 +54,7 @@ namespace Eitan.EasyMic.Runtime
         /// <summary>
         /// Processes the audio buffer, applying the noise gate effect.
         /// </summary>
-        public override void OnAudioWrite(Span<float> audioBuffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> audioBuffer, AudioState state)
         {
 
 

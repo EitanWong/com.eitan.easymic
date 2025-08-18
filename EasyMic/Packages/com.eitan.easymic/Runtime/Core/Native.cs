@@ -27,6 +27,10 @@ namespace Eitan.EasyMic.Runtime
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void AudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length);
 
+        // Extended callback that carries pUserData for direct instance recovery (preferred when available)
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void AudioCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData);
+
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate Result BufferProcessingCallback(
             IntPtr pCodecContext,
@@ -132,8 +136,14 @@ namespace Eitan.EasyMic.Runtime
         [DllImport(LibraryName, EntryPoint = "sf_allocate_encoder_config", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr AllocateEncoderConfig(EncodingFormat encodingFormat, SampleFormat format, uint channels, uint sampleRate);
 
+        // Newer API variant: sf_allocate_device_config(capability, sampleRate, callback, pSfConfig)
+        // This version is used by updated native builds. pSfConfig may be NULL for defaults.
         [DllImport(LibraryName, EntryPoint = "sf_allocate_device_config", CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr AllocateDeviceConfig(DeviceType capabilityType, SampleFormat format, uint channels, uint sampleRate, AudioCallback dataCallback, IntPtr playbackDevice, IntPtr captureDevice);
+        public static extern IntPtr AllocateDeviceConfig(Capability capabilityType, uint sampleRate, AudioCallback dataCallback, IntPtr pSfConfig);
+
+        // Legacy/alternate variants kept for backward compatibility (may not exist in current native build).
+        [DllImport(LibraryName, EntryPoint = "sf_allocate_device_config_ex", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr AllocateDeviceConfigEx(DeviceType capabilityType, SampleFormat format, uint channels, uint sampleRate, AudioCallbackEx dataCallback, IntPtr pUserData, IntPtr playbackDevice, IntPtr captureDevice);
 
         #endregion
 
@@ -331,6 +341,17 @@ namespace Eitan.EasyMic.Runtime
             /// Ogg Vorbis audio format.
             /// </summary>
             Vorbis
+        }
+
+        /// <summary>
+        /// Capability flags for simplified device config helper.
+        /// </summary>
+        public enum Capability
+        {
+            Playback = 1,
+            Record = 2,
+            Mixed = 3,
+            Loopback = 4
         }
 
         internal enum SeekPoint

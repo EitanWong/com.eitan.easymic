@@ -41,7 +41,12 @@
     {
       "displayName": "Recording Example",
       "description": "A simple scene demonstrating the fundamental usage of EasyMic for recording audio from a microphone and saving it as a WAV file.",
-      "path": "Samples~/Recording"
+      "path": "Samples~/Recording Example"
+    },
+    {
+      "displayName": "SherpaOnnx Example",
+      "description": "A simple scene demonstrating real-time speech recognition by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
+      "path": "Samples~/SherpaOnnx Example"
     }
   ],
   "repository": {
