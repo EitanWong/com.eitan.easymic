@@ -8,25 +8,79 @@ namespace Eitan.EasyMic.Runtime{
         private readonly int _maxCaptureDuration;
 
         private AudioState _audioState;
+        private readonly int _targetSampleRate; // 0 => follow input rate
+        private float[] _resampleWork; // reused buffer for resampled output
 
         public AudioCapturer(int maxDuration)
+            : this(maxDuration, 0) { }
+
+        /// <param name="targetSampleRate">Optional desired capture sample rate. 0 means keep input rate.</param>
+        public AudioCapturer(int maxDuration, int targetSampleRate)
         {
             this._maxCaptureDuration = maxDuration;
+            this._targetSampleRate = Math.Max(0, targetSampleRate);
         }
 
         public override void Initialize(AudioState state)
         {
             // 使用采样率与通道数推导容量，避免依赖 state.Length 初始化值
-            int totalSamples = Math.Max(1, state.SampleRate * state.ChannelCount * _maxCaptureDuration);
+            // Buffer capacity sized to the larger of input/output path to avoid overflow under rate conversion.
+            int effectiveTargetSR = _targetSampleRate > 0 ? _targetSampleRate : state.SampleRate;
+            int worstCaseRate = Math.Max(state.SampleRate, effectiveTargetSR);
+            int totalSamples = Math.Max(1, worstCaseRate * state.ChannelCount * _maxCaptureDuration);
             _audioBuffer = new AudioBuffer(totalSamples);
             _audioState = state;
+            _resampleWork = Array.Empty<float>();
             base.Initialize(state);
         }
 
         protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            // 整帧入队；不足则丢弃，保证帧原子性
-            _audioBuffer.TryWriteExact(audiobuffer);
+            // If no rate change requested or source already matches, enqueue as-is.
+            int srcSR = CurrentSampleRate;
+            int dstSR = _targetSampleRate <= 0 ? srcSR : _targetSampleRate;
+            if (audiobuffer.IsEmpty) { _audioBuffer.TryWriteExact(audiobuffer); return; }
+
+            if (srcSR == dstSR)
+            {
+                _audioBuffer.TryWriteExact(audiobuffer);
+                return;
+            }
+
+            int ch = Math.Max(1, CurrentChannelCount);
+            int inFrames = audiobuffer.Length / ch;
+            if (inFrames <= 0) return;
+
+            // Compute output frame count, guard against rounding drift by floor.
+            double ratio = (double)dstSR / Math.Max(1, srcSR);
+            int outFrames = (int)Math.Floor(inFrames * ratio);
+            if (outFrames <= 0) return;
+
+            int outSamples = outFrames * ch;
+            if (_resampleWork.Length < outSamples)
+            {
+                _resampleWork = new float[outSamples];
+            }
+
+            // Linear interpolation per channel, forward safe using separate output buffer.
+            double step = (double)srcSR / dstSR; // source frames per one output frame
+            for (int chIdx = 0; chIdx < ch; chIdx++)
+            {
+                int outBase = chIdx;
+                for (int of = 0; of < outFrames; of++)
+                {
+                    double phase = of * step;
+                    int i0 = (int)Math.Floor(phase);
+                    double t = phase - i0;
+                    int i1 = Math.Min(inFrames - 1, i0 + 1);
+                    int src0 = i0 * ch + chIdx;
+                    int src1 = i1 * ch + chIdx;
+                    float s0 = audiobuffer[src0];
+                    float s1 = audiobuffer[src1];
+                    _resampleWork[outBase + of * ch] = (float)(s0 + (s1 - s0) * t);
+                }
+            }
+            _audioBuffer.TryWriteExact(new ReadOnlySpan<float>(_resampleWork, 0, outSamples));
         }
 
         /// <summary>
@@ -69,7 +123,7 @@ namespace Eitan.EasyMic.Runtime{
 
             // Determine the channel count of the resulting clip.
             int resultChannels = _audioState.ChannelCount;
-            int resultSampleRate = _audioState.SampleRate;
+            int resultSampleRate = _targetSampleRate > 0 ? _targetSampleRate : _audioState.SampleRate;
 
             // The length for AudioClip.Create is the number of samples *per channel*.
             int lengthSamplesPerChannel = samples.Length / resultChannels;
