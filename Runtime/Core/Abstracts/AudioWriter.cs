@@ -22,7 +22,7 @@ namespace Eitan.EasyMic.Runtime {
         /// Implement this method to process or modify the audio data.
         /// </summary>
         /// <param name="audiobuffer">The audio buffer, which can be directly modified.</param>
-        public abstract void OnAudioWrite(Span<float> audiobuffer, AudioState state);
+        protected abstract void OnAudioWrite(Span<float> audiobuffer, AudioState state);
     }
 
 }

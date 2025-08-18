@@ -20,7 +20,7 @@ namespace Eitan.EasyMic.Runtime
         /// <returns></returns> <summary>
         public static Channel GetDeviceChannel(this MicDevice device)
         {
-#if UNITY_EDITOR || UNITY_STANDALONE || PLATFORM_STANDALONE
+#if UNITY_EDITOR || UNITY_STANDALONE
                 if (soundIOContext == null)
                 {
                     soundIOContext = Context.Create();
@@ -37,10 +37,7 @@ namespace Eitan.EasyMic.Runtime
                     {
                         var channelCount = soundIONativeDevice.CurrentLayout.ChannelCount;
                         if (channelCount > 0)
-                        {
-                            var channelLayout = soundIONativeDevice.CurrentLayout.Channels[channelCount - 1];
-                            return (Channel)channelLayout;
-                        }
+                            return (Channel)channelCount;
                     }
                 }
                 

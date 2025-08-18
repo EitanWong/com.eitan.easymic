@@ -17,7 +17,7 @@ namespace Eitan.EasyMic.Runtime{
             base.Initialize(state);
         }
 
-        public override void OnAudioWrite(Span<float> audiobuffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> audiobuffer, AudioState state)
         {
             if (!IsInitialized || state.ChannelCount <= 1)
             {

@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+﻿#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,136 +7,92 @@ using Eitan.SherpaOnnxUnity.Runtime;
 namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 {
     /// <summary>
-    /// A robust, real-time speech recognizer that processes audio streams off the main thread.
-    /// This simplified version directly leverages the underlying async service without an intermediate queue.
+    /// Realtime speech recognizer that consumes audio on a dedicated reader thread
+    /// and dispatches transcription work asynchronously, keeping the audio path non-blocking.
     /// </summary>
     public sealed class SherpaRealtimeSpeechRecognizer : AudioReader, IDisposable
     {
         public event Action<string> OnRecognitionResult;
-        
-        private readonly SpeechRecognition _speechRecognitionService;
-        private readonly CancellationTokenSource _cancellationTokenSource;
-        private readonly SynchronizationContext _mainThreadContext;
-        
-        // 使用 volatile 关键字确保多线程间的可见性
-        private volatile bool _isDisposed;
-        private volatile string _lastResult = string.Empty;
-        
-        public SherpaRealtimeSpeechRecognizer(SpeechRecognition recognitionService)
+
+        private readonly SpeechRecognition _svc;
+        private readonly CancellationTokenSource _cts = new();
+        private readonly SynchronizationContext _main = SynchronizationContext.Current;
+        private int _sampleRate;
+        private int _inferenceBusy; // 0 = idle, 1 = busy
+
+        // Accumulation buffer to avoid dropping frames under load
+        private float[] _acc = Array.Empty<float>();
+        private int _accLen = 0;
+
+        public SherpaRealtimeSpeechRecognizer(SpeechRecognition service) : base(capacitySeconds: 2)
         {
-            _speechRecognitionService = recognitionService
-                ?? throw new ArgumentNullException(nameof(recognitionService));
-            _cancellationTokenSource = new CancellationTokenSource();
-            
-            // 捕获主线程的同步上下文
-            _mainThreadContext = SynchronizationContext.Current;
+            _svc = service ?? throw new ArgumentNullException(nameof(service));
+            if (!_svc.IsOnlineModel)
+                throw new ArgumentException("Use online model for realtime recognizer.");
         }
-        
-        /// <summary>
-        /// 生产者: 在高优先级的音频线程上被频繁调用。
-        /// 优化后，此方法直接调用异步处理，而不会阻塞音频线程。
-        /// </summary>
-        public override void OnAudioRead(ReadOnlySpan<float> audioData, AudioState state)
+
+        public override void Initialize(AudioState state)
         {
-            // 如果正在销毁，则不再处理新的音频数据
-            if (_isDisposed) return;
-            
-            // 必须复制数据，因为 ReadOnlySpan 的生命周期很短，而处理是异步的。
-            // 为了简单，我们直接创建新数组，而不是使用 ArrayPool。
-            float[] audioCopy = audioData.ToArray();
-            
-            // "Fire-and-forget": 启动一个异步任务但不用等待它完成。
-            // 这可以防止阻塞关键的音频线程。
-            // 使用下划线 `_ =` 是向编译器和开发者明确表示我们不等待此任务。
-            _ = ProcessChunkAsync(audioCopy, state.SampleRate);
+            _sampleRate = state.SampleRate;
+            base.Initialize(state);
         }
-        
-        /// <summary>
-        /// 消费者: 每个音频块都会触发一次此异步方法的执行。
-        /// </summary>
-        private async Task ProcessChunkAsync(float[] audioChunk, int sampleRate)
+
+        protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            try
+            if (_cts.IsCancellationRequested) return;
+            if (!audiobuffer.IsEmpty)
             {
-                if (!_isDisposed && _speechRecognitionService != null)
+                EnsureCapacity(_accLen + audiobuffer.Length);
+                audiobuffer.CopyTo(new Span<float>(_acc, _accLen, audiobuffer.Length));
+                _accLen += audiobuffer.Length;
+            }
+
+            if (_accLen == 0) return;
+
+            if (Interlocked.Exchange(ref _inferenceBusy, 1) == 0)
+            {
+                var data = new float[_accLen];
+                Array.Copy(_acc, 0, data, 0, _accLen);
+                _accLen = 0;
+
+                _ = Task.Run(async () =>
                 {
-                    // 在后台线程执行识别
-                    string resultText = await _speechRecognitionService.SpeechTranscriptionAsync(
-                        audioChunk,
-                        sampleRate,
-                        _cancellationTokenSource.Token
-                    );
-                    
-                    // 只有当结果与上次不同时才触发事件，减少调用次数
-                    if (resultText != _lastResult)
+                    try
                     {
-                        _lastResult = resultText;
-                        
-                        // 切换到主线程执行事件回调
-                        if (_mainThreadContext != null)
+                        var text = await _svc.SpeechTranscriptionAsync(data, _sampleRate, _cts.Token).ConfigureAwait(false);
+                        if (text != null)
                         {
-                            _mainThreadContext.Post(_ => 
-                            {
-                                if (!_isDisposed)
-                                {
-                                    OnRecognitionResult?.Invoke(resultText);
-                                }
-                            }, null);
-                        }
-                        else
-                        {
-                            // 如果没有主线程上下文，直接调用（可能在测试环境中）
-                            OnRecognitionResult?.Invoke(resultText);
+                            if (_main != null)
+                                _main.Post(_ => { if (!_cts.IsCancellationRequested) OnRecognitionResult?.Invoke(text); }, null);
+                            else if (!_cts.IsCancellationRequested)
+                                OnRecognitionResult?.Invoke(text);
                         }
                     }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // 当 CancellationToken 被取消时，这是预期的异常，无需处理。
-            }
-            catch (Exception ex)
-            {
-                // 捕获其他可能的识别错误。
-                // 使用 Post 确保错误日志也在主线程输出
-                if (_mainThreadContext != null)
-                {
-                    _mainThreadContext.Post(_ => 
+                    catch (OperationCanceledException) { }
+                    catch { }
+                    finally
                     {
-                        UnityEngine.Debug.LogError($"[SherpaRealtimeSpeechRecognizer] Recognition error: {ex.Message}");
-                    }, null);
-                }
-                else
-                {
-                    UnityEngine.Debug.LogError($"[SherpaRealtimeSpeechRecognizer] Recognition error: {ex.Message}");
-                }
+                        Volatile.Write(ref _inferenceBusy, 0);
+                    }
+                });
             }
         }
-        
-        /// <summary>
-        /// 销毁资源，停止所有正在进行的识别任务。
-        /// </summary>
+
+        private void EnsureCapacity(int needed)
+        {
+            if (_acc.Length >= needed) return;
+            int next = Math.Max(needed, Math.Max(8192, _acc.Length * 2));
+            Array.Resize(ref _acc, next);
+        }
+
         public override void Dispose()
         {
-            // 使用标准的 Dispose 模式
-            if (_isDisposed) return;
-            _isDisposed = true;
-            
-            // 向上通知取消所有正在进行的异步任务
-            try
+            if (_cts != null)
             {
-                _cancellationTokenSource.Cancel();
-                _cancellationTokenSource.Dispose();
+                _cts.Cancel();
+                _cts.Dispose();
             }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.LogWarning($"[SherpaRealtimeSpeechRecognizer] Error during dispose: {ex.Message}");
-            }
-            
-            // 调用父类的 Dispose (如果存在)
             base.Dispose();
-            
-            // 可选，如果需要确保事件订阅者被清理
             OnRecognitionResult = null;
         }
     }
