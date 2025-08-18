@@ -126,6 +126,37 @@ var handle = EasyMicAPI.StartRecording(defaultDevice, SampleRate.Hz48000);
 
 ---
 
+#### `StartRecording()` - With Worker Blueprints (default device)
+```csharp
+public static RecordingHandle StartRecording(
+    SampleRate sampleRate,
+    IEnumerable<AudioWorkerBlueprint> workers)
+```
+Starts recording using the default device and binds a pipeline built from the provided worker blueprints.
+
+#### `StartRecording()` - With Worker Blueprints (by name/device)
+```csharp
+public static RecordingHandle StartRecording(
+    string deviceName, SampleRate sampleRate, Channel channel,
+    IEnumerable<AudioWorkerBlueprint> workers)
+
+public static RecordingHandle StartRecording(
+    MicDevice device, SampleRate sampleRate, Channel channel,
+    IEnumerable<AudioWorkerBlueprint> workers)
+```
+
+Note: Each recording session creates fresh worker instances from the blueprints. Use the same blueprint key to retrieve the instance later.
+
+---
+
+#### `DefaultWorkers`
+```csharp
+public static List<AudioWorkerBlueprint> DefaultWorkers { get; set; }
+```
+Optional global defaults applied by `StartRecording(...)` overloads that don’t explicitly pass `workers`.
+
+---
+
 #### `StopRecording()`
 ```csharp
 public static void StopRecording(RecordingHandle handle)
@@ -157,9 +188,9 @@ EasyMicAPI.StopAllRecordings();
 
 #### `AddProcessor()`
 ```csharp
-public static void AddProcessor(RecordingHandle handle, IAudioWorker processor)
+public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
 ```
-Adds an audio processor to a recording session's pipeline.
+Adds an audio processor (created from the blueprint) to a session at runtime. If a worker with the same blueprint key already exists, it is ignored.
 
 **Parameters:**
 - `handle` - The recording handle
@@ -175,9 +206,9 @@ EasyMicAPI.AddProcessor(recordingHandle, capturer);
 
 #### `RemoveProcessor()`
 ```csharp
-public static void RemoveProcessor(RecordingHandle handle, IAudioWorker processor)
+public static void RemoveProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
 ```
-Removes an audio processor from a recording session's pipeline.
+Removes an audio processor (by blueprint key) from a session's pipeline and disposes it.
 
 **Parameters:**
 - `handle` - The recording handle
@@ -222,6 +253,15 @@ void OnApplicationQuit()
     EasyMicAPI.Cleanup();
 }
 ```
+
+---
+
+#### `GetProcessor<T>()`
+```csharp
+public static T GetProcessor<T>(RecordingHandle handle, AudioWorkerBlueprint blueprint)
+    where T : class, IAudioWorker
+```
+Gets the concrete worker instance bound to the given session that was created from the blueprint. Returns `null` if not found.
 
 ---
 

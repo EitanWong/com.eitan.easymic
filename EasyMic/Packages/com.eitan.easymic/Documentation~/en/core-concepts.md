@@ -91,32 +91,33 @@ EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));
 ```
 
 **Key Features:**
-- 🔄 **Dynamic Modification**: Add/remove processors during recording
-- 🧵 **Thread Safety**: All operations are thread-safe
-- 🎯 **Order Matters**: Processors execute in the order they were added
-- 🧠 **Memory Efficient**: Zero allocations during audio processing
+- 🔄 Dynamic modification (add/remove during recording)
+- 🧵 Thread-safe: lock‑free snapshots on the RT path
+- 🎯 Strict order: stages run in insertion order
+- 🧠 Zero‑GC on the audio thread
 
 ## 🎨 Processor Types
 
 Easy Mic uses a type-safe design to prevent common audio processing mistakes:
 
-### 📖 AudioReader (Read-Only)
-For analysis and monitoring without modifying the audio:
+### 📖 AudioReader (Async, Read-Only)
+For analysis and monitoring without modifying the audio. AudioReader pushes frames into a lock‑free SPSC ring buffer on the audio thread and processes them on a dedicated worker thread via `OnAudioReadAsync`.
 
 ```csharp
 public abstract class AudioReader : AudioWorkerBase
 {
-    // Sealed - cannot modify the buffer
+    // Audio thread: enqueue only, non‑blocking
     public sealed override void OnAudioPass(Span<float> buffer, AudioState state)
     {
-        OnAudioRead(buffer, state); // ReadOnlySpan<float> - compile-time safety!
+        // internal: SPSC write + signal
     }
-    
-    protected abstract void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state);
+
+    // Worker thread: your heavy work here
+    protected abstract void OnAudioReadAsync(ReadOnlySpan<float> buffer);
 }
 ```
 
-**Examples:** Volume meters, silence detection, audio analysis
+Examples: meters, file writers, ASR front‑ends, VAD, streaming to network, etc.
 
 ### ✏️ AudioWriter (Read-Write)
 For processing that modifies the audio:

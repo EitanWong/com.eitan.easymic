@@ -38,33 +38,38 @@ openupm add com.eitan.easymic
 
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class FirstRecording : MonoBehaviour
 {
     private RecordingHandle _recordingHandle;
-    private AudioCapturer _audioCapturer;
+    private AudioWorkerBlueprint _bpCapture;
 
     void Start()
     {
-        // 1. 初始化 EasyMic 并获取可用设备
+        // 0) 权限（尤其是 Android）
+        if (!PermissionUtils.HasPermission())
+        {
+            Debug.LogError("❌ 未授予麦克风权限");
+            return;
+        }
+
+        // 1) 设备列表
         EasyMicAPI.Refresh();
         var devices = EasyMicAPI.Devices;
-        
         if (devices.Length == 0)
         {
             Debug.LogError("❌ 未找到麦克风设备！");
             return;
         }
 
-        Debug.Log($"🎤 找到 {devices.Length} 个麦克风设备");
-
-        // 2. 使用高质量设置开始录音
+        // 2) 使用“蓝图”构建简单流水线
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
         _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name,           // 使用第一个可用设备
-            SampleRate.Hz48000,        // 高质量采样率
-            Channel.Mono              // 单声道，提高效率
+            devices[0].Name,
+            SampleRate.Hz48000,
+            devices[0].GetDeviceChannel(),
+            new[]{ _bpCapture }
         );
 
         if (!_recordingHandle.IsValid)
@@ -73,52 +78,26 @@ public class FirstRecording : MonoBehaviour
             return;
         }
 
-        // 3. 创建音频捕获器并添加到管道
-        _audioCapturer = new AudioCapturer(5); // 最多 5 秒
-        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
-
         Debug.Log("🎙️ 开始录音 5 秒...");
-        
-        // 4. 5 秒后停止录音
         Invoke(nameof(StopRecording), 5f);
     }
 
     void StopRecording()
     {
         if (!_recordingHandle.IsValid) return;
-
-        // 停止录音
         EasyMicAPI.StopRecording(_recordingHandle);
-        
-        // 将捕获的音频作为 Unity AudioClip 获取
-        var audioClip = _audioCapturer.GetCapturedAudioClip();
-        
-        if (audioClip != null)
-        {
-            Debug.Log($"✅ 录音完成！时长：{audioClip.length:F2}s");
-            
-            // 播放回放（可选）
-            var audioSource = GetComponent<AudioSource>();
-            if (audioSource != null)
-            {
-                audioSource.PlayOneShot(audioClip);
-                Debug.Log("🔊 播放录制的音频...");
-            }
-        }
-        else
-        {
-            Debug.LogError("❌ 未捕获到音频！");
-        }
-        
-        // 清理
-        _recordingHandle = default;
-    }
 
-    void OnDestroy()
-    {
-        // 对象销毁时始终清理
-        if (_recordingHandle.IsValid)
-            EasyMicAPI.StopRecording(_recordingHandle);
+        // 通过蓝图取回该会话内的具体处理器实例
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_recordingHandle, _bpCapture);
+        var clip = capturer?.GetCapturedAudioClip();
+        if (clip != null)
+        {
+            var audioSource = GetComponent<AudioSource>();
+            if (audioSource != null) audioSource.PlayOneShot(clip);
+            Debug.Log($"✅ 录音完成！时长：{clip.length:F2}s");
+        }
+
+        _recordingHandle = default;
     }
 }
 ```

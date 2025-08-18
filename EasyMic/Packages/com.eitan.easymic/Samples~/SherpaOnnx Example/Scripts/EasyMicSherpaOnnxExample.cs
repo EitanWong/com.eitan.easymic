@@ -6,8 +6,9 @@ using System.Linq;
 using Eitan.EasyMic.Runtime;
 using Eitan.SherpaOnnxUnity.Runtime;
 using System;
+using Eitan.EasyMic.Runtime.Apm;
 
-namespace Eitan.EasyMic.Samples
+namespace Eitan.EasyMic.Samples.SherpaOnnx
 {
     /// <summary>
     /// This is a comprehensive example demonstrating the capabilities of the EasyMic and SherpaOnnx Unity packages.
@@ -353,6 +354,11 @@ namespace Eitan.EasyMic.Samples
 
         private void AddProcessorsToHandle()
         {
+#if EASYMIC_APM_INTEGRATION
+            var bpApm = new AudioWorkerBlueprint(()=>new WebRtcApmModifier(), key: "webrtc-apm");
+            EasyMicAPI.AddProcessor(_handle, bpApm);
+#endif
+
             var selectedAsrModel = _asrModelsDropdown.options[_asrModelsDropdown.value].text;
             bool isOnlineModel = SherpaOnnxUnityAPI.IsOnlineModel(selectedAsrModel);
 

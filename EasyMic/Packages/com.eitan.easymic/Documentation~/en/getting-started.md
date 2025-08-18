@@ -38,33 +38,38 @@ Let's create a simple script that records 5 seconds of audio:
 
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class FirstRecording : MonoBehaviour
 {
     private RecordingHandle _recordingHandle;
-    private AudioCapturer _audioCapturer;
+    private AudioWorkerBlueprint _bpCapture;
 
     void Start()
     {
-        // 1. Initialize EasyMic and get available devices
+        // 0) Permission (especially on Android)
+        if (!PermissionUtils.HasPermission())
+        {
+            Debug.LogError("❌ Microphone permission not granted.");
+            return;
+        }
+
+        // 1) Devices
         EasyMicAPI.Refresh();
         var devices = EasyMicAPI.Devices;
-        
         if (devices.Length == 0)
         {
             Debug.LogError("❌ No microphone devices found!");
             return;
         }
 
-        Debug.Log($"🎤 Found {devices.Length} microphone device(s)");
-
-        // 2. Start recording with high-quality settings
+        // 2) Start with a simple pipeline via blueprints
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
         _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name,           // Use first available device
-            SampleRate.Hz48000,        // High-quality sample rate
-            Channel.Mono              // Mono for efficiency
+            devices[0].Name,
+            SampleRate.Hz48000,
+            devices[0].GetDeviceChannel(),
+            new[]{ _bpCapture }
         );
 
         if (!_recordingHandle.IsValid)
@@ -73,52 +78,26 @@ public class FirstRecording : MonoBehaviour
             return;
         }
 
-        // 3. Create and add an audio capturer to the pipeline
-        _audioCapturer = new AudioCapturer(5); // 5 seconds max
-        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
-
         Debug.Log("🎙️ Recording started for 5 seconds...");
-        
-        // 4. Stop recording after 5 seconds
         Invoke(nameof(StopRecording), 5f);
     }
 
     void StopRecording()
     {
         if (!_recordingHandle.IsValid) return;
-
-        // Stop the recording
         EasyMicAPI.StopRecording(_recordingHandle);
-        
-        // Get the captured audio as a Unity AudioClip
-        var audioClip = _audioCapturer.GetCapturedAudioClip();
-        
-        if (audioClip != null)
-        {
-            Debug.Log($"✅ Recording complete! Duration: {audioClip.length:F2}s");
-            
-            // Play it back (optional)
-            var audioSource = GetComponent<AudioSource>();
-            if (audioSource != null)
-            {
-                audioSource.PlayOneShot(audioClip);
-                Debug.Log("🔊 Playing back recorded audio...");
-            }
-        }
-        else
-        {
-            Debug.LogError("❌ No audio was captured!");
-        }
-        
-        // Clean up
-        _recordingHandle = default;
-    }
 
-    void OnDestroy()
-    {
-        // Always clean up when the object is destroyed
-        if (_recordingHandle.IsValid)
-            EasyMicAPI.StopRecording(_recordingHandle);
+        // Retrieve the concrete worker instance for this session
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_recordingHandle, _bpCapture);
+        var clip = capturer?.GetCapturedAudioClip();
+        if (clip != null)
+        {
+            var audioSource = GetComponent<AudioSource>();
+            if (audioSource != null) audioSource.PlayOneShot(clip);
+            Debug.Log($"✅ Recording complete! Duration: {clip.length:F2}s");
+        }
+
+        _recordingHandle = default;
     }
 }
 ```

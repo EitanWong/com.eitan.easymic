@@ -61,7 +61,7 @@ namespace EasyMic.Editor.Integrations
             // to match the actual anchor type in the APM assembly.
             new IntegrationDefinition(
                 symbolToDefine: "EASYMIC_APM_INTEGRATION",
-                coreTypeFullName: "Eitan.EasyMic.Apm.Runtime.Integration.ApmAnchor"
+                coreTypeFullName: "Eitan.EasyMic.Apm.Runtime.Integration.EasyMicApmAnchor"
             ),
 
             // To add another integration, add a new entry here. For example:

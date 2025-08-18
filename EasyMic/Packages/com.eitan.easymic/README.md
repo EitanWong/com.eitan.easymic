@@ -58,8 +58,9 @@ For production-ready applications requiring studio-quality audio, consider the *
 
 **Perfect for AI Digital Humans & Virtual Anchors**: Solves the critical echo problem in Unity-based conversational AI applications where system output interferes with microphone input.
 
-📧 **Interested in APM?** Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
-🛒 **Third-party store coming soon** for easy purchase and licensing.
+💰 APM is a paid add-on. Please contact the author to purchase a license.  
+📧 Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+🛒 A third-party store is coming soon for convenient purchase and licensing.
 
 ## 📦 Installation
 
@@ -79,76 +80,33 @@ For production-ready applications requiring studio-quality audio, consider the *
 ### Basic Recording Example
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class SimpleRecorder : MonoBehaviour
 {
-    private RecordingHandle _recordingHandle;
-    private AudioCapturer _audioCapturer;
-    private AudioClip _recordedClip;
+    private RecordingHandle _handle;
+    private AudioWorkerBlueprint _bpCapture;
 
     void Start()
     {
-        // Initialize and check for available devices
+        if (!PermissionUtils.HasPermission()) return;
         EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        
-        if (devices.Length == 0)
-        {
-            Debug.LogError("No microphone devices found.");
-            return;
-        }
+        var devs = EasyMicAPI.Devices;
+        if (devs.Length == 0) return;
 
-        // Start recording with optimal settings
-        _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name, 
-            SampleRate.Hz48000,  // High quality sample rate
-            Channel.Mono        // Mono for efficiency
-        );
-
-        if (!_recordingHandle.IsValid)
-        {
-            Debug.LogError("Failed to start recording.");
-            return;
-        }
-
-        // Create and configure audio capturer
-        _audioCapturer = new AudioCapturer(); 
-        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
-
-        Debug.Log("🎙️ Recording started for 5 seconds...");
-        
-        // Auto-stop after 5 seconds
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _handle = EasyMicAPI.StartRecording(devs[0].Name, SampleRate.Hz48000, devs[0].GetDeviceChannel(), new[]{ _bpCapture });
         Invoke(nameof(StopRecording), 5f);
     }
 
     void StopRecording()
     {
-        if (!_recordingHandle.IsValid) return;
-
-        // Stop recording and retrieve audio
-        EasyMicAPI.StopRecording(_recordingHandle);
-        _recordedClip = _audioCapturer.GetCapturedAudioClip();
-
-        if (_recordedClip != null)
-        {
-            Debug.Log($"✅ Recording complete! Duration: {_recordedClip.length:F2}s");
-            
-            // Optional: Play the recorded audio
-            var audioSource = GetComponent<AudioSource>();
-            if (audioSource != null)
-                audioSource.PlayOneShot(_recordedClip);
-        }
-        
-        _recordingHandle = default;
-    }
-
-    void OnDestroy()
-    {
-        // Cleanup resources
-        if (_recordingHandle.IsValid)
-            EasyMicAPI.StopRecording(_recordingHandle);
+        if (!_handle.IsValid) return;
+        EasyMicAPI.StopRecording(_handle);
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_handle, _bpCapture);
+        var clip = capturer?.GetCapturedAudioClip();
+        if (clip != null) GetComponent<AudioSource>()?.PlayOneShot(clip);
+        _handle = default;
     }
 }
 ```
@@ -156,44 +114,27 @@ public class SimpleRecorder : MonoBehaviour
 ### Advanced Pipeline Example
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class AdvancedAudioPipeline : MonoBehaviour
 {
-    private RecordingHandle _recordingHandle;
-    private VolumeGateFilter _noiseGate;
-    private AudioDownmixer _downmixer;
-    private AudioCapturer _capturer;
+    private RecordingHandle _handle;
+    private AudioWorkerBlueprint _bpGate, _bpDownmix, _bpCapture;
 
     void Start()
     {
+        if (!PermissionUtils.HasPermission()) return;
         EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        
-        // Start recording in stereo
-        _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name, 
-            SampleRate.Hz44100, 
-            Channel.Stereo
-        );
+        var d = EasyMicAPI.Devices;
+        if (d.Length == 0) return;
 
-        if (!_recordingHandle.IsValid) return;
+        _bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -35 }, key: "gate");
+        _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
 
-        // Build processing pipeline
-        _noiseGate = new VolumeGateFilter { Threshold = 0.01f };
-        _downmixer = new AudioDownmixer();
-        _capturer = new AudioCapturer();
-
-        // Add processors in order
-        EasyMicAPI.AddProcessor(_recordingHandle, _noiseGate);   // 1. Remove noise
-        EasyMicAPI.AddProcessor(_recordingHandle, _downmixer);  // 2. Convert to mono
-        EasyMicAPI.AddProcessor(_recordingHandle, _capturer);   // 3. Capture result
-
-        Debug.Log("🔧 Advanced pipeline active with noise gate and downmixing");
+        _handle = EasyMicAPI.StartRecording(d[0].Name, SampleRate.Hz44100, d[0].GetDeviceChannel(),
+            new[]{ _bpGate, _bpDownmix, _bpCapture });
     }
-    
-    // ... rest of implementation
 }
 ```
 

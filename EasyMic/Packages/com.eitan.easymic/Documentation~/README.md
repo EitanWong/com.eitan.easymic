@@ -7,6 +7,7 @@ Welcome to the comprehensive documentation for Easy Mic - a high-performance, lo
 ### English Documentation
 - **[Getting Started](en/getting-started.md)** - Quick setup and first steps
 - **[Core Concepts](en/core-concepts.md)** - Understanding EasyMic's architecture  
+- **[Architecture](en/architecture.md)** - Internals, threading model, and blueprints
 - **[Audio Pipeline](en/audio-pipeline.md)** - Deep dive into the processing pipeline
 - **[API Reference](en/api-reference.md)** - Complete API documentation
 - **[Built-in Processors](en/processors.md)** - Guide to all included processors
@@ -17,6 +18,7 @@ Welcome to the comprehensive documentation for Easy Mic - a high-performance, lo
 ### 中文文档
 - **[快速入门](zh-CN/getting-started.md)** - 快速设置和第一步
 - **[核心概念](zh-CN/core-concepts.md)** - 理解 EasyMic 的架构
+- **[架构总览](zh-CN/architecture.md)** - 内部原理、线程模型与蓝图
 - **[音频流水线](zh-CN/audio-pipeline.md)** - 深入了解处理流水线
 - **[API 参考](zh-CN/api-reference.md)** - 完整的 API 文档
 - **[内置处理器](zh-CN/processors.md)** - 所有包含处理器的指南

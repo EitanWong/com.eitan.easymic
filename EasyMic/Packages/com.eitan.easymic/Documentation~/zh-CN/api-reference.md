@@ -126,6 +126,24 @@ var handle = EasyMicAPI.StartRecording(defaultDevice, SampleRate.Hz48000);
 
 ---
 
+#### `StartRecording()` - 携带“处理器蓝图”
+```csharp
+public static RecordingHandle StartRecording(
+    SampleRate sampleRate,
+    IEnumerable<AudioWorkerBlueprint> workers)
+
+public static RecordingHandle StartRecording(
+    string deviceName, SampleRate sampleRate, Channel channel,
+    IEnumerable<AudioWorkerBlueprint> workers)
+
+public static RecordingHandle StartRecording(
+    MicDevice device, SampleRate sampleRate, Channel channel,
+    IEnumerable<AudioWorkerBlueprint> workers)
+```
+传入蓝图集合以构建流水线。每个会话都会从蓝图“新建”自己的处理器实例。
+
+---
+
 #### `StopRecording()`
 ```csharp
 public static void StopRecording(RecordingHandle handle)
@@ -155,38 +173,55 @@ EasyMicAPI.StopAllRecordings();
 
 ---
 
+#### `DefaultWorkers`
+```csharp
+public static List<AudioWorkerBlueprint> DefaultWorkers { get; set; }
+```
+可配置的全局默认蓝图集合。对于未显式传入 `workers` 的 StartRecording 重载会自动使用它。
+
+---
+
 #### `AddProcessor()`
 ```csharp
-public static void AddProcessor(RecordingHandle handle, IAudioWorker processor)
+public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
 ```
-向录音会话的流水线添加音频处理器。
+按蓝图在运行时新增处理器（同 key 已存在则忽略）。
 
 **参数：**
 - `handle` - 录音句柄
-- `processor` - 要添加的音频处理器
+- `blueprint` - 处理器蓝图（包含工厂与稳定 key）
 
 **示例：**
 ```csharp
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(recordingHandle, capturer);
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 ```
 
 ---
 
 #### `RemoveProcessor()`
 ```csharp
-public static void RemoveProcessor(RecordingHandle handle, IAudioWorker processor)
+public static void RemoveProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
 ```
-从录音会话的流水线移除音频处理器。
+按蓝图 key 从流水线中移除并释放处理器。
 
 **参数：**
 - `handle` - 录音句柄
-- `processor` - 要移除的音频处理器
+- `blueprint` - 处理器蓝图（根据 key 匹配）
 
 **示例：**
 ```csharp
-EasyMicAPI.RemoveProcessor(recordingHandle, noisegateProcessor);
+EasyMicAPI.RemoveProcessor(recordingHandle, bpCapture);
 ```
+
+---
+
+#### `GetProcessor<T>()`
+```csharp
+public static T GetProcessor<T>(RecordingHandle handle, AudioWorkerBlueprint blueprint)
+    where T : class, IAudioWorker
+```
+按蓝图查询该会话内绑定的具体处理器实例。未找到返回 `null`。
 
 ---
 
