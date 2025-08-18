@@ -18,6 +18,10 @@ namespace Eitan.EasyMic.Runtime
         private int _resFrames;      // frames currently in _resBuf
         private double _phase;       // fractional source frame index
 
+        // Meters (snapshot by last render)
+        private float[] _meterPeak; // per-output-channel of last render
+        private float[] _meterRms;  // per-output-channel of last render
+
         public float Volume { get; set; } = 1.0f;
         public bool Mute { get; set; } = false;
         public bool Solo { get; set; } = false;
@@ -27,11 +31,11 @@ namespace Eitan.EasyMic.Runtime
 
         public AudioPipeline Pipeline => _pipeline;
 
-        public PlaybackAudioSource(int channels, int sampleRate, int queueSeconds = 1, AudioMixer attachTo = null)
+        public PlaybackAudioSource(int channels, int sampleRate, float queueSeconds = 0.1f, AudioMixer attachTo = null)
         {
             Channels = Math.Max(1, channels);
             SampleRate = Math.Max(8000, sampleRate);
-            int cap = Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2);
+            int cap = (int)Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2);
             _queue = new AudioBuffer(cap);
             _work = new float[Math.Max(Channels * SampleRate / 50, 256)]; // ~20ms default min
             _pipeline = new AudioPipeline();
@@ -61,6 +65,21 @@ namespace Eitan.EasyMic.Runtime
             if (destination.IsEmpty) return;
             if (Mute || Volume <= 0f) return;
 
+            // Local meter accumulation for this render pass (in output channel domain)
+            int outCh = Math.Max(1, sysChannels);
+            float[] peakLocal = null;
+            double[] sumSqLocal = null;
+            int framesAccum = 0;
+            void EnsureMeterBuffers()
+            {
+                if (peakLocal == null || peakLocal.Length != outCh)
+                {
+                    peakLocal = new float[outCh];
+                    sumSqLocal = new double[outCh];
+                    for (int i = 0; i < outCh; i++) { peakLocal[i] = 0f; sumSqLocal[i] = 0.0; }
+                }
+            }
+
             if (sysChannels == Channels && sysSampleRate == SampleRate)
             {
                 int needed = destination.Length;
@@ -79,13 +98,51 @@ namespace Eitan.EasyMic.Runtime
                     _pipeline.OnAudioPass(new Span<float>(_work, 0, readAligned), _state);
                     if (Volume != 1.0f)
                     {
+                        // meters over this chunk
+                        EnsureMeterBuffers();
+                        int frames = readAligned / Channels;
+                        for (int f = 0; f < frames; f++)
+                        {
+                            int b = f * Channels;
+                            for (int ch = 0; ch < Channels; ch++)
+                            {
+                                float s = _work[b + ch] * Volume;
+                                float a = MathF.Abs(s);
+                                if (a > peakLocal[ch]) peakLocal[ch] = a;
+                                sumSqLocal[ch] += s * s;
+                            }
+                        }
+                        framesAccum += frames;
+
                         for (int i = 0; i < readAligned; i++) destination[processed + i] += _work[i] * Volume;
                     }
                     else
                     {
+                        EnsureMeterBuffers();
+                        int frames = readAligned / Channels;
+                        for (int f = 0; f < frames; f++)
+                        {
+                            int b = f * Channels;
+                            for (int ch = 0; ch < Channels; ch++)
+                            {
+                                float s = _work[b + ch];
+                                float a = MathF.Abs(s);
+                                if (a > peakLocal[ch]) peakLocal[ch] = a;
+                                sumSqLocal[ch] += s * s;
+                            }
+                        }
+                        framesAccum += frames;
                         for (int i = 0; i < readAligned; i++) destination[processed + i] += _work[i];
                     }
                     processed += readAligned;
+                }
+                // Commit meters snapshot
+                if (framesAccum > 0)
+                {
+                    var rms = new float[outCh];
+                    for (int ch = 0; ch < outCh; ch++) rms[ch] = (float)Math.Sqrt(sumSqLocal[ch] / framesAccum);
+                    _meterPeak = peakLocal;
+                    _meterRms = rms;
                 }
                 return;
             }
@@ -121,6 +178,7 @@ namespace Eitan.EasyMic.Runtime
                 _resFrames += readAligned / Channels;
             }
 
+            EnsureMeterBuffers();
             int outIndex = 0;
             for (int f = 0; f < outFrames; f++)
             {
@@ -131,31 +189,50 @@ namespace Eitan.EasyMic.Runtime
                 {
                     for (int ch = 0; ch < sysChannels; ch++)
                     {
-                        float v = CubicAtChannel(_resBuf, _resFrames, Channels, i0, ch, t);
-                        destination[outIndex++] += v * Volume;
+                        float s = CubicAtChannel(_resBuf, _resFrames, Channels, i0, ch, t) * Volume;
+                        destination[outIndex++] += s;
+                        float a = MathF.Abs(s);
+                        if (a > peakLocal[ch]) peakLocal[ch] = a;
+                        sumSqLocal[ch] += s * s;
                     }
                 }
                 else if (Channels == 1 && sysChannels == 2)
                 {
-                    float mono = CubicAtChannel(_resBuf, _resFrames, 1, i0, 0, t) * Volume;
-                    destination[outIndex++] += mono;
-                    destination[outIndex++] += mono;
+                    float s = CubicAtChannel(_resBuf, _resFrames, 1, i0, 0, t) * Volume;
+                    destination[outIndex++] += s;
+                    destination[outIndex++] += s;
+                    float a = MathF.Abs(s);
+                    if (a > peakLocal[0]) peakLocal[0] = a;
+                    if (a > peakLocal[1]) peakLocal[1] = a;
+                    sumSqLocal[0] += s * s;
+                    sumSqLocal[1] += s * s;
                 }
                 else if (Channels == 2 && sysChannels == 1)
                 {
                     float l = CubicAtChannel(_resBuf, _resFrames, 2, i0, 0, t);
                     float r = CubicAtChannel(_resBuf, _resFrames, 2, i0, 1, t);
-                    destination[outIndex++] += (l + r) * 0.5f * Volume;
+                    float s = (l + r) * 0.5f * Volume;
+                    destination[outIndex++] += s;
+                    float a = MathF.Abs(s);
+                    if (a > peakLocal[0]) peakLocal[0] = a;
+                    sumSqLocal[0] += s * s;
                 }
                 else
                 {
                     float avg = 0f;
                     for (int ch = 0; ch < Channels; ch++) avg += CubicAtChannel(_resBuf, _resFrames, Channels, i0, ch, t);
-                    avg = (avg / Channels) * Volume;
-                    for (int ch = 0; ch < sysChannels; ch++) destination[outIndex++] += avg;
+                    float s = (avg / Channels) * Volume;
+                    for (int ch = 0; ch < sysChannels; ch++)
+                    {
+                        destination[outIndex++] += s;
+                        float a = MathF.Abs(s);
+                        if (a > peakLocal[ch]) peakLocal[ch] = a;
+                        sumSqLocal[ch] += s * s;
+                    }
                 }
                 _phase += step;
                 if ((int)Math.Floor(_phase) + 2 >= _resFrames) break;
+                framesAccum++;
             }
 
             int consumed = Math.Max(0, Math.Min(_resFrames, (int)Math.Floor(_phase) - 1));
@@ -168,6 +245,14 @@ namespace Eitan.EasyMic.Runtime
                 _resFrames = remainingFrames;
                 _phase -= drop;
                 if (_phase < 0) _phase = 0;
+            }
+
+            if (framesAccum > 0)
+            {
+                var rms = new float[outCh];
+                for (int ch = 0; ch < outCh; ch++) rms[ch] = (float)Math.Sqrt(sumSqLocal[ch] / framesAccum);
+                _meterPeak = peakLocal;
+                _meterRms = rms;
             }
         }
 
@@ -212,6 +297,14 @@ namespace Eitan.EasyMic.Runtime
         public void Dispose()
         {
             try { _pipeline.Dispose(); } catch { }
+        }
+
+        public void GetMeters(out float[] peak, out float[] rms)
+        {
+            var p = _meterPeak;
+            var r = _meterRms;
+            peak = p != null ? (float[])p.Clone() : Array.Empty<float>();
+            rms = r != null ? (float[])r.Clone() : Array.Empty<float>();
         }
     }
 }

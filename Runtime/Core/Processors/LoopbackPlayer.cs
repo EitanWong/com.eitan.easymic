@@ -24,7 +24,7 @@ namespace Eitan.EasyMic.Runtime
         public bool IsMuted { get; set; } = false;
 
         /// <summary>Queue size in seconds for the underlying player.</summary>
-        public int QueueSeconds { get; set; } = 2;
+        // public int QueueSeconds { get; set; } = 2;
 
         /// <summary>Prebuffer time in ms to avoid initial underruns.</summary>
         public int PrebufferMs { get; set; } = 60;
@@ -46,7 +46,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 var sys = AudioSystem.Instance;
                 sys.Start();
-                var newSource = new PlaybackAudioSource(curCH, curSR, QueueSeconds, AudioSystem.Instance.MasterMixer);
+                var newSource = new PlaybackAudioSource(curCH, curSR, 0.1f, AudioSystem.Instance.MasterMixer);
                 newSource.Volume = Volume;
 
                 PlaybackAudioSource old;

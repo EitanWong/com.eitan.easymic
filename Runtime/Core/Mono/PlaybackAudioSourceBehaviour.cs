@@ -92,7 +92,7 @@ namespace Eitan.EasyMic.Runtime
                 sys.Start();
             }
 
-            _source = new PlaybackAudioSource(_channels, _sampleRate, 1, sys.MasterMixer);
+            _source = new PlaybackAudioSource(_channels, _sampleRate, 0.1f, sys.MasterMixer);
             _source.name = this.name;
             _source.Volume = _volume;
             _positionFrames = 0;
@@ -120,43 +120,59 @@ namespace Eitan.EasyMic.Runtime
 
         private void Update()
         {
+            FeedFromClip(iterations: 2);
+        }
+
+        private void LateUpdate()
+        {
+            // Top-off in LateUpdate to mitigate editor UI stalls (e.g., window resizing)
+            FeedFromClip(iterations: 1);
+        }
+
+        private void FeedFromClip(int iterations)
+        {
             if (_source == null || _clip == null) return;
-
-            // Check if clip has finished playing
-            int remainingFramesInClip = _clip.samples - _positionFrames;
-            if (remainingFramesInClip <= 0)
-            {
-                if (_loop)
-                {
-                    _positionFrames = 0;
-                    remainingFramesInClip = _clip.samples;
-                }
-                else return; // Playback is complete
-            }
-
-            // Determine how much data to feed based on available buffer space
             int inCh = Mathf.Max(1, _clip.channels);
-            int freeSamples = _source.FreeSamples;
-            if (freeSamples <= 0) return; // Buffer is full, wait for next Update
 
-            int freeFrames = freeSamples / inCh;
-
-            // Decide how many frames to read: the smaller of what's left in the clip vs. what fits in the buffer.
-            int framesToRead = Mathf.Min(remainingFramesInClip, freeFrames);
-            if (framesToRead <= 0) return;
-
-            int samplesToRead = framesToRead * inCh;
-            if (_readBuf == null || _readBuf.Length < samplesToRead)
+            for (int it = 0; it < iterations; it++)
             {
-                _readBuf = new float[samplesToRead];
-            }
+                int remainingFramesInClip = _clip.samples - _positionFrames;
+                if (remainingFramesInClip <= 0)
+                {
+                    if (_loop)
+                    {
+                        _positionFrames = 0;
+                        remainingFramesInClip = _clip.samples;
+                    }
+                    else break; // complete
+                }
 
-            // Read data from the clip and enqueue it
-            if (_clip.GetData(_readBuf, _positionFrames))
-            {
-                int writtenSamples = _source.Enqueue(_readBuf.AsSpan(0, samplesToRead));
-                int writtenFrames = writtenSamples / inCh;
-                _positionFrames += writtenFrames;
+                int freeSamples = _source.FreeSamples;
+                if (freeSamples <= 0) break; // full
+
+                int freeFrames = freeSamples / inCh;
+                if (freeFrames <= 0) break;
+
+                // Read a moderate chunk to reduce GC and keep audio fed even under stalls
+                int framesToRead = Mathf.Min(remainingFramesInClip, freeFrames);
+                // Cap chunk size to avoid very large allocations/read operations
+                framesToRead = Mathf.Min(framesToRead, 8192 / inCh); // ~8192 samples cap
+                if (framesToRead <= 0) break;
+
+                int samplesToRead = framesToRead * inCh;
+                if (_readBuf == null || _readBuf.Length < samplesToRead)
+                {
+                    _readBuf = new float[samplesToRead];
+                }
+
+                if (_clip.GetData(_readBuf, _positionFrames))
+                {
+                    int writtenSamples = _source.Enqueue(_readBuf.AsSpan(0, samplesToRead));
+                    int writtenFrames = writtenSamples / inCh;
+                    _positionFrames += writtenFrames;
+                    if (writtenFrames <= 0) break; // nothing enqueued
+                }
+                else break;
             }
         }
 

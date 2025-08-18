@@ -66,9 +66,10 @@ namespace Eitan.EasyMic.Samples
             _resultPanel.gameObject.SetActive(false);
             _downmixToggle.isOn = true;
 
+
             OnRefreshButtonPressed();
 
-            // Prepare blueprints (no worker instances leak outside sessions)
+            // Prepare worker blueprints
             _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(_maxCaptureDuration), key: "capture");
             _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
         }
@@ -190,12 +191,7 @@ namespace Eitan.EasyMic.Samples
                     return;
                 }
 
-                if (_downmixToggle.isOn)
-                {
-                    // 添加缩混处理器（基于蓝图创建会话实例）
-                    EasyMicAPI.AddProcessor(handle, _bpDownmix);
-                }
-
+                if (_downmixToggle.isOn) { EasyMicAPI.AddProcessor(handle, _bpDownmix); }
                 EasyMicAPI.AddProcessor(handle, _bpCapture);
 
                 // 更新UI到“录制中”状态

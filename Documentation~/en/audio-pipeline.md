@@ -15,39 +15,50 @@ Raw Mic Data → [Processor A] → [Processor B] → [Processor C] → Final Out
 ```
 
 ### Key Characteristics
-- **🔄 Dynamic**: Add/remove processors during recording
-- **🧵 Thread-Safe**: All operations are thread-safe
-- **🎯 Ordered**: Processors execute in the order they were added
-- **🧠 Zero-GC**: No allocations during audio processing
-- **🛡️ Error-Resilient**: Errors in one processor don't crash the pipeline
+- 🔄 Dynamic: Add/remove processors during recording
+- 🧵 Lock‑free on the RT path via immutable snapshots
+- 🎯 Ordered: Processors execute in insertion order
+- 🧠 Zero‑GC on the audio callback
+- 🛡️ Error‑resilient: individual processor errors are contained
 
 ## 🏗️ Pipeline Architecture
 
-### Internal Structure
+### Internal Structure (Immutable Snapshot)
 ```csharp
-public sealed class AudioPipeline : IAudioWorker
+public sealed class AudioPipeline : AudioWriter
 {
-    private readonly List<IAudioWorker> _workers = new List<IAudioWorker>();
-    private readonly object _lock = new object();
+    private IAudioWorker[] _stagesSnap = Array.Empty<IAudioWorker>();
     private AudioState _initializeState;
     private bool _isInitialized;
-    
-    public int WorkerCount { get; } // Thread-safe access to worker count
+
+    public int WorkerCount => Volatile.Read(ref _stagesSnap).Length;
+
+    public void AddWorker(IAudioWorker w)
+    {
+        if (_isInitialized) w.Initialize(_initializeState);
+        while (true)
+        {
+            var cur = Volatile.Read(ref _stagesSnap);
+            if (Array.IndexOf(cur, w) >= 0) return;
+            var next = new IAudioWorker[cur.Length + 1];
+            Array.Copy(cur, next, cur.Length);
+            next[^1] = w;
+            if (Interlocked.CompareExchange(ref _stagesSnap, next, cur) == cur) break;
+        }
+    }
 }
 ```
 
-### Thread Safety Design
-The pipeline uses careful locking to ensure thread safety:
-
+### Real‑time Processing Path
 ```csharp
-// Thread-safe operations
-lock (_lock)
+protected override void OnAudioWrite(Span<float> buffer, AudioState state)
 {
-    if (!_workers.Contains(worker))
+    var stages = Volatile.Read(ref _stagesSnap);
+    for (int i = 0; i < stages.Length; i++)
     {
-        _workers.Add(worker);
-        if (_isInitialized)
-            worker.Initialize(_initializeState);
+        var w = stages[i];
+        int curLen = Math.Min(Math.Max(state.Length, 0), buffer.Length);
+        w.OnAudioPass(buffer.Slice(0, curLen), state);
     }
 }
 ```

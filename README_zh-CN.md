@@ -55,8 +55,9 @@ Easy Mic 配备了全面的音频处理器套件：
 
 **非常适合AI数字人和虚拟主播**: 解决了基于Unity的对话AI应用中系统输出干扰麦克风输入的关键回声问题。
 
-📧 **对APM感兴趣？** 联系：[unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
-🛒 **第三方商店即将推出** 便于购买和许可。
+💰 APM 为付费扩展包，使用前需联系作者购买许可证。  
+📧 联系方式：[unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+🛒 第三方商店即将上线，便于购买与授权。
 
 ## 📦 安装
 
@@ -76,76 +77,33 @@ Easy Mic 配备了全面的音频处理器套件：
 ### 基础录制示例
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class SimpleRecorder : MonoBehaviour
 {
-    private RecordingHandle _recordingHandle;
-    private AudioCapturer _audioCapturer;
-    private AudioClip _recordedClip;
+    private RecordingHandle _handle;
+    private AudioWorkerBlueprint _bpCapture;
 
     void Start()
     {
-        // 初始化并检查可用设备
+        if (!PermissionUtils.HasPermission()) return;
         EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        
-        if (devices.Length == 0)
-        {
-            Debug.LogError("未找到麦克风设备。");
-            return;
-        }
+        var devs = EasyMicAPI.Devices;
+        if (devs.Length == 0) return;
 
-        // 使用最佳设置开始录制
-        _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name, 
-            SampleRate.Hz48000,  // 高质量采样率
-            Channel.Mono        // 单声道以提高效率
-        );
-
-        if (!_recordingHandle.IsValid)
-        {
-            Debug.LogError("开始录制失败。");
-            return;
-        }
-
-        // 创建并配置音频捕获器
-        _audioCapturer = new AudioCapturer(); 
-        EasyMicAPI.AddProcessor(_recordingHandle, _audioCapturer);
-
-        Debug.Log("🎙️ 开始录制5秒钟...");
-        
-        // 5秒后自动停止
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _handle = EasyMicAPI.StartRecording(devs[0].Name, SampleRate.Hz48000, devs[0].GetDeviceChannel(), new[]{ _bpCapture });
         Invoke(nameof(StopRecording), 5f);
     }
 
     void StopRecording()
     {
-        if (!_recordingHandle.IsValid) return;
-
-        // 停止录制并检索音频
-        EasyMicAPI.StopRecording(_recordingHandle);
-        _recordedClip = _audioCapturer.GetCapturedAudioClip();
-
-        if (_recordedClip != null)
-        {
-            Debug.Log($"✅ 录制完成！持续时间：{_recordedClip.length:F2}秒");
-            
-            // 可选：播放录制的音频
-            var audioSource = GetComponent<AudioSource>();
-            if (audioSource != null)
-                audioSource.PlayOneShot(_recordedClip);
-        }
-        
-        _recordingHandle = default;
-    }
-
-    void OnDestroy()
-    {
-        // 清理资源
-        if (_recordingHandle.IsValid)
-            EasyMicAPI.StopRecording(_recordingHandle);
+        if (!_handle.IsValid) return;
+        EasyMicAPI.StopRecording(_handle);
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_handle, _bpCapture);
+        var clip = capturer?.GetCapturedAudioClip();
+        if (clip != null) GetComponent<AudioSource>()?.PlayOneShot(clip);
+        _handle = default;
     }
 }
 ```
@@ -153,44 +111,27 @@ public class SimpleRecorder : MonoBehaviour
 ### 高级流水线示例
 ```csharp
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Core.Processors;
 using UnityEngine;
 
 public class AdvancedAudioPipeline : MonoBehaviour
 {
-    private RecordingHandle _recordingHandle;
-    private VolumeGateFilter _noiseGate;
-    private AudioDownmixer _downmixer;
-    private AudioCapturer _capturer;
+    private RecordingHandle _handle;
+    private AudioWorkerBlueprint _bpGate, _bpDownmix, _bpCapture;
 
     void Start()
     {
+        if (!PermissionUtils.HasPermission()) return;
         EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        
-        // 开始立体声录制
-        _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name, 
-            SampleRate.Hz44100, 
-            Channel.Stereo
-        );
+        var d = EasyMicAPI.Devices;
+        if (d.Length == 0) return;
 
-        if (!_recordingHandle.IsValid) return;
+        _bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -35 }, key: "gate");
+        _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
 
-        // 构建处理流水线
-        _noiseGate = new VolumeGateFilter { Threshold = 0.01f };
-        _downmixer = new AudioDownmixer();
-        _capturer = new AudioCapturer();
-
-        // 按顺序添加处理器
-        EasyMicAPI.AddProcessor(_recordingHandle, _noiseGate);   // 1. 去噪
-        EasyMicAPI.AddProcessor(_recordingHandle, _downmixer);  // 2. 转换为单声道
-        EasyMicAPI.AddProcessor(_recordingHandle, _capturer);   // 3. 捕获结果
-
-        Debug.Log("🔧 高级流水线已激活，包含噪声门和降混");
+        _handle = EasyMicAPI.StartRecording(d[0].Name, SampleRate.Hz44100, d[0].GetDeviceChannel(),
+            new[]{ _bpGate, _bpDownmix, _bpCapture });
     }
-    
-    // ... 其余实现
 }
 ```
 
