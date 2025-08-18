@@ -10,7 +10,7 @@ namespace Eitan.EasyMic.Runtime
     /// </summary>
     public sealed class AudioPipeline : AudioWriter
     {
-        // 不区分读写的顺序快照
+        // 不区分读写的顺序快照（通过 Volatile/Interlocked 保证可见性与原子性）
         private IAudioWorker[] _stagesSnap = Array.Empty<IAudioWorker>();
         private bool _isDisposed = false;
 
@@ -149,43 +149,6 @@ namespace Eitan.EasyMic.Runtime
                 }
                 catch { /* RT 安全：吞掉异常，保障音频回调不中断 */ }
             }
-        }
-
-        /// <summary>
-        /// Executes all AudioReaders asynchronously in parallel.
-        /// Since they're read-only, they can process concurrently without conflicts.
-        /// </summary>
-        private void ProcessReadersAsync(Span<float> buffer, AudioState state)
-        {
-            if (_readers.Count == 0) return;
-
-            // Create copies for async processing since readers only need read access
-            float[] bufferCopy = buffer.ToArray();
-            AudioState stateCopy = state;
-
-            // Fire-and-forget async processing for all readers
-            _ = Task.Run(() =>
-            {
-                // Process all readers in parallel
-                Parallel.ForEach(_readers, reader =>
-                {
-                    try
-                    {
-                        Span<float> readerBuffer = bufferCopy.AsSpan();
-                        if (stateCopy.Length > 0 && stateCopy.Length < readerBuffer.Length)
-                        {
-                            readerBuffer = readerBuffer.Slice(0, stateCopy.Length);
-                        }
-                        
-                        // Async execution - reader gets read-only access
-                        reader.OnAudioPass(readerBuffer, stateCopy);
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.LogError($"Error in audio reader '{reader.GetType().Name}': {ex.Message}");
-                    }
-                });
-            });
         }
 
         public bool Contains(IAudioWorker worker)

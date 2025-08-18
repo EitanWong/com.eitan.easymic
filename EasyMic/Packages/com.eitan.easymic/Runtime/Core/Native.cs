@@ -94,7 +94,11 @@ namespace Eitan.EasyMic.Runtime
         #region Device
 
         [DllImport(LibraryName, EntryPoint = "sf_get_devices", CallingConvention = CallingConvention.Cdecl)]
-        public static extern Result GetDevices(IntPtr context, out IntPtr pPlaybackDevices, out IntPtr pCaptureDevices, out IntPtr playbackDeviceCount, out IntPtr captureDeviceCount);
+        public static extern Result GetDevices(IntPtr context,
+            out IntPtr pPlaybackDevices,
+            out IntPtr pCaptureDevices,
+            out uint playbackDeviceCount,
+            out uint captureDeviceCount);
 
         // [DllImport(LibraryName, EntryPoint = "ma_context_get_device_info", CallingConvention = CallingConvention.Cdecl)]
         // public static extern Result GetDeviceInfo(IntPtr context, DeviceType deviceType, ma_device_id pDeviceID, out IntPtr pDeviceInfo);
@@ -151,6 +155,10 @@ namespace Eitan.EasyMic.Runtime
 
         [DllImport(LibraryName, EntryPoint = "sf_free", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Free(IntPtr ptr);
+
+        // Frees an array of sf_device_info including their nested nativeDataFormats.
+        [DllImport(LibraryName, EntryPoint = "sf_free_device_infos", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void FreeDeviceInfos(IntPtr deviceInfos, uint count);
 
         #endregion
 

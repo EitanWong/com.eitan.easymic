@@ -13,6 +13,12 @@ namespace Eitan.EasyMic.Runtime
         private bool _disposed = false;
         private int _nextRecordingId = 1;
 
+        // Hold native device info arrays alive to keep NativeDataFormats pointers valid
+        private IntPtr _nativePlaybackInfos = IntPtr.Zero;
+        private uint _nativePlaybackCount = 0;
+        private IntPtr _nativeCaptureInfos = IntPtr.Zero;
+        private uint _nativeCaptureCount = 0;
+
         // Thread-safe collections for managing multiple recordings
         private readonly Dictionary<int, RecordingSession> _activeRecordings = new Dictionary<int, RecordingSession>();
         private readonly object _operateLock = new object();
@@ -78,6 +84,25 @@ namespace Eitan.EasyMic.Runtime
             // Stop all recordings
             StopAllRecordings();
 
+            // Free device info arrays if retained
+            try
+            {
+                if (_nativePlaybackInfos != IntPtr.Zero && _nativePlaybackCount > 0)
+                {
+                    Native.FreeDeviceInfos(_nativePlaybackInfos, _nativePlaybackCount);
+                }
+                if (_nativeCaptureInfos != IntPtr.Zero && _nativeCaptureCount > 0)
+                {
+                    Native.FreeDeviceInfos(_nativeCaptureInfos, _nativeCaptureCount);
+                }
+            }
+            catch { }
+            finally
+            {
+                _nativePlaybackInfos = IntPtr.Zero; _nativePlaybackCount = 0;
+                _nativeCaptureInfos = IntPtr.Zero; _nativeCaptureCount = 0;
+            }
+
             // Free unmanaged resources
             if (_context != IntPtr.Zero)
             {
@@ -119,7 +144,12 @@ namespace Eitan.EasyMic.Runtime
                 {
                     if (devs[i].IsDefault) { chosen = devs[i]; break; }
                 }
-                if (chosen.Id == IntPtr.Zero && devs.Length > 0) chosen = devs[0];
+                if (chosen.Id == IntPtr.Zero && devs.Length > 0)
+                {
+                    chosen = devs[0];
+                }
+
+
                 if (chosen.Id == IntPtr.Zero)
                 {
                     // 无可用设备：返回默认句柄，调用侧可据此识别失败
@@ -152,7 +182,12 @@ namespace Eitan.EasyMic.Runtime
                 {
                     if (devs[i].IsDefault) { chosen = devs[i]; break; }
                 }
-                if (chosen.Id == IntPtr.Zero && devs.Length > 0) chosen = devs[0];
+                if (chosen.Id == IntPtr.Zero && devs.Length > 0)
+                {
+                    chosen = devs[0];
+                }
+
+
                 if (chosen.Id == IntPtr.Zero)
                 {
                     UnityEngine.Debug.LogError("EasyMic: No valid capture device available.");
@@ -246,7 +281,12 @@ namespace Eitan.EasyMic.Runtime
 
         public T GetProcessor<T>(RecordingHandle handle, AudioWorkerBlueprint blueprint) where T : class, IAudioWorker
         {
-            if (!handle.IsValid) return null;
+            if (!handle.IsValid)
+            {
+                return null;
+            }
+
+
             lock (_operateLock)
             {
                 if (_activeRecordings.TryGetValue(handle.Id, out var session))
@@ -298,8 +338,20 @@ namespace Eitan.EasyMic.Runtime
         {
             ThrowIfDisposed();
 
+            // Free previous retained arrays first to prevent leaks
+            if (_nativePlaybackInfos != IntPtr.Zero && _nativePlaybackCount > 0)
+            {
+                try { Native.FreeDeviceInfos(_nativePlaybackInfos, _nativePlaybackCount); } catch { }
+                _nativePlaybackInfos = IntPtr.Zero; _nativePlaybackCount = 0;
+            }
+            if (_nativeCaptureInfos != IntPtr.Zero && _nativeCaptureCount > 0)
+            {
+                try { Native.FreeDeviceInfos(_nativeCaptureInfos, _nativeCaptureCount); } catch { }
+                _nativeCaptureInfos = IntPtr.Zero; _nativeCaptureCount = 0;
+            }
+
             var result = Native.GetDevices(_context, out var pPlaybackDevices, out var pCaptureDevices,
-                out var playbackDeviceCount, out var captureDeviceCount);
+                out uint playbackDeviceCount, out uint captureDeviceCount);
 
             if (result != Native.Result.Success)
             {
@@ -310,27 +362,27 @@ namespace Eitan.EasyMic.Runtime
 
             try
             {
-                if (pCaptureDevices == IntPtr.Zero || captureDeviceCount == IntPtr.Zero)
+                if (pCaptureDevices == IntPtr.Zero || captureDeviceCount == 0)
                 {
-
+                    // Retain whatever was returned (even if null) for symmetry
+                    _nativePlaybackInfos = pPlaybackDevices; _nativePlaybackCount = playbackDeviceCount;
+                    _nativeCaptureInfos = pCaptureDevices; _nativeCaptureCount = captureDeviceCount;
                     return Array.Empty<MicDevice>();
                 }
 
-
+                // Retain pointers so NativeDataFormats pointers stay valid
+                _nativePlaybackInfos = pPlaybackDevices; _nativePlaybackCount = playbackDeviceCount;
+                _nativeCaptureInfos = pCaptureDevices; _nativeCaptureCount = captureDeviceCount;
                 return pCaptureDevices.ReadArray<MicDevice>(deviceCount);
             }
-            finally
+            catch
             {
-                if (pPlaybackDevices != IntPtr.Zero)
-                {
-                    Native.Free(pPlaybackDevices);
-                }
-
-                if (pCaptureDevices != IntPtr.Zero)
-                {
-                    Native.Free(pCaptureDevices);
-                }
-
+                // If anything failed, best-effort free and reset
+                try { if (pPlaybackDevices != IntPtr.Zero && playbackDeviceCount > 0) { Native.FreeDeviceInfos(pPlaybackDevices, playbackDeviceCount); } } catch { }
+                try { if (pCaptureDevices != IntPtr.Zero && captureDeviceCount > 0) { Native.FreeDeviceInfos(pCaptureDevices, captureDeviceCount); } } catch { }
+                _nativePlaybackInfos = IntPtr.Zero; _nativePlaybackCount = 0;
+                _nativeCaptureInfos = IntPtr.Zero; _nativeCaptureCount = 0;
+                return Array.Empty<MicDevice>();
             }
         }
 
@@ -364,7 +416,7 @@ namespace Eitan.EasyMic.Runtime
 
             private readonly System.Collections.Generic.Dictionary<AudioWorkerBlueprint, IAudioWorker> _workerMap = new System.Collections.Generic.Dictionary<AudioWorkerBlueprint, IAudioWorker>();
 
-            private readonly uint _channelCount;
+            private uint _channelCount;
             private readonly uint _sampleRate;
             private readonly AudioState _state;
 
@@ -385,29 +437,31 @@ namespace Eitan.EasyMic.Runtime
                     SampleRate = sampleRate;
                     Channel = channel;
                     _channelCount = (uint)channel;
-                    _sampleRate = (uint)sampleRate;
                     _audioPipeline = new AudioPipeline();
-                    _state = new AudioState((int)_channelCount, (int)_sampleRate, (int)(_channelCount * _sampleRate));
                     // Build pipeline from worker blueprints if provided (create fresh workers per session)
                     if (blueprints != null)
                     {
                         foreach (var bp in blueprints)
                         {
-                            if (bp == null) continue;
+                            if (bp == null)
+                            {
+                                continue;
+                            }
+
+
                             var w = bp.Create();
                             _workerMap[bp] = w;
                             _audioPipeline.AddWorker(w);
                         }
                     }
-                    _audioPipeline.Initialize(_state);
-
                     // Pin this object so the native layer can safely reference it via the callback
                     _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-
-                    // Prefer extended config with pUserData when available; otherwise use simplified helper
+                    _sampleRate = (uint)sampleRate;
+                    // Use legacy-proven explicit config path with device ID and explicit format
+                    IntPtr cfg;
                     try
                     {
-                        _deviceConfig = Native.AllocateDeviceConfigEx(
+                        cfg = Native.AllocateDeviceConfigEx(
                             Native.DeviceType.Record,
                             Native.SampleFormat.F32,
                             _channelCount,
@@ -420,32 +474,81 @@ namespace Eitan.EasyMic.Runtime
                     }
                     catch (System.EntryPointNotFoundException)
                     {
-                        // Newer simplified config helper (no userData, device defaults)
-                        _deviceConfig = Native.AllocateDeviceConfig(
-                            Native.Capability.Record,
-                            _sampleRate,
-                            _staticAudioCallback,
-                            IntPtr.Zero);
-                        _usingUserDataCallback = false;
+                        // Fallback: build a DTO to explicitly set capture format/channels/device.
+                        var sub = new Sf_DeviceSubConfig
+                        {
+                            format = (int)Native.SampleFormat.F32,
+                            channels = _channelCount,
+                            pDeviceID = device.Id,
+                            shareMode = 0 // ma_share_mode_shared
+                        };
+                        var handleSub = GCHandle.Alloc(sub, GCHandleType.Pinned);
+                        try
+                        {
+                            var dto = new Sf_DeviceConfig
+                            {
+                                periodSizeInFrames = 0,
+                                periodSizeInMilliseconds = 0,
+                                periods = 0,
+                                noPreSilencedOutputBuffer = 0,
+                                noClip = 0,
+                                noDisableDenormals = 0,
+                                noFixedSizedCallback = 0,
+                                playback = IntPtr.Zero,
+                                capture = handleSub.AddrOfPinnedObject(),
+                                wasapi = IntPtr.Zero,
+                                coreaudio = IntPtr.Zero,
+                                alsa = IntPtr.Zero,
+                                pulse = IntPtr.Zero,
+                                opensl = IntPtr.Zero,
+                                aaudio = IntPtr.Zero
+                            };
+                            var handleDto = GCHandle.Alloc(dto, GCHandleType.Pinned);
+                            try
+                            {
+                                cfg = Native.AllocateDeviceConfig(Native.Capability.Record, _sampleRate, _staticAudioCallback, handleDto.AddrOfPinnedObject());
+                                _usingUserDataCallback = false;
+                            }
+                            finally
+                            {
+                                handleDto.Free();
+                            }
+                        }
+                        finally
+                        {
+                            handleSub.Free();
+                        }
+                    }
+                    if (cfg == IntPtr.Zero)
+                    {
+                        throw new InvalidOperationException("Unable to allocate device config.");
                     }
 
+
+                    _deviceConfig = cfg;
                     _devicePtr = Native.AllocateDevice();
+                    if (_devicePtr == IntPtr.Zero)
+                    {
+                        throw new InvalidOperationException("Unable to allocate device.");
+                    }
+
+
                     var result = Native.DeviceInit(this._context, _deviceConfig, _devicePtr);
                     if (result != Native.Result.Success)
                     {
                         throw new InvalidOperationException($"Unable to init device. {result}");
                     }
-
-                    if (!_usingUserDataCallback)
-                    {
-                        _devicePtrSessionMap[_devicePtr] = this;
-                    }
-
                     result = Native.DeviceStart(_devicePtr);
                     if (result != Native.Result.Success)
                     {
                         throw new InvalidOperationException($"Unable to start device. {result}");
                     }
+                    if (!_usingUserDataCallback) { _devicePtrSessionMap[_devicePtr] = this; }
+
+                    // Initialize pipeline state with requested format
+                    _state = new AudioState((int)_channelCount, (int)_sampleRate, (int)(_channelCount * _sampleRate));
+                    _audioPipeline.Initialize(_state);
+                    try { Debug.Log($"EasyMic: Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch."); } catch { }
                 }
                 catch
                 {
@@ -453,6 +556,7 @@ namespace Eitan.EasyMic.Runtime
                     throw;
                 }
             }
+            
 
             [MonoPInvokeCallback(typeof(Native.AudioCallback))]
             private static void StaticAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
@@ -479,7 +583,10 @@ namespace Eitan.EasyMic.Runtime
 
             private void HandleAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
-                if (_disposed) return;
+                if (_disposed)
+                {
+                    return;
+                }
 
                 var sampleCount = (int)(length * _channelCount);
                 // RT-safe: compute sample count → pass to pipeline (readers enqueue via SPSC)
@@ -492,8 +599,16 @@ namespace Eitan.EasyMic.Runtime
 
             public void AddProcessor(AudioWorkerBlueprint blueprint)
             {
-                if (blueprint == null) return;
-                if (_workerMap.ContainsKey(blueprint)) return;
+                if (blueprint == null)
+                {
+                    return;
+                }
+
+                if (_workerMap.ContainsKey(blueprint))
+                {
+                    return;
+                }
+
                 var w = blueprint.Create();
                 _workerMap[blueprint] = w;
                 _audioPipeline.AddWorker(w);
@@ -501,7 +616,11 @@ namespace Eitan.EasyMic.Runtime
 
             public void RemoveProcessor(AudioWorkerBlueprint blueprint)
             {
-                if (blueprint == null) return;
+                if (blueprint == null)
+                {
+                    return;
+                }
+
                 if (_workerMap.TryGetValue(blueprint, out var w))
                 {
                     _audioPipeline.RemoveWorker(w);
@@ -511,13 +630,22 @@ namespace Eitan.EasyMic.Runtime
 
             public IAudioWorker GetProcessor(AudioWorkerBlueprint blueprint)
             {
-                if (blueprint == null) return null;
+                if (blueprint == null)
+                {
+                    return null;
+                }
+
                 return _workerMap.TryGetValue(blueprint, out var w) ? w : null;
             }
 
             public void Dispose()
             {
-                if (_disposed) return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+
                 _disposed = true;
 
                 if (_devicePtr != IntPtr.Zero && !_usingUserDataCallback)
@@ -582,5 +710,47 @@ namespace Eitan.EasyMic.Runtime
 
             return result;
         }
+    }
+    
+    // Mirror of native_data_format in the C facade; used only for probing device-native formats.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeDataFormat
+    {
+        public int format;           // ma_format (we don't depend on exact values here)
+        public uint channels;
+        public uint sampleRate;
+        public uint flags;
+    }
+
+    // Minimal mirrors of sf_DeviceSubConfig and sf_DeviceConfig for fallback DTO path
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Sf_DeviceSubConfig
+    {
+        public int format;            // ma_format
+        public uint channels;         // ma_uint32
+        public IntPtr pDeviceID;      // const ma_device_id*
+        public int shareMode;         // ma_share_mode
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Sf_DeviceConfig
+    {
+        public uint periodSizeInFrames;
+        public uint periodSizeInMilliseconds;
+        public uint periods;
+        public byte noPreSilencedOutputBuffer;
+        public byte noClip;
+        public byte noDisableDenormals;
+        public byte noFixedSizedCallback;
+
+        public IntPtr playback; // Sf_DeviceSubConfig*
+        public IntPtr capture;  // Sf_DeviceSubConfig*
+
+        public IntPtr wasapi;    // backend-specific ptrs (unused)
+        public IntPtr coreaudio;
+        public IntPtr alsa;
+        public IntPtr pulse;
+        public IntPtr opensl;
+        public IntPtr aaudio;
     }
 }
