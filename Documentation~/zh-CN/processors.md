@@ -50,13 +50,14 @@ public class VolumeAnalyzer : AudioReader
 
 #### 使用方法
 ```csharp
-// 创建10秒最大时长的捕获器
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(recordingHandle, capturer);
+// 创建“蓝图”并加入流水线
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 
-// 稍后获取捕获的音频
-float[] samples = capturer.GetCapturedAudioSamples();
-AudioClip clip = capturer.GetCapturedAudioClip();
+// 稍后通过蓝图获取实例并取回音频
+var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(recordingHandle, bpCapture);
+float[] samples = capturer?.GetCapturedAudioSamples();
+AudioClip clip = capturer?.GetCapturedAudioClip();
 ```
 
 #### 构造函数
@@ -108,8 +109,8 @@ public class AudioCapturer : AudioReader
 
 #### 使用方法
 ```csharp
-var downmixer = new AudioDownmixer();
-EasyMicAPI.AddProcessor(recordingHandle, downmixer);
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+EasyMicAPI.AddProcessor(recordingHandle, bpDownmix);
 ```
 
 #### 混音算法
@@ -203,35 +204,33 @@ public enum VolumeGateState
 
 #### 使用示例
 ```csharp
-// 基本噪音门
-var gate = new VolumeGateFilter
+// 以蓝图形式添加基本噪音门
+var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter
 {
     ThresholdDb = -30f,
     AttackTime = 0.001f,   // 语音快速启动
     ReleaseTime = 0.5f     // 慢速释放避免切断单词
-};
+}, key: "gate");
 
-// 嘈杂环境的激进噪音门
-var aggressiveGate = new VolumeGateFilter
-{
-    ThresholdDb = -20f,    // 更高阈值
-    HoldTime = 0.1f,       // 更短保持时间
-    ReleaseTime = 0.1f     // 更快释放
-};
+EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 
-EasyMicAPI.AddProcessor(recordingHandle, gate);
+// 如需在运行时调整参数，先取回实例
+var gate = EasyMicAPI.GetProcessor<VolumeGateFilter>(recordingHandle, bpGate);
+gate.ThresholdDb = -30f;
 ```
 
 #### 高级配置
 ```csharp
 public class AdaptiveGateController : MonoBehaviour
 {
+    private AudioWorkerBlueprint _bpGate;
     private VolumeGateFilter _gate;
     
     void Start()
     {
-        _gate = new VolumeGateFilter();
-        EasyMicAPI.AddProcessor(recordingHandle, _gate);
+        _bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+        EasyMicAPI.AddProcessor(recordingHandle, _bpGate);
+        _gate = EasyMicAPI.GetProcessor<VolumeGateFilter>(recordingHandle, _bpGate);
     }
     
     void Update()
@@ -299,13 +298,8 @@ private void ProcessAudio(Span<float> audioBuffer)
 
 #### 使用方法
 ```csharp
-var loopback = new LoopbackPlayer
-{
-    Volume = 0.5f,        // 50% 监听音量
-    IsMuted = false       // 启用监听
-};
-
-EasyMicAPI.AddProcessor(recordingHandle, loopback);
+var bpLoop = new AudioWorkerBlueprint(() => new LoopbackPlayer { Volume = 0.5f, IsMuted = false }, key: "loop");
+EasyMicAPI.AddProcessor(recordingHandle, bpLoop);
 ```
 
 #### 实现
@@ -352,11 +346,13 @@ public class LoopbackPlayer : AudioWriter
 
 #### 使用方法
 ```csharp
-var recognizer = new SherpaRealtimeSpeechRecognizer("path/to/model");
+var bpASR = new AudioWorkerBlueprint(() => new SherpaRealtimeSpeechRecognizer("path/to/model"), key: "asr");
+EasyMicAPI.AddProcessor(recordingHandle, bpASR);
+
+// 取回实例并订阅事件
+var recognizer = EasyMicAPI.GetProcessor<SherpaRealtimeSpeechRecognizer>(recordingHandle, bpASR);
 recognizer.OnPartialResult += (text) => Debug.Log($"部分结果：{text}");
 recognizer.OnFinalResult += (text) => Debug.Log($"最终结果：{text}");
-
-EasyMicAPI.AddProcessor(recordingHandle, recognizer);
 ```
 
 #### 事件

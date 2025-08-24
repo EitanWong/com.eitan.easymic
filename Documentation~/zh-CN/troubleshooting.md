@@ -66,18 +66,6 @@ public void DiagnoseDeviceIssues()
     if (!PermissionUtils.HasPermission())
     {
         Debug.LogError("❌ 未授予麦克风权限");
-        PermissionUtils.RequestPermission(granted =>
-        {
-            if (granted)
-            {
-                Debug.Log("✅ 权限已授予，刷新设备");
-                EasyMicAPI.Refresh();
-            }
-            else
-            {
-                Debug.LogError("❌ 用户拒绝权限");
-            }
-        });
         return;
     }
     
@@ -138,29 +126,15 @@ public class SafeRecordingStarter : MonoBehaviour
 {
     public void StartRecordingWithPermissionCheck()
     {
-        if (PermissionUtils.HasPermission())
+        if (!PermissionUtils.HasPermission())
         {
-            StartRecording();
+            Debug.LogError("❌ 未授予麦克风权限");
+            return;
         }
-        else
-        {
-            PermissionUtils.RequestPermission(OnPermissionResult);
-        }
+        StartRecording();
     }
     
-    private void OnPermissionResult(bool granted)
-    {
-        if (granted)
-        {
-            Debug.Log("✅ 权限已授予");
-            StartRecording();
-        }
-        else
-        {
-            Debug.LogError("❌ 权限被拒绝 - 无法录制音频");
-            ShowPermissionRequiredUI();
-        }
-    }
+    // 提示：如未授权，请引导用户在系统设置中开启权限
     
     private void StartRecording()
     {
@@ -345,14 +319,17 @@ var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
 #### 2. 检查处理器顺序
 ```csharp
 // ❌ 处理顺序差
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // 早期捕获
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // 捕获后门控
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // 太晚
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
+EasyMicAPI.AddProcessor(handle, bpc);      // 早期捕获
+EasyMicAPI.AddProcessor(handle, bpg);      // 捕获后门控
+EasyMicAPI.AddProcessor(handle, bpd);      // 太晚
 
 // ✅ 最佳处理顺序
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // 先去除噪音
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // 转换格式
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // 捕获干净音频
+EasyMicAPI.AddProcessor(handle, bpg);      // 先去除噪音
+EasyMicAPI.AddProcessor(handle, bpd);      // 转换格式
+EasyMicAPI.AddProcessor(handle, bpc);      // 捕获干净音频
 ```
 
 #### 3. 正确的声道处理

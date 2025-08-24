@@ -1,6 +1,6 @@
 {
-    "name": "Eitan.EasyMic.Samples",
-    "rootNamespace": "Eitan.EasyMic.Samples",
+    "name": "Eitan.EasyMic.Samples.Playback",
+    "rootNamespace": "Eitan.EasyMic.Samples.Playback",
     "references": [
         "Eitan.EasyMic"
     ],

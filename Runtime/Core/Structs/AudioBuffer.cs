@@ -54,7 +54,11 @@ namespace Eitan.EasyMic.Runtime
         public AudioBuffer(int capacity)
         {
             if (capacity <= 0)
+            {
+
                 throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be positive.");
+            }
+
 
             Capacity = capacity;
             _size = capacity + 1;           // 内部长度，多预留 1
@@ -133,21 +137,31 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Write(ReadOnlySpan<float> data)
         {
-            if (data.IsEmpty) return 0;
+            if (data.IsEmpty)
+            {
+                return 0;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int writable = AvailableToWrite(w, r);
             int toWrite = Math.Min(data.Length, writable);
-            if (toWrite == 0) return 0;
+            if (toWrite == 0)
+            {
+                return 0;
+            }
 
             // 分两段拷贝（处理环绕）
             int first = Math.Min(toWrite, _size - w);
             data.Slice(0, first).CopyTo(new Span<float>(_buffer, w, first));
             int second = toWrite - first;
             if (second > 0)
+            {
                 data.Slice(first, second).CopyTo(new Span<float>(_buffer, 0, second));
+            }
+
 
             Volatile.Write(ref _writePos.Value, Advance(w, toWrite));
             return toWrite;
@@ -159,20 +173,31 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryWriteExact(ReadOnlySpan<float> data)
         {
-            if (data.IsEmpty) return true;
+            if (data.IsEmpty)
+            {
+                return true;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int writable = AvailableToWrite(w, r);
-            if (writable < data.Length) return false;
+            if (writable < data.Length)
+            {
+                return false;
+            }
+
 
             int toWrite = data.Length;
             int first = Math.Min(toWrite, _size - w);
             data.Slice(0, first).CopyTo(new Span<float>(_buffer, w, first));
             int second = toWrite - first;
             if (second > 0)
+            {
                 data.Slice(first, second).CopyTo(new Span<float>(_buffer, 0, second));
+            }
+
 
             Volatile.Write(ref _writePos.Value, Advance(w, toWrite));
             return true;
@@ -186,20 +211,30 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Read(Span<float> destination)
         {
-            if (destination.IsEmpty) return 0;
+            if (destination.IsEmpty)
+            {
+                return 0;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int readable = AvailableToRead(w, r);
             int toRead = Math.Min(destination.Length, readable);
-            if (toRead == 0) return 0;
+            if (toRead == 0)
+            {
+                return 0;
+            }
 
             int first = Math.Min(toRead, _size - r);
             new ReadOnlySpan<float>(_buffer, r, first).CopyTo(destination.Slice(0, first));
             int second = toRead - first;
             if (second > 0)
+            {
                 new ReadOnlySpan<float>(_buffer, 0, second).CopyTo(destination.Slice(first, second));
+            }
+
 
             Volatile.Write(ref _readPos.Value, Advance(r, toRead));
             return toRead;
@@ -212,21 +247,36 @@ namespace Eitan.EasyMic.Runtime
         public bool TryReadExact(Span<float> destination, int count)
         {
             if (count < 0 || count > destination.Length)
-                throw new ArgumentOutOfRangeException(nameof(count));
+            {
 
-            if (count == 0) return true;
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+
+            if (count == 0)
+            {
+                return true;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int readable = AvailableToRead(w, r);
-            if (readable < count) return false;
+            if (readable < count)
+            {
+                return false;
+            }
+
 
             int first = Math.Min(count, _size - r);
             new ReadOnlySpan<float>(_buffer, r, first).CopyTo(destination.Slice(0, first));
             int second = count - first;
             if (second > 0)
+            {
                 new ReadOnlySpan<float>(_buffer, 0, second).CopyTo(destination.Slice(first, second));
+            }
+
 
             Volatile.Write(ref _readPos.Value, Advance(r, count));
             return true;
@@ -238,20 +288,30 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Peek(Span<float> destination)
         {
-            if (destination.IsEmpty) return 0;
+            if (destination.IsEmpty)
+            {
+                return 0;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int readable = AvailableToRead(w, r);
             int toCopy = Math.Min(destination.Length, readable);
-            if (toCopy == 0) return 0;
+            if (toCopy == 0)
+            {
+                return 0;
+            }
 
             int first = Math.Min(toCopy, _size - r);
             new ReadOnlySpan<float>(_buffer, r, first).CopyTo(destination.Slice(0, first));
             int second = toCopy - first;
             if (second > 0)
+            {
                 new ReadOnlySpan<float>(_buffer, 0, second).CopyTo(destination.Slice(first, second));
+            }
+
 
             return toCopy;
         }
@@ -262,14 +322,22 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Skip(int count)
         {
-            if (count <= 0) return 0;
+            if (count <= 0)
+            {
+                return 0;
+            }
+
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
 
             int readable = AvailableToRead(w, r);
             int toSkip = Math.Min(count, readable);
-            if (toSkip == 0) return 0;
+            if (toSkip == 0)
+            {
+                return 0;
+            }
+
 
             Volatile.Write(ref _readPos.Value, Advance(r, toSkip));
             return toSkip;

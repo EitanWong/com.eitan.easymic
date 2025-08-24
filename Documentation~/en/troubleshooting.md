@@ -4,6 +4,8 @@
 
 Common issues, solutions, and debugging techniques for Easy Mic.
 
+Note on processor usage: Add and remove processors via `AudioWorkerBlueprint` (factory + key). To interact with a processor instance (read data, change parameters), retrieve it with `EasyMicAPI.GetProcessor<T>(handle, blueprint)`.
+
 ## 🚨 Installation Issues
 
 ### Package Not Found
@@ -66,18 +68,6 @@ public void DiagnoseDeviceIssues()
     if (!PermissionUtils.HasPermission())
     {
         Debug.LogError("❌ Microphone permission not granted");
-        PermissionUtils.RequestPermission(granted =>
-        {
-            if (granted)
-            {
-                Debug.Log("✅ Permission granted, refreshing devices");
-                EasyMicAPI.Refresh();
-            }
-            else
-            {
-                Debug.LogError("❌ Permission denied by user");
-            }
-        });
         return;
     }
     
@@ -144,20 +134,7 @@ public class SafeRecordingStarter : MonoBehaviour
         }
         else
         {
-            PermissionUtils.RequestPermission(OnPermissionResult);
-        }
-    }
-    
-    private void OnPermissionResult(bool granted)
-    {
-        if (granted)
-        {
-            Debug.Log("✅ Permission granted");
-            StartRecording();
-        }
-        else
-        {
-            Debug.LogError("❌ Permission denied - cannot record audio");
+            Debug.LogError("❌ Permission not granted - cannot record audio");
             ShowPermissionRequiredUI();
         }
     }
@@ -345,14 +322,17 @@ var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
 #### 2. Check Processor Order
 ```csharp
 // ❌ Poor processing order
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // Captures early
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // Gate after capture
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // Too late
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
+EasyMicAPI.AddProcessor(handle, bpc);      // Captures early
+EasyMicAPI.AddProcessor(handle, bpg);      // Gate after capture
+EasyMicAPI.AddProcessor(handle, bpd);      // Too late
 
 // ✅ Optimal processing order
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // Remove noise first
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // Convert format
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // Capture clean audio
+EasyMicAPI.AddProcessor(handle, bpg);      // Remove noise first
+EasyMicAPI.AddProcessor(handle, bpd);      // Convert format
+EasyMicAPI.AddProcessor(handle, bpc);      // Capture clean audio
 ```
 
 #### 3. Proper Channel Handling

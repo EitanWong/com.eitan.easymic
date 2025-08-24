@@ -4,6 +4,8 @@
 
 Real-world implementations and patterns for Easy Mic integration. Learn from complete examples that solve common audio recording challenges.
 
+> Note: API uses AudioWorkerBlueprint for adding/removing processors. Create a blueprint with a stable `key`, pass it to `AddProcessor`, and use `GetProcessor<T>(handle, blueprint)` to access the runtime instance for reading data or updating parameters.
+
 ## 🎙️ Basic Recording Examples
 
 ### Simple Voice Recording
@@ -16,7 +18,7 @@ using Eitan.EasyMic;
 public class SimpleVoiceRecorder : MonoBehaviour
 {
     private RecordingHandle _recordingHandle;
-    private AudioCapturer _capturer;
+    private AudioWorkerBlueprint _bpCapture;
     
     [Header("Recording Settings")]
     public SampleRate sampleRate = SampleRate.Hz16000;
@@ -27,24 +29,11 @@ public class SimpleVoiceRecorder : MonoBehaviour
         // Ensure permissions
         if (!PermissionUtils.HasPermission())
         {
-            PermissionUtils.RequestPermission(OnPermissionResult);
+            Debug.LogError("❌ Microphone permission not granted.");
             return;
         }
         
         StartRecording();
-    }
-    
-    private void OnPermissionResult(bool granted)
-    {
-        if (granted)
-        {
-            Debug.Log("✅ Permission granted");
-            StartRecording();
-        }
-        else
-        {
-            Debug.LogError("❌ Permission denied - cannot record");
-        }
     }
     
     private void StartRecording()
@@ -55,9 +44,9 @@ public class SimpleVoiceRecorder : MonoBehaviour
         
         if (_recordingHandle.IsValid)
         {
-            // Add capturer to save audio
-            _capturer = new AudioCapturer((int)maxDuration);
-            EasyMicAPI.AddProcessor(_recordingHandle, _capturer);
+            // Add capturer via blueprint to save audio
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer((int)maxDuration), key: "capture");
+            EasyMicAPI.AddProcessor(_recordingHandle, _bpCapture);
             
             Debug.Log($"🎙️ Recording started with {_recordingHandle.Device.Name}");
         }
@@ -74,7 +63,8 @@ public class SimpleVoiceRecorder : MonoBehaviour
             EasyMicAPI.StopRecording(_recordingHandle);
             
             // Get recorded audio
-            AudioClip clip = _capturer.GetCapturedAudioClip();
+            var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_recordingHandle, _bpCapture);
+            AudioClip clip = capturer?.GetCapturedAudioClip();
             if (clip != null)
             {
                 Debug.Log($"✅ Recorded {clip.length:F1}s of audio");
@@ -94,7 +84,7 @@ public class SimpleVoiceRecorder : MonoBehaviour
     {
         if (_recordingHandle.IsValid)
             EasyMicAPI.StopRecording(_recordingHandle);
-        _capturer?.Dispose();
+        // workers are disposed with the session
     }
 }
 ```
@@ -106,7 +96,7 @@ For music or high-fidelity applications:
 public class HiFiRecorder : MonoBehaviour
 {
     private RecordingHandle _handle;
-    private AudioCapturer _capturer;
+    private AudioWorkerBlueprint _bpCapture;
     
     void Start()
     {
@@ -126,8 +116,8 @@ public class HiFiRecorder : MonoBehaviour
         
         if (_handle.IsValid)
         {
-            _capturer = new AudioCapturer(60); // 1 minute max
-            EasyMicAPI.AddProcessor(_handle, _capturer);
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture");
+            EasyMicAPI.AddProcessor(_handle, _bpCapture);
             
             Debug.Log($"🎼 High-quality recording: {bestDevice.Name} @ 48kHz Stereo");
         }
@@ -135,7 +125,8 @@ public class HiFiRecorder : MonoBehaviour
     
     public void SaveToFile(string filename)
     {
-        var samples = _capturer.GetCapturedAudioSamples();
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_handle, _bpCapture);
+        var samples = capturer?.GetCapturedAudioSamples();
         AudioExtension.SaveWAV(filename, samples, 48000, 2);
         Debug.Log($"💾 Saved to {filename}");
     }
@@ -805,10 +796,10 @@ public class AndroidVoiceNotes : MonoBehaviour
     
     void SetupMobileRecording()
     {
-        // Request permissions
+        // Ensure permissions
         if (!PermissionUtils.HasPermission())
         {
-            PermissionUtils.RequestPermission(OnPermissionResult);
+            Debug.LogError("❌ Microphone permission not granted.");
             return;
         }
         

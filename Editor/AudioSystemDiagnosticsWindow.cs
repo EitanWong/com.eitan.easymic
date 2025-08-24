@@ -7,7 +7,7 @@ namespace Eitan.EasyMic.Runtime.Editor
 {
     public class AudioSystemDiagnosticsWindow : EditorWindow
     {
-        [MenuItem("Tools/EasyMic/AudioSystem Diagnostics")] 
+        [MenuItem("Window/EasyMic/AudioSystem Diagnostics")] 
         public static void ShowWindow()
         {
             GetWindow<AudioSystemDiagnosticsWindow>(false, "AudioSystem Diagnostics", true);
@@ -75,8 +75,18 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private void EditorUpdate()
         {
-            if (!_autoRefresh) return;
-            if (_refreshFps <= 1f) _refreshFps = 1f;
+            if (!_autoRefresh)
+            {
+                return;
+            }
+
+
+            if (_refreshFps <= 1f)
+            {
+                _refreshFps = 1f;
+            }
+
+
             double now = EditorApplication.timeSinceStartup;
             if (now >= _nextRepaint)
             {
@@ -112,7 +122,8 @@ namespace Eitan.EasyMic.Runtime.Editor
             }
             // Scene group
             if (_showSceneSources)
-            using (new EditorGUILayout.VerticalScope("box"))
+            {
+                using (new EditorGUILayout.VerticalScope("box"))
             {
                 _showSceneGroup = EditorGUILayout.Foldout(_showSceneGroup, "Scene Playback Sources", true);
                 if (_showSceneGroup)
@@ -121,6 +132,9 @@ namespace Eitan.EasyMic.Runtime.Editor
                     DrawSceneSources();
                 }
             }
+            }
+
+
             EditorGUILayout.EndScrollView();
         }
 
@@ -179,8 +193,18 @@ namespace Eitan.EasyMic.Runtime.Editor
                 }
                 GUILayout.FlexibleSpace();
                 // Tree actions
-                if (GUILayout.Button("Expand All", EditorStyles.toolbarButton, GUILayout.Width(90))) ExpandCollapseAll(true);
-                if (GUILayout.Button("Collapse All", EditorStyles.toolbarButton, GUILayout.Width(100))) ExpandCollapseAll(false);
+                if (GUILayout.Button("Expand All", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                {
+                    ExpandCollapseAll(true);
+                }
+
+
+                if (GUILayout.Button("Collapse All", EditorStyles.toolbarButton, GUILayout.Width(100)))
+                {
+                    ExpandCollapseAll(false);
+                }
+
+
                 _filterSoloPathOnly = GUILayout.Toggle(_filterSoloPathOnly, "Solo Path Only", EditorStyles.toolbarButton, GUILayout.Width(120));
             }
 
@@ -208,7 +232,12 @@ namespace Eitan.EasyMic.Runtime.Editor
         {
             if (mixer == null) { GUILayout.Label("<null mixer>"); return; }
             // If search/filter hides this mixer and all its descendants, skip drawing entirely
-            if (!MixerMatchesOrHasMatches(mixer)) return;
+            if (!MixerMatchesOrHasMatches(mixer))
+            {
+                return;
+            }
+
+
             using (new EditorGUI.IndentLevelScope(indent))
             using (new EditorGUILayout.VerticalScope("box"))
             {
@@ -233,16 +262,26 @@ namespace Eitan.EasyMic.Runtime.Editor
                 if (open)
                 {
                     var children = mixer.GetChildren();
-                    for (int i = 0; i < children.Length; i++) DrawMixer(children[i], indent + 1);
+                    for (int i = 0; i < children.Length; i++)
+                    {
+                        DrawMixer(children[i], indent + 1);
+                    }
 
                     var sources = mixer.GetSources();
                     for (int i = 0; i < sources.Length; i++)
                     {
                         var s = sources[i];
-                        if (s == null) continue;
+                        if (s == null)
+                        {
+                            continue;
+                        }
+
                         bool active = s.QueuedSamples > 0 || (!s.Mute && s.Volume > 0f);
                         if (PassesFilter(s.name, false, s.Mute, s.Solo, active))
+                        {
                             DrawSourceRow(s, indent + 1);
+                        }
+
                     }
                 }
             }
@@ -250,7 +289,12 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private void DrawSourceRow(PlaybackAudioSource s, int indent)
         {
-            if (s == null) return;
+            if (s == null)
+            {
+                return;
+            }
+
+
             using (new EditorGUI.IndentLevelScope(indent))
             using (new EditorGUILayout.HorizontalScope("box"))
             {
@@ -265,7 +309,12 @@ namespace Eitan.EasyMic.Runtime.Editor
                 // Volume column
                 GUILayout.Label("Vol", GUILayout.Width(26));
                 float nv = GUILayout.HorizontalSlider(s.Volume, 0f, 2f, GUILayout.Width(80));
-                if (Mathf.Abs(nv - s.Volume) > 1e-4f) s.Volume = nv;
+                if (Mathf.Abs(nv - s.Volume) > 1e-4f)
+                {
+                    s.Volume = nv;
+                }
+
+
                 GUILayout.Space(4);
                 GUILayout.Label($"Stages={s.Pipeline.WorkerCount}", GUILayout.Width(100));
                 GUILayout.FlexibleSpace();
@@ -309,7 +358,10 @@ namespace Eitan.EasyMic.Runtime.Editor
                     if (PassesFilter(row.path, false, row.muted, row.solo, row.active))
                     {
                         if (!_filterSoloPathOnly || row.solo) // solo path filter for sources: require solo
+                        {
                             _sceneSnapshot.Add(row);
+                        }
+
                     }
                 }
             }
@@ -332,8 +384,12 @@ namespace Eitan.EasyMic.Runtime.Editor
         private void DrawSceneRow(Rect r, SceneRow row, int index)
         {
             // background (zebra)
-            if ((index & 1) == 0) EditorGUI.DrawRect(r, new Color(1,1,1,0.03f));
+            if ((index & 1) == 0)
+            {
+                EditorGUI.DrawRect(r, new Color(1,1,1,0.03f));
+            }
             // column layout
+
             float x = r.x + 4f;
             const float pingW = 24f, statusW = 10f, gap = 6f, srW = 56f, chW = 40f, queueW = 80f, meterW = 120f, volLabelW = 24f, volSliderW = 80f, muteW = 50f, soloW = 50f;
             // Ping button
@@ -365,8 +421,30 @@ namespace Eitan.EasyMic.Runtime.Editor
             {
                 row.source.GetMeters(out var pk, out var rm);
                 float p = 0f, m = 0f;
-                if (pk != null) for (int i = 0; i < pk.Length; i++) if (pk[i] > p) p = pk[i];
-                if (rm != null) for (int i = 0; i < rm.Length; i++) if (rm[i] > m) m = rm[i];
+                if (pk != null)
+                {
+                    for (int i = 0; i < pk.Length; i++)
+                    {
+                        if (pk[i] > p)
+                        {
+                            p = pk[i];
+                        }
+                    }
+                }
+
+
+                if (rm != null)
+                {
+                    for (int i = 0; i < rm.Length; i++)
+                    {
+                        if (rm[i] > m)
+                        {
+                            m = rm[i];
+                        }
+                    }
+                }
+
+
                 DrawStyledMeter(meterRect, m, p, -60f);
             }
             else
@@ -379,7 +457,11 @@ namespace Eitan.EasyMic.Runtime.Editor
             if (row.hasSrc && row.source != null)
             {
                 float nv = GUI.HorizontalSlider(new Rect(x, r.y + (r.height-12f)*0.5f, volSliderW, 12f), row.source.Volume, 0f, 2f);
-                if (Mathf.Abs(nv - row.source.Volume) > 1e-4f) row.source.Volume = nv;
+                if (Mathf.Abs(nv - row.source.Volume) > 1e-4f)
+                {
+                    row.source.Volume = nv;
+                }
+
             }
             x += volSliderW + gap;
             // Mute / Solo
@@ -405,8 +487,8 @@ namespace Eitan.EasyMic.Runtime.Editor
         {
             var menu = new GenericMenu();
             var go = row.behaviour ? row.behaviour.gameObject : null;
-            menu.AddItem(new GUIContent("Ping"), false, () => { if (go) EditorGUIUtility.PingObject(go); });
-            menu.AddItem(new GUIContent("Select"), false, () => { if (go) Selection.activeObject = go; });
+            menu.AddItem(new GUIContent("Ping"), false, () => { if (go) { EditorGUIUtility.PingObject(go); } });
+            menu.AddItem(new GUIContent("Select"), false, () => { if (go) { Selection.activeObject = go; } });
             menu.AddItem(new GUIContent("Reveal in Hierarchy"), false, () => {
                 EditorApplication.ExecuteMenuItem("Window/General/Hierarchy");
                 if (go) { EditorGUIUtility.PingObject(go); Selection.activeObject = go; }
@@ -423,22 +505,37 @@ namespace Eitan.EasyMic.Runtime.Editor
         private void IsolateSolo(PlaybackAudioSource target)
         {
             var master = AudioSystem.Instance?.MasterMixer;
-            if (master == null || target == null) return;
+            if (master == null || target == null)
+            {
+                return;
+            }
+
+
             TraverseMixer(master, m => m.Solo = false, s => s.Solo = ReferenceEquals(s, target));
         }
 
         private void MuteOthers(PlaybackAudioSource target)
         {
             var master = AudioSystem.Instance?.MasterMixer;
-            if (master == null || target == null) return;
-            TraverseMixer(master, m => { }, s => { if (!ReferenceEquals(s, target)) s.Mute = true; });
+            if (master == null || target == null)
+            {
+                return;
+            }
+
+
+            TraverseMixer(master, m => { }, s => { if (!ReferenceEquals(s, target)) { s.Mute = true; } });
         }
 
         private void DrawSearchBar()
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                if (_searchField == null) _searchField = new UnityEditor.IMGUI.Controls.SearchField();
+                if (_searchField == null)
+                {
+                    _searchField = new UnityEditor.IMGUI.Controls.SearchField();
+                }
+
+
                 _search = _searchField.OnToolbarGUI(_search);
                 GUILayout.Space(6);
                 _filterShowActiveOnly = GUILayout.Toggle(_filterShowActiveOnly, new GUIContent("Active"), EditorStyles.miniButtonLeft, GUILayout.Width(60));
@@ -461,37 +558,89 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private bool PassesFilter(string name, bool isMixer, bool muted, bool solo, bool active = false)
         {
-            if (!PassesText(name)) return false;
-            if (_filterShowMutedOnly && !muted) return false;
-            if (_filterShowSoloOnly && !solo) return false;
-            if (_filterShowActiveOnly && !active) return false;
+            if (!PassesText(name))
+            {
+                return false;
+            }
+
+
+            if (_filterShowMutedOnly && !muted)
+            {
+                return false;
+            }
+
+
+            if (_filterShowSoloOnly && !solo)
+            {
+                return false;
+            }
+
+
+            if (_filterShowActiveOnly && !active)
+            {
+                return false;
+            }
+
+
             return true;
         }
 
         private bool PassesText(string name)
         {
-            if (string.IsNullOrEmpty(_search)) return true;
+            if (string.IsNullOrEmpty(_search))
+            {
+                return true;
+            }
+
+
             return name != null && name.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool MixerMatchesOrHasMatches(AudioMixer m)
         {
-            if (m == null) return false;
+            if (m == null)
+            {
+                return false;
+            }
             // If text matches name, it's a match regardless of other toggles (toggles apply to sources)
-            if (PassesText(m.name)) return true;
-            if (_filterSoloPathOnly && !m.HasSoloRecursive()) return false;
+
+            if (PassesText(m.name))
+            {
+                return true;
+            }
+
+
+            if (_filterSoloPathOnly && !m.HasSoloRecursive())
+            {
+                return false;
+            }
             // Check sources with full filters
             var sources = m.GetSources();
             for (int i = 0; i < sources.Length; i++)
             {
                 var s = sources[i];
-                if (s == null) continue;
+                if (s == null)
+                {
+                    continue;
+                }
+
                 bool active = s.QueuedSamples > 0 || (!s.Mute && s.Volume > 0f);
-                if (PassesFilter(s.name, false, s.Mute, s.Solo, active)) return true;
+                if (PassesFilter(s.name, false, s.Mute, s.Solo, active))
+                {
+                    return true;
+                }
             }
             // Check children recursively
             var children = m.GetChildren();
-            for (int i = 0; i < children.Length; i++) if (MixerMatchesOrHasMatches(children[i])) return true;
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (MixerMatchesOrHasMatches(children[i]))
+                {
+                    return true;
+                }
+            }
+
+
             return false;
         }
 
@@ -499,23 +648,42 @@ namespace Eitan.EasyMic.Runtime.Editor
         {
             var sys = AudioSystem.Instance;
             var master = sys?.MasterMixer;
-            if (master == null) return;
+            if (master == null)
+            {
+                return;
+            }
+
+
             SetAllFoldouts(master, expand);
         }
 
         private void SetAllFoldouts(AudioMixer m, bool value)
         {
-            if (m == null) return;
+            if (m == null)
+            {
+                return;
+            }
+
+
             SetFoldout(m, value);
             var children = m.GetChildren();
-            for (int i = 0; i < children.Length; i++) SetAllFoldouts(children[i], value);
+            for (int i = 0; i < children.Length; i++)
+            {
+                SetAllFoldouts(children[i], value);
+            }
+
         }
 
         private void ApplyMuteAllNonSolo(bool enable)
         {
             var sys = AudioSystem.Instance;
             var master = sys?.MasterMixer;
-            if (master == null) return;
+            if (master == null)
+            {
+                return;
+            }
+
+
             if (enable)
             {
                 // Mute every source/mixer that is not Solo
@@ -538,8 +706,16 @@ namespace Eitan.EasyMic.Runtime.Editor
                 // Unmute only those we auto-muted previously
                 foreach (var o in _autoMuted)
                 {
-                    if (o is AudioMixer mm) mm.Mute = false;
-                    else if (o is PlaybackAudioSource ss) ss.Mute = false;
+                    if (o is AudioMixer mm)
+                    {
+                        mm.Mute = false;
+                    }
+
+                    else if (o is PlaybackAudioSource ss)
+                    {
+                        ss.Mute = false;
+                    }
+
                 }
                 _autoMuted.Clear();
             }
@@ -547,12 +723,28 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private void TraverseMixer(AudioMixer m, Action<AudioMixer> onMixer, Action<PlaybackAudioSource> onSource)
         {
-            if (m == null) return;
+            if (m == null)
+            {
+                return;
+            }
+
+
             onMixer?.Invoke(m);
             var sources = m.GetSources();
-            for (int i = 0; i < sources.Length; i++) if (sources[i] != null) onSource?.Invoke(sources[i]);
+            for (int i = 0; i < sources.Length; i++)
+            {
+                if (sources[i] != null)
+                {
+                    onSource?.Invoke(sources[i]);
+                }
+            }
+
             var children = m.GetChildren();
-            for (int i = 0; i < children.Length; i++) TraverseMixer(children[i], onMixer, onSource);
+            for (int i = 0; i < children.Length; i++)
+            {
+                TraverseMixer(children[i], onMixer, onSource);
+            }
+
         }
 
         private void MarkSceneDirty()
@@ -567,14 +759,24 @@ namespace Eitan.EasyMic.Runtime.Editor
             Array.Sort(list, (a, b) => string.Compare(GetHierarchyPath(a.transform), GetHierarchyPath(b.transform), StringComparison.Ordinal));
             _sceneSources = list;
             _sceneSourcePaths = new string[list.Length];
-            for (int i = 0; i < list.Length; i++) _sceneSourcePaths[i] = GetHierarchyPath(list[i].transform);
+            for (int i = 0; i < list.Length; i++)
+            {
+                _sceneSourcePaths[i] = GetHierarchyPath(list[i].transform);
+            }
+
+
             _sceneDirty = false;
         }
 
         private void DrawMeters(AudioSystem sys)
         {
             sys.GetMeters(out var peak, out var rms);
-            if (peak.Length == 0) return;
+            if (peak.Length == 0)
+            {
+                return;
+            }
+
+
             DrawOutputMeters(rms, peak, minDb: -60f);
         }
 
@@ -586,7 +788,12 @@ namespace Eitan.EasyMic.Runtime.Editor
             var rw = new Rect(r.x, r.y, clamped * r.width, r.height);
             EditorGUI.DrawRect(rw, c);
             var text = $"{label} {LinearToDb(v):0.0} dB";
-            if (_barTextStyle == null) _barTextStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
+            if (_barTextStyle == null)
+            {
+                _barTextStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
+            }
+
+
             EditorGUI.DropShadowLabel(r, text, _barTextStyle);
         }
 
@@ -602,7 +809,12 @@ namespace Eitan.EasyMic.Runtime.Editor
         // Render compact per-source meters, up to maxChannels bars
         private void DrawCompactMeters(float[] rms, float[] peak, int maxChannels)
         {
-            if (rms == null || peak == null) return;
+            if (rms == null || peak == null)
+            {
+                return;
+            }
+
+
             int n = Mathf.Min(Mathf.Min(rms.Length, peak.Length), Mathf.Max(1, maxChannels));
             for (int ch = 0; ch < n; ch++)
             {
@@ -715,7 +927,12 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private static string GetHierarchyPath(Transform t)
         {
-            if (t == null) return "<null>";
+            if (t == null)
+            {
+                return "<null>";
+            }
+
+
             var stack = new Stack<string>();
             while (t != null)
             {
@@ -735,30 +952,69 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private static float DbToNorm(float db, float minDb)
         {
-            if (float.IsNaN(db) || float.IsInfinity(db)) return 0f;
-            if (db <= minDb) return 0f;
-            if (db >= 0f) return 1f;
+            if (float.IsNaN(db) || float.IsInfinity(db))
+            {
+                return 0f;
+            }
+
+            if (db <= minDb)
+            {
+                return 0f;
+            }
+
+
+            if (db >= 0f)
+            {
+                return 1f;
+            }
+
+
             return (db - minDb) / (0f - minDb);
         }
 
         private static Color MeterColor(float db)
         {
-            if (db >= -3f) return new Color(0.9f, 0.2f, 0.2f); // red near clip
-            if (db >= -9f) return new Color(0.95f, 0.8f, 0.2f); // yellow
+            if (db >= -3f)
+            {
+                return new Color(0.9f, 0.2f, 0.2f); // red near clip
+            }
+
+
+            if (db >= -9f)
+            {
+                return new Color(0.95f, 0.8f, 0.2f); // yellow
+            }
+
+
             return new Color(0.3f, 0.8f, 0.3f); // green
         }
 
         private bool GetFoldout(object key)
         {
-            if (key == null) return true;
-            if (_foldouts.TryGetValue(key, out var v)) return v;
+            if (key == null)
+            {
+                return true;
+            }
+
+
+            if (_foldouts.TryGetValue(key, out var v))
+            {
+                return v;
+            }
+
+
             _foldouts[key] = true;
             return true;
         }
 
         private void SetFoldout(object key, bool open)
         {
-            if (key == null) return;
+            if (key == null)
+            {
+                return;
+            }
+
+
             _foldouts[key] = open;
         }
     }

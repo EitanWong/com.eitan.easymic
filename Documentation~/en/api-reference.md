@@ -194,12 +194,12 @@ Adds an audio processor (created from the blueprint) to a session at runtime. If
 
 **Parameters:**
 - `handle` - The recording handle
-- `processor` - The audio processor to add
+- `blueprint` - The worker blueprint (factory + key)
 
 **Example:**
 ```csharp
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(recordingHandle, capturer);
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 ```
 
 ---
@@ -212,11 +212,12 @@ Removes an audio processor (by blueprint key) from a session's pipeline and disp
 
 **Parameters:**
 - `handle` - The recording handle
-- `processor` - The audio processor to remove
+- `blueprint` - The worker blueprint (removed by its key)
 
 **Example:**
 ```csharp
-EasyMicAPI.RemoveProcessor(recordingHandle, noisegateProcessor);
+var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+EasyMicAPI.RemoveProcessor(recordingHandle, bpGate);
 ```
 
 ---
@@ -698,11 +699,10 @@ Number of processors in the pipeline.
 public static class PermissionUtils
 {
     public static bool HasPermission()
-    public static void RequestPermission(Action<bool> callback)
 }
 ```
 
-Platform-specific microphone permission handling.
+Platform-specific microphone permission handling. On desktop/editor, `HasPermission()` returns `true`. On Android, `HasPermission()` may trigger the platform permission request internally (via Unity's `Microphone` and `Permission` APIs) and return `false` until granted.
 
 ### `MicDeviceUtils`
 ```csharp

@@ -21,7 +21,11 @@ namespace Eitan.EasyMic
                     lock (_lock)
                     {
                         if (_micSystem == null)
+                        {
+
                             _micSystem = new MicSystem();
+                        }
+
                     }
                 }
                 return _micSystem;
@@ -71,7 +75,7 @@ namespace Eitan.EasyMic
             return StartRecording(chosen, sampleRate, channel, _defaultWorkers);
         }
 
-        public static RecordingHandle StartRecording(string name, SampleRate sampleRate = SampleRate.Hz16000, Channel channel = Channel.Mono)
+        public static RecordingHandle StartRecording(string name, SampleRate sampleRate = SampleRate.Hz16000,Channel channel = Channel.Mono)
         {
             if (!PermissionUtils.HasPermission())
             {
@@ -84,9 +88,8 @@ namespace Eitan.EasyMic
                 Debug.LogError("EasyMic: No valid capture device available.");
                 return default;
             }
-            // 若调用者未显式指定非默认声道，尝试读取设备声道布局
-            var channelToUse = channel != Channel.Mono ? channel : chosen.GetDeviceChannel();
-            return StartRecording(chosen, sampleRate, channelToUse, _defaultWorkers);
+
+            return StartRecording(chosen, sampleRate, channel, _defaultWorkers);
         }
 
         public static RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate = SampleRate.Hz16000, Channel channel = Channel.Mono)
@@ -186,7 +189,11 @@ namespace Eitan.EasyMic
         private static bool TrySelectValidDevice(MicDevice preferred, out MicDevice chosen)
         {
             chosen = preferred;
-            if (chosen.Id != IntPtr.Zero) return true;
+            if (chosen.Id != IntPtr.Zero)
+            {
+                return true;
+            }
+
 
             var devices = MicSys.Devices ?? Array.Empty<MicDevice>();
             var dflt = devices.FirstOrDefault(x => x.IsDefault);

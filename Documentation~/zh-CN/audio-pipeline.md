@@ -63,7 +63,8 @@ lock (_lock)
 当你向管道添加处理器时：
 
 ```csharp
-EasyMicAPI.AddProcessor(recordingHandle, new VolumeGateFilter());
+var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 ```
 
 **内部发生的操作：**
@@ -113,7 +114,7 @@ public void OnAudioPass(Span<float> buffer, AudioState state)
 移除处理器时：
 
 ```csharp
-EasyMicAPI.RemoveProcessor(recordingHandle, processor);
+EasyMicAPI.RemoveProcessor(recordingHandle, bpGate);
 ```
 
 **发生的操作：**
@@ -391,14 +392,18 @@ for (int frame = 0; frame < frameCount; frame++)
 
 ```csharp
 // ✅ 最佳顺序：
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // 1. 先移除噪音
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // 2. 转换为单声道
-EasyMicAPI.AddProcessor(handle, new GainProcessor());       // 3. 调整音量
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // 4. 捕获结果
+var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),  key: "downmix");
+var bpa = new AudioWorkerBlueprint(() => new GainProcessor(),   key: "gain");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+EasyMicAPI.AddProcessor(handle, bpg);   // 1. 先移除噪音
+EasyMicAPI.AddProcessor(handle, bpd);   // 2. 转换为单声道
+EasyMicAPI.AddProcessor(handle, bpa);   // 3. 调整音量
+EasyMicAPI.AddProcessor(handle, bpc);   // 4. 捕获结果
 
 // ❌ 糟糕的顺序：
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // 捕获有噪音的音频
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // 太晚了！
+EasyMicAPI.AddProcessor(handle, bpc);      // 捕获有噪音的音频
+EasyMicAPI.AddProcessor(handle, bpg);      // 太晚了！
 ```
 
 ### 🧹 资源管理

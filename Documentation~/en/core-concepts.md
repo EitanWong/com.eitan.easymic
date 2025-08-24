@@ -39,15 +39,19 @@ Easy Mic is built around three core principles:
 The main entry point for all EasyMic operations. Provides a simple, thread-safe interface:
 
 ```csharp
+// Ensure permission (especially on mobile)
+if (!PermissionUtils.HasPermission()) return;
+
 // Get available devices
 EasyMicAPI.Refresh();
 var devices = EasyMicAPI.Devices;
 
-// Start recording
-var handle = EasyMicAPI.StartRecording(devices[0].Name);
+// Start recording (auto-select default if needed)
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 
-// Add processors
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(10));
+// Add processors via blueprints
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(handle, bpCapture);
 
 // Stop recording
 EasyMicAPI.StopRecording(handle);
@@ -84,10 +88,13 @@ The heart of EasyMic's processing system. Manages an ordered chain of audio proc
 ```csharp
 // Pipeline processes audio in order:
 // Raw Mic → VolumeGate → Downmixer → Capturer → Output
-var handle = EasyMicAPI.StartRecording("Microphone");
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
+var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+EasyMicAPI.AddProcessor(handle, bpGate);
+EasyMicAPI.AddProcessor(handle, bpDownmix);
+EasyMicAPI.AddProcessor(handle, bpCapture);
 ```
 
 **Key Features:**

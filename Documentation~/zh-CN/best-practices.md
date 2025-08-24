@@ -189,19 +189,15 @@ public class RecordingManager : MonoBehaviour
             return this;
         }
         
-        public Builder AddProcessor<T>(T processor) where T : IAudioWorker
+        public Builder AddProcessor(AudioWorkerBlueprint blueprint)
         {
-            _processors.Add(processor);
+            _processors.Add(blueprint);
             return this;
         }
         
         public RecordingSession Build()
         {
-            var handle = EasyMicAPI.StartRecording(_deviceName, _sampleRate, _channel);
-            
-            foreach (var processor in _processors)
-                EasyMicAPI.AddProcessor(handle, processor);
-                
+            var handle = EasyMicAPI.StartRecording(_deviceName, _sampleRate, _channel, _processors);
             return new RecordingSession(handle, _processors);
         }
     }
@@ -212,9 +208,9 @@ public class RecordingManager : MonoBehaviour
         var session = new Builder()
             .WithDevice("内置麦克风")
             .WithQuality(SampleRate.Hz48000, Channel.Stereo)
-            .AddProcessor(new VolumeGateFilter { ThresholdDb = -30f })
-            .AddProcessor(new AudioDownmixer())
-            .AddProcessor(new AudioCapturer(60))
+            .AddProcessor(new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30f }, key: "gate"))
+            .AddProcessor(new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix"))
+            .AddProcessor(new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture"))
             .Build();
     }
 }
@@ -491,8 +487,9 @@ public class AdaptivePipeline : MonoBehaviour
         {
             if (_noiseGate == null)
             {
-                _noiseGate = new VolumeGateFilter { ThresholdDb = thresholdDb };
-                EasyMicAPI.AddProcessor(_handle, _noiseGate);
+                var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = thresholdDb }, key: "gate");
+                EasyMicAPI.AddProcessor(_handle, bpGate);
+                _noiseGate = EasyMicAPI.GetProcessor<VolumeGateFilter>(_handle, bpGate);
             }
         });
     }
@@ -503,7 +500,8 @@ public class AdaptivePipeline : MonoBehaviour
         {
             if (_noiseGate != null)
             {
-                EasyMicAPI.RemoveProcessor(_handle, _noiseGate);
+                var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+                EasyMicAPI.RemoveProcessor(_handle, bpGate);
                 _noiseGate = null;
             }
         });
