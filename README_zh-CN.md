@@ -13,6 +13,14 @@
     <strong>🇨🇳 中文版</strong> | 
     <a href="README.md">🇺🇸 English</a>
   </p>
+
+  <p align="center">
+    <strong>最新版本：</strong><code>0.1.1-exp</code>（2025-08-24） ·
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
+  </p>
+  <p align="center">
+    <em>更新要点：</em> 新增低延迟播放/混音子系统（AudioSystem/AudioMixer/PlaybackAudioSource），录制底层重构为无阻塞高性能架构，新增 <code>Samples~/Playback Example</code> 示例场景；文档补充 AEC 播放路径要求。
+  </p>
   
   <p align="center">
     <em>完美适配 AI 数字人 • 语音交互应用 • 实时音频处理</em>
@@ -202,16 +210,26 @@
   
   <h3>⚡ 基本使用</h3>
     <div align="left">
-      <pre><code>// 初始化
+      <pre><code>// 检查权限（Android 会弹系统授权）
+if (!PermissionUtils.HasPermission()) return;
+
+// 刷新设备列表
 EasyMicAPI.Refresh();
-var handle = EasyMicAPI.StartRecording();
 
-// 添加处理器
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(handle, capturer);
+// 定义处理器蓝图
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
 
-// 获取音频
-var clip = capturer.GetCapturedAudioClip();</code></pre>
+// 开始录音（自动选择默认设备/声道）
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
+
+// 挂载处理器
+EasyMicAPI.AddProcessor(handle, bpDownmix);
+EasyMicAPI.AddProcessor(handle, bpCapture);
+
+// …稍后：停止并获取录音结果
+EasyMicAPI.StopRecording(handle);
+var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapturedAudioClip();</code></pre>
     </div>
 </div>
 

@@ -50,13 +50,14 @@ Captures incoming audio data into a buffer or saves it to a file.
 
 #### Usage
 ```csharp
-// Create capturer with 10-second max duration
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(recordingHandle, capturer);
+// Create blueprint and add to pipeline
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 
-// Later, get the captured audio
-float[] samples = capturer.GetCapturedAudioSamples();
-AudioClip clip = capturer.GetCapturedAudioClip();
+// Later, get the concrete instance and captured audio
+var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(recordingHandle, bpCapture);
+float[] samples = capturer?.GetCapturedAudioSamples();
+AudioClip clip = capturer?.GetCapturedAudioClip();
 ```
 
 #### Constructor
@@ -108,8 +109,8 @@ Converts multi-channel audio (e.g., stereo) into single-channel audio (mono).
 
 #### Usage
 ```csharp
-var downmixer = new AudioDownmixer();
-EasyMicAPI.AddProcessor(recordingHandle, downmixer);
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+EasyMicAPI.AddProcessor(recordingHandle, bpDownmix);
 ```
 
 #### Mixing Algorithms
@@ -204,34 +205,33 @@ public enum VolumeGateState
 #### Usage Examples
 ```csharp
 // Basic noise gate
-var gate = new VolumeGateFilter
+var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter
 {
     ThresholdDb = -30f,
     AttackTime = 0.001f,   // Fast attack for speech
     ReleaseTime = 0.5f     // Slow release to avoid cutting words
-};
+}, key: "gate");
 
-// Aggressive noise gate for noisy environments
-var aggressiveGate = new VolumeGateFilter
-{
-    ThresholdDb = -20f,    // Higher threshold
-    HoldTime = 0.1f,       // Shorter hold
-    ReleaseTime = 0.1f     // Faster release
-};
+// Add via blueprint
+EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 
-EasyMicAPI.AddProcessor(recordingHandle, gate);
+// Retrieve instance to tune at runtime (optional)
+var gate = EasyMicAPI.GetProcessor<VolumeGateFilter>(recordingHandle, bpGate);
+gate.ThresholdDb = -30f;
 ```
 
 #### Advanced Configuration
 ```csharp
 public class AdaptiveGateController : MonoBehaviour
 {
+    private AudioWorkerBlueprint _bpGate;
     private VolumeGateFilter _gate;
     
     void Start()
     {
-        _gate = new VolumeGateFilter();
-        EasyMicAPI.AddProcessor(recordingHandle, _gate);
+        _bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+        EasyMicAPI.AddProcessor(recordingHandle, _bpGate);
+        _gate = EasyMicAPI.GetProcessor<VolumeGateFilter>(recordingHandle, _bpGate);
     }
     
     void Update()
@@ -299,13 +299,8 @@ Real-time audio loopback for monitoring and testing applications.
 
 #### Usage
 ```csharp
-var loopback = new LoopbackPlayer
-{
-    Volume = 0.5f,        // 50% monitoring volume
-    IsMuted = false       // Enable monitoring
-};
-
-EasyMicAPI.AddProcessor(recordingHandle, loopback);
+var bpLoop = new AudioWorkerBlueprint(() => new LoopbackPlayer { Volume = 0.5f, IsMuted = false }, key: "loop");
+EasyMicAPI.AddProcessor(recordingHandle, bpLoop);
 ```
 
 #### Implementation

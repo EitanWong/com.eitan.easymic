@@ -589,8 +589,10 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var sampleCount = (int)(length * _channelCount);
-                // RT-safe: compute sample count → pass to pipeline (readers enqueue via SPSC)
-                _state.Length = sampleCount;
+                // Reset per-frame state based on capture format, then pass to pipeline
+                _state.ChannelCount = (int)_channelCount;
+                _state.SampleRate = (int)_sampleRate;
+                _state.Length = sampleCount; // total samples across channels for this frame
                 ProcessAudioBuffer(GetSpan<float>(input, sampleCount), _state);
             }
 

@@ -748,7 +748,20 @@ PlayerSettings:
   webGLThreadsSupport: 0
   webGLDecompressionFallback: 0
   webGLPowerPreference: 2
-  scriptingDefineSymbols: {}
+  scriptingDefineSymbols:
+    Android: EASYMIC_APM_INTEGRATION
+    EmbeddedLinux: EASYMIC_APM_INTEGRATION
+    GameCoreXboxOne: EASYMIC_APM_INTEGRATION
+    Lumin: EASYMIC_APM_INTEGRATION
+    Nintendo Switch: EASYMIC_APM_INTEGRATION
+    PS4: EASYMIC_APM_INTEGRATION
+    PS5: EASYMIC_APM_INTEGRATION
+    Stadia: EASYMIC_APM_INTEGRATION
+    Standalone: EASYMIC_APM_INTEGRATION
+    WebGL: EASYMIC_APM_INTEGRATION
+    Windows Store Apps: EASYMIC_APM_INTEGRATION
+    XboxOne: EASYMIC_APM_INTEGRATION
+    tvOS: EASYMIC_APM_INTEGRATION
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
@@ -811,7 +824,7 @@ PlayerSettings:
   syncCapabilities: 0
   platformCapabilities:
     WindowsStoreApps:
-      EnterpriseAuthentication: False
+      CodeGeneration: False
       OfflineMapsManagement: False
       HumanInterfaceDevice: False
       Location: False
@@ -847,8 +860,8 @@ PlayerSettings:
       Contacts: False
       Proximity: False
       InternetClient: False
-      CodeGeneration: False
       BackgroundMediaPlayback: False
+      EnterpriseAuthentication: False
   metroTargetDeviceFamilies:
     Desktop: False
     Holographic: False

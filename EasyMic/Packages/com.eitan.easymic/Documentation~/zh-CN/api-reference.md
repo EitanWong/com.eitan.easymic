@@ -693,11 +693,9 @@ public int ProcessorCount { get; }
 public static class PermissionUtils
 {
     public static bool HasPermission()
-    public static void RequestPermission(Action<bool> callback)
 }
 ```
-
-平台特定的麦克风权限处理。
+平台特定的麦克风权限处理。桌面/编辑器平台 `HasPermission()` 直接返回 `true`。在 Android 上，`HasPermission()` 可能会内部触发系统权限申请，并在授予前返回 `false`。
 
 ### `MicDeviceUtils`
 ```csharp

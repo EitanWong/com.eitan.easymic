@@ -3,7 +3,7 @@ using System;
 using UnityEngine.UI;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
-namespace Eitan.EasyMic.Samples
+namespace Eitan.EasyMic.Samples.Recording
 {
 
     public class EasyMicRecordingExample : MonoBehaviour
@@ -89,10 +89,26 @@ namespace Eitan.EasyMic.Samples
         private void OnDestroy()
         {
             EasyMicAPI.StopAllRecordings();
-            if (_saveButton) _saveButton.onClick.RemoveAllListeners();
-            if (_playOrStopButton) _playOrStopButton.onClick.RemoveAllListeners();
-            if (_recordButton) _recordButton.onClick.RemoveAllListeners();
-            if (_refreshButton) _refreshButton.onClick.RemoveAllListeners();
+            if (_saveButton)
+            {
+                _saveButton.onClick.RemoveAllListeners();
+            }
+
+            if (_playOrStopButton)
+            {
+                _playOrStopButton.onClick.RemoveAllListeners();
+            }
+
+            if (_recordButton)
+            {
+                _recordButton.onClick.RemoveAllListeners();
+            }
+
+            if (_refreshButton)
+            {
+                _refreshButton.onClick.RemoveAllListeners();
+            }
+
         }
         #endregion
 
@@ -171,9 +187,13 @@ namespace Eitan.EasyMic.Samples
             }
             else // 如果未在录音 -> 开始录音
             {
-                if (_audioSource.isPlaying) _audioSource.Stop();
+                if (_audioSource.isPlaying)
+                {
+                    _audioSource.Stop();
+                }
 
                 // 检查是否有可用设备
+
                 if (EasyMicAPI.Devices.Length == 0)
                 {
                     Debug.LogError("No microphone devices available to start recording.");

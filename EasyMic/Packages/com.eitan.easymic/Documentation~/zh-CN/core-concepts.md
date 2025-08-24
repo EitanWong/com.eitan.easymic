@@ -39,15 +39,19 @@ Easy Mic 围绕三个核心原则构建：
 所有 EasyMic 操作的主要入口点。提供简单、线程安全的接口：
 
 ```csharp
+// 检查权限（移动端尤需）
+if (!PermissionUtils.HasPermission()) return;
+
 // 获取可用设备
 EasyMicAPI.Refresh();
 var devices = EasyMicAPI.Devices;
 
-// 开始录音
-var handle = EasyMicAPI.StartRecording(devices[0].Name);
+// 开始录音（必要时自动选择默认设备）
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 
-// 添加处理器
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(10));
+// 通过“蓝图”添加处理器
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+EasyMicAPI.AddProcessor(handle, bpCapture);
 
 // 停止录音
 EasyMicAPI.StopRecording(handle);
@@ -84,10 +88,13 @@ EasyMic 处理系统的核心。管理音频处理器的有序链：
 ```csharp
 // 管道按顺序处理音频：
 // 原始麦克风 → 音量门 → 降混器 → 捕获器 → 输出
-var handle = EasyMicAPI.StartRecording("Microphone");
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
+var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+EasyMicAPI.AddProcessor(handle, bpGate);
+EasyMicAPI.AddProcessor(handle, bpDownmix);
+EasyMicAPI.AddProcessor(handle, bpCapture);
 ```
 
 **关键特性：**

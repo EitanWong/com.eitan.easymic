@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced documentation structure with grid-based navigation
 - Improved Quick Start section with side-by-side installation and usage examples
 
+## [0.1.1-exp] - 2025-08-24
+
+### Added
+- New low-latency playback and mixing subsystem under `Runtime/Core/AudioPlayback`:
+  - `AudioSystem`, `AudioMixer`, `PlaybackAudioSource` for high‑performance additive mixing, resampling, and per‑source pipelines/meters.
+  - `PlaybackAudioSourceBehaviour` MonoBehaviour wrapper for easy scene integration.
+- New sample scene: `Samples~/Playback Example` demonstrating playback via `PlaybackAudioSourceBehaviour`.
+- Documentation callouts referencing APM’s AEC playback requirement.
+
+### Changed
+- Refactored the recording subsystem for non‑blocking, high‑performance capture:
+  - Lock‑free SPSC ring buffers on the audio callback path to avoid stalls.
+  - Zero‑allocation hot path and improved latency/stability across backends.
+  - More robust device selection fallback via `EasyMicAPI`.
+- Clarified AEC integration guidance: playback must use `PlaybackAudioSource`/`PlaybackAudioSourceBehaviour` for echo cancellation to work (see APM package docs).
+
 ## [0.1.0-exp.1] - 2025-07-26
 
 ### Added

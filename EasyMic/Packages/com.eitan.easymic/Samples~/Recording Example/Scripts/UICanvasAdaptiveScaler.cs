@@ -47,10 +47,14 @@ public class UICanvasAdaptiveScaler : UIBehaviour
 
     protected void Update()
     {
-        if (!isInitialized) return;
-        
+        if (!isInitialized)
+        {
+            return;
+        }
+
         // Periodically check for resolution changes using unscaled time
         // to ensure consistent behavior regardless of timeScale
+
         timeSinceLastCheck += Time.unscaledDeltaTime;
         if (timeSinceLastCheck >= checkInterval)
         {
@@ -62,7 +66,12 @@ public class UICanvasAdaptiveScaler : UIBehaviour
     protected override void OnRectTransformDimensionsChange()
     {
         base.OnRectTransformDimensionsChange();
-        if (!isInitialized) return;
+        if (!isInitialized)
+        {
+            return;
+        }
+
+
         CheckResolutionChange();
     }
 

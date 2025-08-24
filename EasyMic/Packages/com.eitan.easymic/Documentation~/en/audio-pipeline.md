@@ -69,7 +69,8 @@ protected override void OnAudioWrite(Span<float> buffer, AudioState state)
 When you add a processor to the pipeline:
 
 ```csharp
-EasyMicAPI.AddProcessor(recordingHandle, new VolumeGateFilter());
+var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 ```
 
 **What happens internally:**
@@ -116,7 +117,7 @@ public void OnAudioPass(Span<float> buffer, AudioState state)
 When you remove a processor:
 
 ```csharp
-EasyMicAPI.RemoveProcessor(recordingHandle, processor);
+EasyMicAPI.RemoveProcessor(recordingHandle, bpGate);
 ```
 
 **What happens:**
@@ -385,14 +386,18 @@ Order processors by their impact and dependencies:
 
 ```csharp
 // ✅ Optimal order:
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // 1. Remove noise first
-EasyMicAPI.AddProcessor(handle, new AudioDownmixer());      // 2. Convert to mono
-EasyMicAPI.AddProcessor(handle, new GainProcessor());       // 3. Adjust levels
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // 4. Capture result
+var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
+var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),  key: "downmix");
+var bpa = new AudioWorkerBlueprint(() => new GainProcessor(),   key: "gain");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+EasyMicAPI.AddProcessor(handle, bpg);   // 1. Remove noise first
+EasyMicAPI.AddProcessor(handle, bpd);   // 2. Convert to mono
+EasyMicAPI.AddProcessor(handle, bpa);   // 3. Adjust levels
+EasyMicAPI.AddProcessor(handle, bpc);   // 4. Capture result
 
 // ❌ Poor order:
-EasyMicAPI.AddProcessor(handle, new AudioCapturer(5));      // Captures noisy audio
-EasyMicAPI.AddProcessor(handle, new VolumeGateFilter());    // Too late!
+EasyMicAPI.AddProcessor(handle, bpc);      // Captures noisy audio
+EasyMicAPI.AddProcessor(handle, bpg);      // Too late!
 ```
 
 ### 🧹 Resource Management

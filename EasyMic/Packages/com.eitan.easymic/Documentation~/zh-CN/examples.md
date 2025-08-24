@@ -16,7 +16,7 @@ using Eitan.EasyMic;
 public class SimpleVoiceRecorder : MonoBehaviour
 {
     private RecordingHandle _recordingHandle;
-    private AudioCapturer _capturer;
+    private AudioWorkerBlueprint _bpCapture;
     
     [Header("录音设置")]
     public SampleRate sampleRate = SampleRate.Hz16000;
@@ -27,24 +27,11 @@ public class SimpleVoiceRecorder : MonoBehaviour
         // 确保权限
         if (!PermissionUtils.HasPermission())
         {
-            PermissionUtils.RequestPermission(OnPermissionResult);
+            Debug.LogError("❌ 未授予麦克风权限");
             return;
         }
         
         StartRecording();
-    }
-    
-    private void OnPermissionResult(bool granted)
-    {
-        if (granted)
-        {
-            Debug.Log("✅ 权限已授予");
-            StartRecording();
-        }
-        else
-        {
-            Debug.LogError("❌ 权限被拒绝 - 无法录音");
-        }
     }
     
     private void StartRecording()
@@ -55,9 +42,9 @@ public class SimpleVoiceRecorder : MonoBehaviour
         
         if (_recordingHandle.IsValid)
         {
-            // 添加捕获器保存音频
-            _capturer = new AudioCapturer((int)maxDuration);
-            EasyMicAPI.AddProcessor(_recordingHandle, _capturer);
+            // 通过蓝图添加捕获器保存音频
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer((int)maxDuration), key: "capture");
+            EasyMicAPI.AddProcessor(_recordingHandle, _bpCapture);
             
             Debug.Log($"🎙️ 使用 {_recordingHandle.Device.Name} 开始录音");
         }
@@ -74,7 +61,8 @@ public class SimpleVoiceRecorder : MonoBehaviour
             EasyMicAPI.StopRecording(_recordingHandle);
             
             // 获取录制的音频
-            AudioClip clip = _capturer.GetCapturedAudioClip();
+            var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_recordingHandle, _bpCapture);
+            AudioClip clip = capturer?.GetCapturedAudioClip();
             if (clip != null)
             {
                 Debug.Log($"✅ 录制了 {clip.length:F1}s 音频");
@@ -94,7 +82,7 @@ public class SimpleVoiceRecorder : MonoBehaviour
     {
         if (_recordingHandle.IsValid)
             EasyMicAPI.StopRecording(_recordingHandle);
-        _capturer?.Dispose();
+        // 会话结束会自动释放处理器
     }
 }
 ```
@@ -106,7 +94,7 @@ public class SimpleVoiceRecorder : MonoBehaviour
 public class HiFiRecorder : MonoBehaviour
 {
     private RecordingHandle _handle;
-    private AudioCapturer _capturer;
+    private AudioWorkerBlueprint _bpCapture;
     
     void Start()
     {
@@ -126,8 +114,8 @@ public class HiFiRecorder : MonoBehaviour
         
         if (_handle.IsValid)
         {
-            _capturer = new AudioCapturer(60); // 最多1分钟
-            EasyMicAPI.AddProcessor(_handle, _capturer);
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture");
+            EasyMicAPI.AddProcessor(_handle, _bpCapture);
             
             Debug.Log($"🎼 高质量录音：{bestDevice.Name} @ 48kHz 立体声");
         }
@@ -135,7 +123,8 @@ public class HiFiRecorder : MonoBehaviour
     
     public void SaveToFile(string filename)
     {
-        var samples = _capturer.GetCapturedAudioSamples();
+        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_handle, _bpCapture);
+        var samples = capturer?.GetCapturedAudioSamples();
         AudioExtension.SaveWAV(filename, samples, 48000, 2);
         Debug.Log($"💾 保存到 {filename}");
     }
@@ -805,10 +794,10 @@ public class AndroidVoiceNotes : MonoBehaviour
     
     void SetupMobileRecording()
     {
-        // 请求权限
+        // 确保权限
         if (!PermissionUtils.HasPermission())
         {
-            PermissionUtils.RequestPermission(OnPermissionResult);
+            Debug.LogError("❌ 未授予麦克风权限");
             return;
         }
         

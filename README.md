@@ -13,6 +13,14 @@
     <a href="README_zh-CN.md">🇨🇳 中文版</a> | 
     <strong>🇺🇸 English</strong>
   </p>
+
+  <p align="center">
+    <strong>Latest Version:</strong> <code>0.1.1-exp</code> (2025-08-24) ·
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
+  </p>
+  <p align="center">
+    <em>Highlights:</em> New low-latency playback/mixing subsystem (AudioSystem/AudioMixer/PlaybackAudioSource), refactored non-blocking recording core, and a new <code>Samples~/Playback Example</code> scene. Docs clarify AEC playback requirement.
+  </p>
   
   <p align="center">
     <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Processing</em>
@@ -202,16 +210,26 @@
   
   <h3>⚡ Basic Usage</h3>
     <div align="left">
-      <pre><code>// Initialize
+      <pre><code>// Ensure permission (Android triggers system request)
+if (!PermissionUtils.HasPermission()) return;
+
+// Refresh device list
 EasyMicAPI.Refresh();
-var handle = EasyMicAPI.StartRecording();
 
-// Add processors
-var capturer = new AudioCapturer(10);
-EasyMicAPI.AddProcessor(handle, capturer);
+// Define processor blueprints
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
 
-// Get audio
-var clip = capturer.GetCapturedAudioClip();</code></pre>
+// Start recording (auto-selects default device/channel)
+var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
+
+// Attach processors
+EasyMicAPI.AddProcessor(handle, bpDownmix);
+EasyMicAPI.AddProcessor(handle, bpCapture);
+
+// ... later: stop and get captured clip
+EasyMicAPI.StopRecording(handle);
+var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapturedAudioClip();</code></pre>
     </div>
 </div>
 

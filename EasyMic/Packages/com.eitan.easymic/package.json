@@ -1,6 +1,6 @@
 {
   "name": "com.eitan.easymic",
-  "version": "0.1.0-exp.1",
+  "version": "0.1.1-exp",
   "displayName": "EasyMic",
   "description": "A simple Unity plugin for low-latency raw audio capture with a modular real-time processing pipeline.",
   "keywords": [
@@ -42,6 +42,11 @@
       "displayName": "Recording Example",
       "description": "A simple scene demonstrating the fundamental usage of EasyMic for recording audio from a microphone and saving it as a WAV file.",
       "path": "Samples~/Recording Example"
+    },
+    {
+      "displayName": "Playback Example",
+      "description": "A simple scene demonstrating the fundamental usage of EasyMic for playback audio",
+      "path": "Samples~/Playback Example"
     },
     {
       "displayName": "SherpaOnnx Example",

@@ -19,17 +19,26 @@ namespace Eitan.EasyMic.Runtime{
 
         protected override void OnAudioWrite(Span<float> audiobuffer, AudioState state)
         {
-            if (!IsInitialized || state.ChannelCount <= 1)
+            if (!IsInitialized)
             {
                 return;
             }
-            // Perform real-time downmix directly on the buffer
 
-            PerformRealTimeDownmix(audiobuffer, state.ChannelCount);
+            int inputChannels = state.ChannelCount;
+            if (inputChannels <= 1)
+            {
+                // Nothing to downmix; ensure Length matches current total samples
+                state.Length = audiobuffer.Length;
+                return;
+            }
+
+            // Perform real-time downmix directly on the buffer using current channel count
+            PerformRealTimeDownmix(audiobuffer, inputChannels);
+
+            // Update state to reflect mono output and new effective length (total samples across all channels)
             state.ChannelCount = 1;
-            state.Length = audiobuffer.Length / _originalChannelCount;
-            // audiobuffer = audiobuffer.Slice(state.Length);
-
+            int samplesPerChannel = audiobuffer.Length / inputChannels;
+            state.Length = samplesPerChannel; // since mono, total samples == samples per channel
         }
 
         /// <summary>

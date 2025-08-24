@@ -28,6 +28,7 @@ namespace Eitan.EasyMic.Runtime
 
         /// <summary>Prebuffer time in ms to avoid initial underruns.</summary>
         public int PrebufferMs { get; set; } = 60;
+        private readonly float QUEUE_SECONDS = 0.01f;
 
         public override void Initialize(AudioState state)
         {
@@ -46,7 +47,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 var sys = AudioSystem.Instance;
                 sys.Start();
-                var newSource = new PlaybackAudioSource(curCH, curSR, 0.1f, AudioSystem.Instance.MasterMixer);
+                var newSource = new PlaybackAudioSource(curCH, curSR, QUEUE_SECONDS, AudioSystem.Instance.MasterMixer);
                 newSource.Volume = Volume;
 
                 PlaybackAudioSource old;
@@ -78,8 +79,18 @@ namespace Eitan.EasyMic.Runtime
             {
                 // Scale into a reusable work buffer to avoid mutating upstream memory.
                 int n = audioBuffer.Length;
-                if (_scaleWork == null || _scaleWork.Length < n) _scaleWork = new float[n];
-                for (int i = 0; i < n; i++) _scaleWork[i] = audioBuffer[i] * Volume;
+                if (_scaleWork == null || _scaleWork.Length < n)
+                {
+                    _scaleWork = new float[n];
+                }
+
+
+                for (int i = 0; i < n; i++)
+                {
+                    _scaleWork[i] = audioBuffer[i] * Volume;
+                }
+
+
                 _source?.Enqueue(_scaleWork.AsSpan(0, n));
             }
             else
