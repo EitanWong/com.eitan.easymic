@@ -98,4 +98,4 @@ EasyMic/Assets/Demo/Samples/AudioProcessing/
 # ================== #
 CLAUDE.md
 GEMINI.md
-*.apm
+EasyMic/Packages/com.eitan.easymic.apm
