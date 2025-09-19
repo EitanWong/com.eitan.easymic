@@ -298,7 +298,8 @@ public bool IsValid { get; }
 ```csharp
 if (recordingHandle.IsValid)
 {
-    Debug.Log($"录音 {recordingHandle.Id} 使用 {recordingHandle.Device.Name}");
+    var info = EasyMicAPI.GetRecordingInfo(recordingHandle);
+    Debug.Log($"录音 {recordingHandle.Id} 使用 {info.Device.Name}");
 }
 ```
 

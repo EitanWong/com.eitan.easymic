@@ -46,7 +46,8 @@ public class SimpleVoiceRecorder : MonoBehaviour
             _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer((int)maxDuration), key: "capture");
             EasyMicAPI.AddProcessor(_recordingHandle, _bpCapture);
             
-            Debug.Log($"🎙️ 使用 {_recordingHandle.Device.Name} 开始录音");
+            var info = EasyMicAPI.GetRecordingInfo(_recordingHandle);
+            Debug.Log($"🎙️ 使用 {info.Device.Name} 开始录音");
         }
         else
         {

@@ -8,13 +8,13 @@ public class UICanvasAdaptiveScaler : UIBehaviour
 {
     // Cached components
     private CanvasScaler canvasScaler;
-    
+
     // Cached values to avoid GC allocations
     private int lastScreenWidth;
     private int lastScreenHeight;
     private float lastAspectRatio;
     private bool isInitialized;
-    
+
     // Resolution check timing
     private readonly float checkInterval = 1.0f;
     private float timeSinceLastCheck;
@@ -38,7 +38,7 @@ public class UICanvasAdaptiveScaler : UIBehaviour
         lastScreenWidth = Screen.width;
         lastScreenHeight = Screen.height;
         lastAspectRatio = (float)lastScreenWidth / lastScreenHeight;
-        
+
         // Initial update
         UpdateCanvasScaler();
         isInitialized = true;
@@ -80,19 +80,19 @@ public class UICanvasAdaptiveScaler : UIBehaviour
         // Using direct int comparisons instead of Vector2
         int currentWidth = Screen.width;
         int currentHeight = Screen.height;
-        
+
         // Only calculate aspect ratio if dimensions have changed
         if (currentWidth != lastScreenWidth || currentHeight != lastScreenHeight)
         {
             float currentAspectRatio = (float)currentWidth / currentHeight;
-            
+
             // Only update if aspect ratio has changed significantly
             if (Mathf.Abs(currentAspectRatio - lastAspectRatio) > 0.01f)
             {
                 UpdateCanvasScaler();
                 lastAspectRatio = currentAspectRatio;
             }
-            
+
             // Update cached dimensions
             lastScreenWidth = currentWidth;
             lastScreenHeight = currentHeight;
@@ -104,10 +104,10 @@ public class UICanvasAdaptiveScaler : UIBehaviour
         int screenWidth = Screen.width;
         int screenHeight = Screen.height;
         float screenAspectRatio = (float)screenWidth / screenHeight;
-        
+
         // Configure Canvas Scaler
         canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        
+
         // Set reference resolution directly to match actual screen resolution 
         // with some adjustments for extreme cases
         if (screenAspectRatio >= 1.7f) // Wide screens (16:9 and wider)
@@ -126,7 +126,7 @@ public class UICanvasAdaptiveScaler : UIBehaviour
             float blend = (screenAspectRatio - 1.5f) / 0.2f; // Linear interpolation between 1.5 and 1.7
             canvasScaler.matchWidthOrHeight = blend;
         }
-        
+
         // Use the actual screen resolution as reference to maintain consistent pixel density
         canvasScaler.referenceResolution = new Vector2(screenWidth, screenHeight);
     }

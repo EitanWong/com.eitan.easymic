@@ -41,7 +41,7 @@ namespace Eitan.EasyMic.Runtime
         private float[] _internalBuffer;
         private int _bufferSize;
         private int _writePosition;
-        
+
         // --- Pre-calculated Parameters ---
         private int _sampleRate;
         private int _channelCount;
@@ -83,7 +83,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 // The position to read the "future" audio for detection
                 int detectionReadPos = (_writePosition + _lookaheadFrames * _channelCount) % _bufferSize;
-                
+
                 // The position to read the "present" audio for processing
                 int processReadPos = _writePosition;
 
@@ -103,7 +103,7 @@ namespace Eitan.EasyMic.Runtime
                         maxInFrame = sample;
                     }
                 }
-                
+
                 // Update envelope follower
                 if (maxInFrame > _envelope)
                 {
@@ -113,7 +113,7 @@ namespace Eitan.EasyMic.Runtime
                 {
                     _envelope *= _envelopeReleaseCoeff; // Smooth release
                 }
-                
+
                 bool isSignalAboveThreshold = _envelope >= _thresholdLinear;
 
                 // 2. --- Update the gate's state machine ---
@@ -148,7 +148,7 @@ namespace Eitan.EasyMic.Runtime
                 _writePosition = (processReadPos + _channelCount) % _bufferSize;
             }
         }
-        
+
         /// <summary>
         /// Updates the state of the gate based on the signal level and timers.
         /// </summary>
@@ -162,7 +162,7 @@ namespace Eitan.EasyMic.Runtime
                         CurrentState = VolumeGateState.Attacking;
                     }
                     break;
-                
+
                 case VolumeGateState.Attacking:
                     if (_gateLevel >= 1.0f)
                     {
@@ -209,20 +209,24 @@ namespace Eitan.EasyMic.Runtime
                     break;
             }
         }
-        
+
         /// <summary>
         /// Initializes or updates audio parameters and recalculates derived values.
         /// </summary>
         private void UpdateParameters(AudioState state)
         {
-            if (_sampleRate == state.SampleRate && _channelCount == state.ChannelCount) return;
-            
+            if (_sampleRate == state.SampleRate && _channelCount == state.ChannelCount)
+            {
+                return;
+            }
+
+
             _sampleRate = state.SampleRate;
             _channelCount = state.ChannelCount;
 
             // Convert dB threshold to linear amplitude
             _thresholdLinear = MathF.Pow(10, ThresholdDb / 20.0f);
-            
+
             // Calculate lookahead buffer size. It must be large enough to hold the lookahead data.
             // Using a power of 2 for the size can sometimes be more efficient for modulo operations, but isn't strictly necessary.
             _lookaheadFrames = (int)(LookaheadTime * _sampleRate);
@@ -237,7 +241,7 @@ namespace Eitan.EasyMic.Runtime
 
             float releaseSamples = ReleaseTime * _sampleRate;
             _releaseDecrementPerSample = releaseSamples > 0 ? 1.0f / releaseSamples : 1.0f;
-            
+
             // Calculate coefficient for the envelope follower's release (e.g., 100ms release)
             float envelopeReleaseTime = 0.1f;
             _envelopeReleaseCoeff = MathF.Exp(-1.0f / (envelopeReleaseTime * _sampleRate));

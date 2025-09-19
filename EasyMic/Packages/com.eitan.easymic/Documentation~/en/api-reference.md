@@ -304,7 +304,8 @@ Whether this handle represents a valid recording session.
 ```csharp
 if (recordingHandle.IsValid)
 {
-    Debug.Log($"Recording {recordingHandle.Id} using {recordingHandle.Device.Name}");
+    var info = EasyMicAPI.GetRecordingInfo(recordingHandle);
+    Debug.Log($"Recording {recordingHandle.Id} using {info.Device.Name}");
 }
 ```
 

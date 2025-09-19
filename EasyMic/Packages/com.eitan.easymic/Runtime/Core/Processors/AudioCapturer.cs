@@ -1,10 +1,12 @@
 using System;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime{
+namespace Eitan.EasyMic.Runtime
+{
     public class AudioCapturer : AudioReader
     {
         private AudioBuffer _audioBuffer;
+        private readonly object _lock = new object();
         private readonly int _maxCaptureDuration;
 
         private AudioState _audioState;
@@ -28,7 +30,10 @@ namespace Eitan.EasyMic.Runtime{
             int effectiveTargetSR = _targetSampleRate > 0 ? _targetSampleRate : state.SampleRate;
             int worstCaseRate = Math.Max(state.SampleRate, effectiveTargetSR);
             int totalSamples = Math.Max(1, worstCaseRate * state.ChannelCount * _maxCaptureDuration);
-            _audioBuffer = new AudioBuffer(totalSamples);
+            lock (_lock)
+            {
+                _audioBuffer = new AudioBuffer(totalSamples);
+            }
             _audioState = state;
             _resampleWork = Array.Empty<float>();
             base.Initialize(state);
@@ -36,25 +41,45 @@ namespace Eitan.EasyMic.Runtime{
 
         protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            // If no rate change requested or source already matches, enqueue as-is.
             int srcSR = CurrentSampleRate;
             int dstSR = _targetSampleRate <= 0 ? srcSR : _targetSampleRate;
-            if (audiobuffer.IsEmpty) { _audioBuffer.TryWriteExact(audiobuffer); return; }
+            int ch = Math.Max(1, CurrentChannelCount);
 
-            if (srcSR == dstSR)
+            EnsureBufferCapacity(Math.Max(srcSR, dstSR), ch);
+
+            if (audiobuffer.IsEmpty)
             {
-                _audioBuffer.TryWriteExact(audiobuffer);
+                lock (_lock)
+                {
+                    _audioBuffer?.TryWriteExact(audiobuffer);
+                }
                 return;
             }
 
-            int ch = Math.Max(1, CurrentChannelCount);
+            if (srcSR == dstSR)
+            {
+                lock (_lock)
+                {
+                    _audioBuffer?.TryWriteExact(audiobuffer);
+                }
+                return;
+            }
+
             int inFrames = audiobuffer.Length / ch;
-            if (inFrames <= 0) return;
+            if (inFrames <= 0)
+            {
+                return;
+            }
 
             // Compute output frame count, guard against rounding drift by floor.
+
             double ratio = (double)dstSR / Math.Max(1, srcSR);
             int outFrames = (int)Math.Floor(inFrames * ratio);
-            if (outFrames <= 0) return;
+            if (outFrames <= 0)
+            {
+                return;
+            }
+
 
             int outSamples = outFrames * ch;
             if (_resampleWork.Length < outSamples)
@@ -80,7 +105,10 @@ namespace Eitan.EasyMic.Runtime{
                     _resampleWork[outBase + of * ch] = (float)(s0 + (s1 - s0) * t);
                 }
             }
-            _audioBuffer.TryWriteExact(new ReadOnlySpan<float>(_resampleWork, 0, outSamples));
+            lock (_lock)
+            {
+                _audioBuffer?.TryWriteExact(new ReadOnlySpan<float>(_resampleWork, 0, outSamples));
+            }
         }
 
         /// <summary>
@@ -92,12 +120,32 @@ namespace Eitan.EasyMic.Runtime{
         public float[] GetCapturedAudioSamples()
         {
             if (!IsInitialized)
+            {
+
                 return null;
+            }
 
             // Create a buffer and read the captured audio data.
-            var samples = new float[_audioBuffer.ReadableCount];
-            if (samples.Length == 0) return samples;
-            _audioBuffer.Read(samples);
+
+            AudioBuffer buffer;
+            lock (_lock)
+            {
+                buffer = _audioBuffer;
+            }
+
+            if (buffer == null)
+            {
+                return Array.Empty<float>();
+            }
+
+            var samples = new float[buffer.ReadableCount];
+            if (samples.Length == 0)
+            {
+                return samples;
+            }
+
+
+            buffer.Read(samples);
 
 
             return samples;
@@ -112,7 +160,11 @@ namespace Eitan.EasyMic.Runtime{
         public AudioClip GetCapturedAudioClip()
         {
             if (!IsInitialized)
+            {
+
                 return null;
+            }
+
 
             var samples = GetCapturedAudioSamples();
             if (samples == null || samples.Length == 0)
@@ -138,6 +190,43 @@ namespace Eitan.EasyMic.Runtime{
 
             createdAudioClip.SetData(samples, 0);
             return createdAudioClip;
+        }
+
+        private void EnsureBufferCapacity(int sampleRate, int channels)
+        {
+            if (sampleRate <= 0 || channels <= 0)
+            {
+                return;
+            }
+
+            int effectiveTargetSR = _targetSampleRate > 0 ? _targetSampleRate : sampleRate;
+            int worstCaseRate = Math.Max(sampleRate, effectiveTargetSR);
+            int desiredCapacity = Math.Max(1, worstCaseRate * channels * _maxCaptureDuration);
+
+            lock (_lock)
+            {
+                if (_audioBuffer == null)
+                {
+                    _audioBuffer = new AudioBuffer(desiredCapacity);
+                    return;
+                }
+
+                if (desiredCapacity <= _audioBuffer.Capacity)
+                {
+                    return;
+                }
+
+                var newBuffer = new AudioBuffer(desiredCapacity);
+                int readable = _audioBuffer.ReadableCount;
+                if (readable > 0)
+                {
+                    var temp = new float[readable];
+                    _audioBuffer.Read(temp);
+                    newBuffer.TryWriteExact(new ReadOnlySpan<float>(temp));
+                }
+
+                _audioBuffer = newBuffer;
+            }
         }
 
     }

@@ -37,6 +37,7 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Initialize(AudioState state)
         {
+            StopWorkerThread();
             base.Initialize(state);
 
             // Initialize format snapshot
@@ -64,20 +65,21 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Dispose()
         {
-            _running = false;
-            _signal?.Set(); // Wake up worker thread to exit
-            _worker?.Join(200);
-            _signal?.Dispose();
-            _worker = null;
-            _signal = null;
+            StopWorkerThread();
+            _queue = null;
+            _workerFrame = null;
             base.Dispose();
         }
 
         public sealed override void OnAudioPass(Span<float> audiobuffer, AudioState state)
         {
-            if (!IsInitialized || !_running) return;
+            if (!IsInitialized || !_running)
+            {
+                return;
+            }
 
             // Update format snapshot each frame for consumers needing dynamic reconfiguration
+
             CurrentSampleRate = state.SampleRate;
             CurrentChannelCount = state.ChannelCount;
 
@@ -91,7 +93,7 @@ namespace Eitan.EasyMic.Runtime
                 _signal?.Set();
                 return;
             }
-            
+
             // Non-blocking write. If the queue is full, we drop the frame to prevent blocking the audio thread.
             // This ensures frame atomicity.
             var frame = audiobuffer.Slice(0, currentFrameSize);
@@ -108,9 +110,13 @@ namespace Eitan.EasyMic.Runtime
                 // Wait for a signal from the producer or timeout to handle shutdown gracefully.
                 _signal?.WaitOne(100);
 
-                if (!_running) break;
+                if (!_running)
+                {
+                    break;
+                }
 
                 // Prioritize handling the empty frame signal for endpoint detection.
+
                 if (_hasPendingEmptyFrame)
                 {
                     _hasPendingEmptyFrame = false;
@@ -120,9 +126,13 @@ namespace Eitan.EasyMic.Runtime
 
                 // Process all available full frames in the queue.
                 int needed = _frameSize;
-                if (needed <= 0) continue;
+                if (needed <= 0)
+                {
+                    continue;
+                }
 
                 // Ensure worker buffer is large enough.
+
                 if (_workerFrame == null || _workerFrame.Length < needed)
                 {
                     _workerFrame = new float[needed];
@@ -136,12 +146,16 @@ namespace Eitan.EasyMic.Runtime
                         OnAudioReadAsync(new ReadOnlySpan<float>(_workerFrame, 0, needed));
                     }
                     catch { /* Protect worker thread loop */ }
-                    
+
                     // Update needed size for the next frame in case it changed.
                     needed = _frameSize;
-                    if (needed <= 0) break;
-                    
+                    if (needed <= 0)
+                    {
+                        break;
+                    }
+
                     // Check buffer size again if frame size has changed mid-loop.
+
                     if (_workerFrame.Length < needed)
                     {
                         _workerFrame = new float[needed];
@@ -155,6 +169,41 @@ namespace Eitan.EasyMic.Runtime
         /// Must be non-blocking with bounded CPU where possible.
         /// </summary>
         protected abstract void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer);
+
+        private void StopWorkerThread()
+        {
+            _running = false;
+
+            var signal = _signal;
+            if (signal != null)
+            {
+                try { signal.Set(); } catch { }
+            }
+
+            var worker = _worker;
+            if (worker != null)
+            {
+                try
+                {
+                    if (worker.IsAlive)
+                    {
+                        worker.Join(200);
+                    }
+                }
+                catch { }
+            }
+
+            if (signal != null)
+            {
+                try { signal.Dispose(); } catch { }
+            }
+
+            _worker = null;
+            _signal = null;
+            _hasPendingEmptyFrame = false;
+            _queue = null;
+            _workerFrame = null;
+        }
 
         private static int ToPow2Minus1(int n)
         {
