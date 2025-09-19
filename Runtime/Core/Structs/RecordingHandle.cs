@@ -1,21 +1,14 @@
-// Recording handle for managing individual recordings
 using System;
+
 namespace Eitan.EasyMic.Runtime
 {
-
-    public struct RecordingHandle : IEquatable<RecordingHandle>
+    public readonly struct RecordingHandle : IEquatable<RecordingHandle>
     {
-        public readonly int Id;
-        internal readonly MicDevice Device;
+        public int Id { get; }
 
-        public string Name=> Device.Name;
-
-        public Channel Channel => Device.GetDeviceChannel();
-
-        internal RecordingHandle(int id, MicDevice device)
+        internal RecordingHandle(int id)
         {
             Id = id;
-            Device = device;
         }
 
         public bool IsValid => Id > 0;
@@ -26,5 +19,4 @@ namespace Eitan.EasyMic.Runtime
         public static bool operator ==(RecordingHandle left, RecordingHandle right) => left.Equals(right);
         public static bool operator !=(RecordingHandle left, RecordingHandle right) => !left.Equals(right);
     }
-
 }

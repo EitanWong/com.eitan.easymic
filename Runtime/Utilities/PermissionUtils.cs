@@ -21,22 +21,24 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         public static bool HasPermission()
         {
-            // 针对桌面平台和编辑器的优化：直接视为已授权，并立即返回。
-#if UNITY_STANDALONE || UNITY_EDITOR
-            return true;
-#elif UNITY_ANDROID
-            if (!IsGranted){
-                IsGranted = Permission.HasUserAuthorizedPermission(Permission.Microphone);
-                if(!IsGranted){
+            // 针对非 Android 平台：Unity 会自行弹出权限窗或无需权限，直接视为已授权。
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!IsGranted)
+            {
+                if (Permission.HasUserAuthorizedPermission(Permission.Microphone))
+                {
+                    IsGranted = true;
+                }
+                else
+                {
                     RequestPlatformPermission();
                 }
             }
-#endif
-#pragma warning disable CS0162 // Unreachable code detected
 
             return IsGranted;
-#pragma warning restore CS0162 // Unreachable code detected
-
+#else
+            return true;
+#endif
         }
 
         private static void RequestPlatformPermission()
@@ -60,7 +62,7 @@ namespace Eitan.EasyMic.Runtime
         private static void OnPermissionResult(bool granted)
         {
             IsGranted = granted;
-            
+
 #if UNITY_ANDROID && !UNITY_EDITOR
             UnityEngine.Microphone.End(null); // stop Recording for permission request
 #endif

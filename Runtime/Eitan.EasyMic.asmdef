@@ -2,7 +2,8 @@
     "name": "Eitan.EasyMic",
     "rootNamespace": "Eitan.EasyMic.Runtime",
     "references": [
-        "GUID:07ab32fb435924c839dac3592be307df"
+        "GUID:07ab32fb435924c839dac3592be307df",
+        "UnityEngine.AndroidJNIModule"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

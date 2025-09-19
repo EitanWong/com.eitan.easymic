@@ -1,27 +1,29 @@
-using UnityEngine;
 using System;
-using UnityEngine.UI;
+using System.Collections.Generic;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
+using UnityEngine;
+using UnityEngine.UI;
+
 namespace Eitan.EasyMic.Samples.Recording
 {
-
+    /// <summary>
+    /// Minimal end-to-end capture sample with dynamic device hot-plug handling.
+    /// Demonstrates how to subscribe to EasyMic device events and keep the UI in sync.
+    /// </summary>
+    [RequireComponent(typeof(AudioSource))]
     public class EasyMicRecordingExample : MonoBehaviour
     {
-
-        #region UIComponent
         [Header("Recording Option")]
         [SerializeField] private Dropdown _selectDeviceDropdown;
         [SerializeField] private Dropdown _sampleRateDropdown;
         [SerializeField] private Dropdown _channelDropdown;
-
         [SerializeField] private Toggle _downmixToggle;
         [SerializeField] private Button _refreshButton;
 
         [Header("Recording Status")]
         [SerializeField] private RawImage _recordingStateImage;
         [SerializeField] private Text _recordingStateText;
-
         [SerializeField] private Button _recordButton;
 
         [Header("Recording Result")]
@@ -29,223 +31,421 @@ namespace Eitan.EasyMic.Samples.Recording
         [SerializeField] private Text _audioNameText;
         [SerializeField] private Button _playOrStopButton;
         [SerializeField] private Button _saveButton;
-        #endregion
 
-        private RecordingHandle handle;
+        private readonly List<MicDevice> _devices = new List<MicDevice>();
+        private readonly List<SampleRate> _availableSampleRates = new List<SampleRate>();
+        private readonly List<Channel> _availableChannels = new List<Channel>();
+
+        private RecordingHandle _handle;
         private AudioWorkerBlueprint _bpCapture;
         private AudioWorkerBlueprint _bpDownmix;
-        private int _maxCaptureDuration = 30;
-
-        // MODIFIED: 简化isRecording的判断逻辑
-        private bool isRecording => handle.IsValid && EasyMicAPI.GetRecordingInfo(handle).IsActive;
         private AudioSource _audioSource;
         private AudioClip _audioClip;
-        private bool _wasPlaying = false;
+        private bool _wasAudioSourcePlaying;
+        private const int MaxCaptureDurationSeconds = 30;
 
-        #region MonoBehaviour
+        private bool IsRecording
+        {
+            get
+            {
+                if (!_handle.IsValid)
+                {
+                    return false;
+                }
+
+                var info = EasyMicAPI.GetRecordingInfo(_handle);
+                return info.IsActive;
+            }
+        }
+
         private void Start()
         {
-            // 1. 初始化 AudioSource
             _audioSource = GetComponent<AudioSource>();
-            if (_audioSource == null)
-            {
-                _audioSource = gameObject.AddComponent<AudioSource>();
-            }
 
-            // 2. 绑定UI事件监听
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(MaxCaptureDurationSeconds), "capture");
+            _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), "downmix");
+
             _recordButton.onClick.AddListener(OnRecordButtonPressed);
             _refreshButton.onClick.AddListener(OnRefreshButtonPressed);
-            _playOrStopButton.onClick.AddListener(PlayOrStopButtonClickHandle);
-            _saveButton.onClick.AddListener(SaveButtonClickHandle);
+            _playOrStopButton.onClick.AddListener(OnPlayOrStop);
+            _saveButton.onClick.AddListener(OnSaveRecording);
+            _selectDeviceDropdown.onValueChanged.AddListener(_ => OnDeviceSelectionChanged());
+            _downmixToggle.onValueChanged.AddListener(OnDownmixToggleChanged);
 
-            // 3. 设置UI的初始状态
-            SetUIInteractivity(true);
-            _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
-            _recordingStateText.text = "Not Recording";
-            _recordingStateImage.color = Color.gray;
             _resultPanel.gameObject.SetActive(false);
+            _recordingStateImage.color = Color.gray;
+            _recordingStateText.text = "Not Recording";
+            _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
             _downmixToggle.isOn = true;
 
+            // Auto-refresh keeps the device list fresh without user interaction.
+            EasyMicAPI.EnableDeviceAutoRefresh();
+            EasyMicAPI.DevicesChanged += OnDevicesChanged;
 
-            OnRefreshButtonPressed();
-
-            // Prepare worker blueprints
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(_maxCaptureDuration), key: "capture");
-            _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
+            RefreshDevicesFromSystem(keepSelection: false);
         }
 
         private void Update()
         {
-            if (_audioSource != null)
+            if (_audioSource == null)
             {
-                if (_wasPlaying && !_audioSource.isPlaying)
-                {
-                    _playOrStopButton.GetComponentInChildren<Text>().text = "Play";
-                }
-                _wasPlaying = _audioSource.isPlaying;
+                return;
             }
+
+            if (_wasAudioSourcePlaying && !_audioSource.isPlaying)
+            {
+                _playOrStopButton.GetComponentInChildren<Text>().text = "Play";
+            }
+
+            _wasAudioSourcePlaying = _audioSource.isPlaying;
         }
 
         private void OnDestroy()
         {
+            EasyMicAPI.DevicesChanged -= OnDevicesChanged;
+
+            _recordButton.onClick.RemoveListener(OnRecordButtonPressed);
+            _refreshButton.onClick.RemoveListener(OnRefreshButtonPressed);
+            _playOrStopButton.onClick.RemoveListener(OnPlayOrStop);
+            _saveButton.onClick.RemoveListener(OnSaveRecording);
+            _selectDeviceDropdown.onValueChanged.RemoveAllListeners();
+            _downmixToggle.onValueChanged.RemoveAllListeners();
+
             EasyMicAPI.StopAllRecordings();
-            if (_saveButton)
-            {
-                _saveButton.onClick.RemoveAllListeners();
-            }
-
-            if (_playOrStopButton)
-            {
-                _playOrStopButton.onClick.RemoveAllListeners();
-            }
-
-            if (_recordButton)
-            {
-                _recordButton.onClick.RemoveAllListeners();
-            }
-
-            if (_refreshButton)
-            {
-                _refreshButton.onClick.RemoveAllListeners();
-            }
-
-        }
-        #endregion
-
-        #region UI Logic
-
-        /// <summary>
-        /// 统一控制UI控件的可交互状态。
-        /// </summary>
-        private void SetUIInteractivity(bool isInteractable)
-        {
-            _recordButton.interactable = isInteractable;
-            _selectDeviceDropdown.interactable = isInteractable;
-            _sampleRateDropdown.interactable = isInteractable;
-            _channelDropdown.interactable = isInteractable;
-            _downmixToggle.interactable = isInteractable;
-            // 刷新按钮总是可交互的，以便用户可以重试权限请求
-            _refreshButton.interactable = true;
         }
 
-        #endregion
-
-        #region EventHandleMethod
-
-        /// <summary>
-        /// 刷新按钮现在也会触发权限检查。
-        /// </summary>
-        private void OnRefreshButtonPressed()
+        private void OnDevicesChanged(MicDevicesChangedEventArgs args)
         {
+            RefreshDevicesFromSystem(keepSelection: false);
+            DisplayDeviceChange(args);
+        }
 
-            EasyMicAPI.Refresh();
-            var devices = EasyMicAPI.Devices.ToList();
+        private void RefreshDevicesFromSystem(bool keepSelection)
+        {
+            string previouslySelectedName = keepSelection && _devices.Count > 0 && _selectDeviceDropdown.options.Count > 0
+                ? _devices[Mathf.Clamp(_selectDeviceDropdown.value, 0, _devices.Count - 1)].Name
+                : null;
+
+            _devices.Clear();
+            _devices.AddRange(EasyMicAPI.Devices);
+
             _selectDeviceDropdown.ClearOptions();
-            Channel defaultChannel = Channel.Mono;
-            if (devices.Count > 0)
+
+            if (_devices.Count == 0)
             {
-                _selectDeviceDropdown.AddOptions(devices.Select(x => x.Name).ToList());
-                int defaultIndex = devices.FindIndex(m => m.IsDefault);
-                _selectDeviceDropdown.value = Mathf.Max(0, defaultIndex); // 确保索引不为-1
-                defaultChannel = devices[defaultIndex].GetDeviceChannel();
+                _selectDeviceDropdown.AddOptions(new List<string> { "No device" });
+                _selectDeviceDropdown.interactable = false;
+                _recordButton.interactable = false;
+                _sampleRateDropdown.ClearOptions();
+                _channelDropdown.ClearOptions();
+                return;
+            }
+
+            _selectDeviceDropdown.interactable = true;
+            _recordButton.interactable = true;
+
+            var options = _devices.Select(d => string.IsNullOrEmpty(d.Name) ? "Unnamed Device" : d.Name).ToList();
+            _selectDeviceDropdown.AddOptions(options);
+
+            int targetIndex = 0;
+            if (!string.IsNullOrEmpty(previouslySelectedName))
+            {
+                targetIndex = _devices.FindIndex(d => string.Equals(d.Name, previouslySelectedName, StringComparison.Ordinal));
+            }
+
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+
+            _selectDeviceDropdown.value = targetIndex;
+            _selectDeviceDropdown.RefreshShownValue();
+
+            OnDeviceSelectionChanged();
+
+            SetUiInteractable(!IsRecording);
+        }
+
+        private void OnDeviceSelectionChanged()
+        {
+            if (_devices.Count == 0)
+            {
+                return;
+            }
+
+            var device = GetSelectedDevice();
+            UpdateSampleRateOptions(device);
+            UpdateChannelOptions(device);
+        }
+
+        private void UpdateSampleRateOptions(MicDevice device)
+        {
+            _sampleRateDropdown.ClearOptions();
+            _availableSampleRates.Clear();
+
+            SampleRate[] supported = device.GetSupportedSampleRateEnums();
+            if (supported.Length == 0)
+            {
+                supported = (SampleRate[])Enum.GetValues(typeof(SampleRate));
+            }
+
+            _availableSampleRates.AddRange(supported);
+            var labels = supported.Select(rate => $"{(int)rate / 1000} kHz").ToList();
+            _sampleRateDropdown.AddOptions(labels);
+
+            var resolved = device.ResolveSampleRate(GetSelectedSampleRateOrDefault());
+            int resolvedIndex = _availableSampleRates.IndexOf(resolved);
+            if (resolvedIndex < 0)
+            {
+                resolvedIndex = 0;
+            }
+
+            _sampleRateDropdown.value = resolvedIndex;
+            _sampleRateDropdown.RefreshShownValue();
+        }
+
+        private void UpdateChannelOptions(MicDevice device)
+        {
+            _channelDropdown.ClearOptions();
+            _availableChannels.Clear();
+
+            Channel[] supported = device.GetSupportedChannels();
+            if (supported.Length == 0)
+            {
+                supported = (Channel[])Enum.GetValues(typeof(Channel));
+            }
+
+            _availableChannels.AddRange(supported);
+            _channelDropdown.AddOptions(supported.Select(c => c.ToString()).ToList());
+
+            var preferred = device.GetPreferredChannel(GetSelectedChannelOrDefault());
+            int preferredIndex = _availableChannels.IndexOf(preferred);
+            if (preferredIndex < 0)
+            {
+                preferredIndex = 0;
+            }
+
+            _channelDropdown.value = preferredIndex;
+            _channelDropdown.RefreshShownValue();
+        }
+
+        private MicDevice GetSelectedDevice()
+        {
+            if (_devices.Count == 0)
+            {
+                return default;
+            }
+
+            int index = Mathf.Clamp(_selectDeviceDropdown.value, 0, _devices.Count - 1);
+            return _devices[index];
+        }
+
+        private SampleRate GetSelectedSampleRateOrDefault()
+        {
+            if (_availableSampleRates.Count == 0)
+            {
+                return SampleRate.Hz16000;
+            }
+
+            int index = Mathf.Clamp(_sampleRateDropdown.value, 0, _availableSampleRates.Count - 1);
+            return _availableSampleRates[index];
+        }
+
+        private Channel GetSelectedChannelOrDefault()
+        {
+            if (_availableChannels.Count == 0)
+            {
+                return Channel.Mono;
+            }
+
+            int index = Mathf.Clamp(_channelDropdown.value, 0, _availableChannels.Count - 1);
+            return _availableChannels[index];
+        }
+
+        private void OnRecordButtonPressed()
+        {
+            if (IsRecording)
+            {
+                StopRecording();
+                return;
+            }
+
+            if (_devices.Count == 0)
+            {
+                Debug.LogWarning("EasyMic: No devices available to start recording.");
+                return;
+            }
+
+            if (_audioSource.isPlaying)
+            {
+                _audioSource.Stop();
+            }
+
+            var device = GetSelectedDevice();
+            var sampleRate = device.ResolveSampleRate(GetSelectedSampleRateOrDefault());
+            var channel = ResolveChannelForStart(device, GetSelectedChannelOrDefault());
+
+            _handle = EasyMicAPI.StartRecording(device, sampleRate, channel);
+            if (!_handle.IsValid)
+            {
+                Debug.LogError("EasyMic: Failed to start recording. Validate device compatibility.");
+                return;
+            }
+
+            if (_downmixToggle.isOn)
+            {
+                EasyMicAPI.AddProcessor(_handle, _bpDownmix);
+            }
+
+            EasyMicAPI.AddProcessor(_handle, _bpCapture);
+
+            UpdateRecordingStateUI(isRecording: true, device.Name, sampleRate, channel);
+            _resultPanel.gameObject.SetActive(false);
+            SetUiInteractable(false);
+        }
+
+        private Channel ResolveChannelForStart(MicDevice device, Channel requested)
+        {
+            if (device.SupportsChannel(requested))
+            {
+                return requested;
+            }
+
+            return device.GetPreferredChannel(requested);
+        }
+
+        private void StopRecording()
+        {
+            var info = EasyMicAPI.GetRecordingInfo(_handle);
+            var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_handle, _bpCapture);
+            _audioClip = capturer?.GetCapturedAudioClip();
+
+            EasyMicAPI.StopRecording(_handle);
+            _handle = default;
+
+            UpdateRecordingStateUI(isRecording: false, info.Device.Name, info.SampleRate, info.Channel);
+            SetUiInteractable(true);
+
+            _resultPanel.gameObject.SetActive(true);
+            _audioNameText.text = _audioClip != null
+                ? $"{info.Device.Name} - {(int)info.SampleRate / 1000}kHz ({info.Channel})"
+                : "No audio captured";
+        }
+
+        private void UpdateRecordingStateUI(bool isRecording, string deviceName, SampleRate sampleRate, Channel channel)
+        {
+            if (isRecording)
+            {
+                _recordingStateText.text = string.IsNullOrEmpty(deviceName)
+                    ? "Recording..."
+                    : $"Recording ({deviceName}, {(int)sampleRate / 1000} kHz, {channel})";
+                _recordingStateImage.color = Color.red;
+                _recordButton.GetComponentInChildren<Text>().text = "Stop Recording";
             }
             else
             {
-                Debug.LogWarning("No microphone devices found.");
-            }
-
-            _sampleRateDropdown.ClearOptions();
-            _sampleRateDropdown.AddOptions(Enum.GetNames(typeof(SampleRate)).ToList());
-            _sampleRateDropdown.value = _sampleRateDropdown.options.FindIndex(m => m.text == SampleRate.Hz16000.ToString());
-
-            _channelDropdown.ClearOptions();
-            _channelDropdown.AddOptions(Enum.GetNames(typeof(Channel)).ToList());
-
-            _channelDropdown.value = _channelDropdown.options.FindIndex(m => m.text == defaultChannel.ToString());
-
-        }
-
-        /// <summary>
-        /// 录制按钮的逻辑。由于UI状态控制，此方法只会在权限授予后被调用。
-        /// </summary>
-        private void OnRecordButtonPressed()
-        {
-            if (isRecording) // 如果正在录音 -> 停止录音
-            {
-                var cap = EasyMicAPI.GetProcessor<AudioCapturer>(handle, _bpCapture);
-                _audioClip = cap != null ? cap.GetCapturedAudioClip() : null;
-                EasyMicAPI.StopRecording(handle);
-                handle = default; // 重置句柄
-
-                // 更新UI到“停止”状态
-                _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
                 _recordingStateText.text = "Not Recording";
                 _recordingStateImage.color = Color.gray;
-                SetUIInteractivity(true);
-                _resultPanel.gameObject.SetActive(true);
-                _audioNameText.text = _audioClip.name;
-            }
-            else // 如果未在录音 -> 开始录音
-            {
-                if (_audioSource.isPlaying)
-                {
-                    _audioSource.Stop();
-                }
-
-                // 检查是否有可用设备
-
-                if (EasyMicAPI.Devices.Length == 0)
-                {
-                    Debug.LogError("No microphone devices available to start recording.");
-                    return;
-                }
-
-                var selectedName = _selectDeviceDropdown.options[_selectDeviceDropdown.value].text;
-                var samplesRate = Enum.Parse<SampleRate>(_sampleRateDropdown.options[_sampleRateDropdown.value].text);
-                var channel = Enum.Parse<Channel>(_channelDropdown.options[_channelDropdown.value].text);
-
-                handle = EasyMicAPI.StartRecording(selectedName, samplesRate, channel);
-                if (!handle.IsValid)
-                {
-                    Debug.LogError("Failed to start recording. Please check device compatibility.");
-                    return;
-                }
-
-                if (_downmixToggle.isOn) { EasyMicAPI.AddProcessor(handle, _bpDownmix); }
-                EasyMicAPI.AddProcessor(handle, _bpCapture);
-
-                // 更新UI到“录制中”状态
-                _recordButton.GetComponentInChildren<Text>().text = "Stop Recording";
-                _recordingStateText.text = "Recording...";
-                _recordingStateImage.color = Color.red;
-                SetUIInteractivity(false); // 录制时禁用选项更改
-                _recordButton.interactable = true; // 但录制按钮本身要能按，以便停止
-                _resultPanel.gameObject.SetActive(false);
+                _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
             }
         }
 
-        private void PlayOrStopButtonClickHandle()
+        private void SetUiInteractable(bool enabled)
         {
+            _selectDeviceDropdown.interactable = enabled && _devices.Count > 0;
+            _sampleRateDropdown.interactable = enabled && _availableSampleRates.Count > 0;
+            _channelDropdown.interactable = enabled && _availableChannels.Count > 0;
+            _downmixToggle.interactable = enabled;
+        }
+
+        private void DisplayDeviceChange(MicDevicesChangedEventArgs args)
+        {
+            if (!args.HasChanges)
+            {
+                return;
+            }
+
+            var parts = new List<string>();
+            if (args.Added.Length > 0)
+            {
+                parts.Add($"Added: {string.Join(", ", args.Added.Select(d => d.Name))}");
+            }
+            if (args.Removed.Length > 0)
+            {
+                parts.Add($"Removed: {string.Join(", ", args.Removed.Select(d => d.Name))}");
+            }
+            if (args.Updated.Length > 0)
+            {
+                parts.Add($"Updated: {string.Join(", ", args.Updated.Select(d => d.Name))}");
+            }
+
+            if (parts.Count == 0)
+            {
+                parts.Add("Devices refreshed");
+            }
+
+            string summary = string.Join(" | ", parts);
+            try { Debug.Log($"EasyMic Sample: {summary}"); } catch { }
+
+            if (!IsRecording && _recordingStateText != null)
+            {
+                _recordingStateText.text = summary;
+            }
+        }
+
+        private void OnRefreshButtonPressed()
+        {
+            EasyMicAPI.Refresh();
+            RefreshDevicesFromSystem(keepSelection: true);
+        }
+
+        private void OnPlayOrStop()
+        {
+            if (_audioClip == null)
+            {
+                Debug.LogWarning("EasyMic: No recorded clip to play.");
+                return;
+            }
+
             if (_audioSource.isPlaying)
             {
                 _audioSource.Stop();
                 _playOrStopButton.GetComponentInChildren<Text>().text = "Play";
+                return;
+            }
+
+            _audioSource.clip = _audioClip;
+            _audioSource.loop = false;
+            _audioSource.Play();
+            _playOrStopButton.GetComponentInChildren<Text>().text = "Stop";
+        }
+
+        private void OnSaveRecording()
+        {
+            if (_audioClip == null)
+            {
+                Debug.LogWarning("EasyMic: Nothing to save.");
+                return;
+            }
+
+            _audioClip.Save();
+        }
+
+        private void OnDownmixToggleChanged(bool isOn)
+        {
+            if (!IsRecording)
+            {
+                return;
+            }
+
+            if (isOn)
+            {
+                EasyMicAPI.AddProcessor(_handle, _bpDownmix);
             }
             else
             {
-                _audioSource.clip = _audioClip;
-                _audioSource.loop = false;
-                _audioSource.Play();
-                _playOrStopButton.GetComponentInChildren<Text>().text = "Stop";
+                EasyMicAPI.RemoveProcessor(_handle, _bpDownmix);
             }
         }
-
-        private void SaveButtonClickHandle()
-        {
-            _audioClip.Save(); // 假设您有一个AudioClip的扩展方法叫Save()
-        }
-
-        #endregion
     }
-
 }

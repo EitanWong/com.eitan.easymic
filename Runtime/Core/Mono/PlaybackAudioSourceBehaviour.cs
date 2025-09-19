@@ -1,33 +1,45 @@
 using System;
+using System.Threading;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime
 {
     /// <summary>
     /// Unity MonoBehaviour wrapper for a PlaybackAudioSource.
-    /// - Plays a Unity AudioClip (decompressed) or accepts streaming samples.
-    /// - Registers itself with AudioSystem and feeds data in Update.
+    /// Provides clip-backed playback with a dedicated feeder thread so audio keeps flowing
+    /// when the Unity player is unfocused or running in the background.
     /// </summary>
     [AddComponentMenu("Audio/Playback Audio Source")]
     public sealed class PlaybackAudioSourceBehaviour : MonoBehaviour
     {
+        private const float QueueSeconds = 0.2f;
+        private const double BufferHighWaterSeconds = 0.12;
+        private const double BufferLowWaterSeconds = 0.03;
+
         [Header("Clip Playback")]
         [SerializeField] private AudioClip _clip;
         [SerializeField] private bool _playOnAwake = true;
         [SerializeField] private bool _loop = true;
 
         [Header("Level")]
-        [Range(0f, 2f)] [SerializeField] private float _volume = 1.0f;
+        [Range(0f, 2f)]
+        [SerializeField] private float _volume = 1.0f;
         [SerializeField] private bool _mute = false;
-        
-        private readonly float QUEUE_SECONDS = 0.01f;
 
         private PlaybackAudioSource _source;
-        private float[] _readBuf;
+        private float[] _clipCache;
+        private int _clipChannels;
+        private int _clipSampleRate;
+        private int _clipTotalSamples;
         private int _positionFrames;
+
+        private bool _solo;
         private int _channels;
         private int _sampleRate;
-        private bool _solo;
+
+        private Thread _feedThread;
+        private ManualResetEventSlim _stopSignal;
+        private AutoResetEvent _wakeSignal;
 
         public PlaybackAudioSource Source => _source;
 
@@ -39,20 +51,57 @@ namespace Eitan.EasyMic.Runtime
         public event Action<float[], int, int> OnAudioPlaybackRead;
 
         public bool IsPlaying => _source != null && _source.IsPlaying;
-        public bool Loop { get => _loop; set => _loop = value; }
+        public bool Loop
+        {
+            get => _loop;
+            set
+            {
+                _loop = value;
+                WakeFeeder();
+            }
+        }
+
         public float BufferedSeconds => _source != null ? (float)_source.BufferedSeconds : 0f;
-        public float Volume { get => _volume; set {
-            _volume = Mathf.Clamp(value, 0f, 2f);
-            if (_source != null)
+
+        public float Volume
+        {
+            get => _volume;
+            set
+            {
+                _volume = Mathf.Clamp(value, 0f, 2f);
+                if (_source != null)
                 {
                     _source.Volume = _volume;
                 }
-            }  }
-        public bool Mute { get => _mute; set { _mute = value; if (_source != null) { _source.Mute = _mute; } } }
-        public bool Solo { get => _solo; set { _solo = value; if (_source != null) { _source.Solo = _solo; } } }
-        /// <summary>
-        /// 获取或设置当前播放的 AudioClip。设置时会在激活状态下重启播放源以应用更改。
-        /// </summary>
+            }
+        }
+
+        public bool Mute
+        {
+            get => _mute;
+            set
+            {
+                _mute = value;
+                if (_source != null)
+                {
+                    _source.Mute = _mute;
+                }
+            }
+        }
+
+        public bool Solo
+        {
+            get => _solo;
+            set
+            {
+                _solo = value;
+                if (_source != null)
+                {
+                    _source.Solo = _solo;
+                }
+            }
+        }
+
         public AudioClip Clip
         {
             get => _clip;
@@ -60,22 +109,22 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (_clip == value)
                 {
-                    _clip = value;
                     return;
                 }
+
                 _clip = value;
                 if (isActiveAndEnabled)
                 {
                     StopPlayback();
                     StartPlayback();
-                    if (!_playOnAwake) { _source?.Pause(); }
+                    if (!_playOnAwake)
+                    {
+                        _source?.Pause();
+                    }
                 }
             }
         }
 
-        /// <summary>
-        /// 获取或设置 PlayOnAwake。设置为 true/false 时，如果组件已激活会相应地播放/暂停。
-        /// </summary>
         public bool PlayOnAwake
         {
             get => _playOnAwake;
@@ -87,10 +136,10 @@ namespace Eitan.EasyMic.Runtime
                     return;
                 }
 
-
                 if (_playOnAwake)
                 {
                     _source.Play();
+                    WakeFeeder();
                 }
                 else
                 {
@@ -98,25 +147,18 @@ namespace Eitan.EasyMic.Runtime
                 }
             }
         }
+
         public float ProgressNormalized
         {
             get
             {
                 if (_clip != null && _clip.samples > 0)
                 {
-                    float p = (float)_positionFrames / Mathf.Max(1, _clip.samples);
-                    if (p < 0f)
-                    {
-                        p = 0f;
-                    }
-                    else if (p > 1f)
-                    {
-                        p = 1f;
-                    }
-
-
-                    return p;
+                    int frames = Volatile.Read(ref _positionFrames);
+                    float p = (float)frames / Mathf.Max(1, _clip.samples);
+                    return Mathf.Clamp01(p);
                 }
+
                 return _source != null ? _source.NormalizedProgress : 0f;
             }
         }
@@ -124,7 +166,10 @@ namespace Eitan.EasyMic.Runtime
         private void OnEnable()
         {
             StartPlayback();
-            if (!_playOnAwake) { _source?.Pause(); }
+            if (!_playOnAwake)
+            {
+                _source?.Pause();
+            }
         }
 
         private void OnDisable()
@@ -154,7 +199,9 @@ namespace Eitan.EasyMic.Runtime
             {
                 StartPlayback();
             }
+
             _source?.Play();
+            WakeFeeder();
         }
 
         public void Pause()
@@ -169,11 +216,77 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-
             _source.Enqueue(samples.AsSpan(0, count));
+            WakeFeeder();
         }
 
         private void StartPlayback()
+        {
+            StopPlayback();
+
+            DetermineFormat();
+
+            var sys = AudioSystem.Instance;
+            if (!sys.IsRunning)
+            {
+                sys.PreferNativeFormat();
+                sys.Start();
+            }
+
+            _source = new PlaybackAudioSource(_channels, _sampleRate, QueueSeconds, sys.MasterMixer)
+            {
+                name = gameObject.name,
+                Volume = _volume,
+                Mute = _mute,
+                Solo = _solo
+            };
+
+            if (_clip != null)
+            {
+                _source.TotalSourceFrames = _clip.samples;
+            }
+
+            _source.OnAudioPlayback += HandleSourceAudioPlaybackRead;
+            Volatile.Write(ref _positionFrames, 0);
+
+            CacheClipData();
+            StartFeeder();
+
+            if (_playOnAwake)
+            {
+                _source.Play();
+                WakeFeeder();
+            }
+        }
+
+        private void StopPlayback()
+        {
+            StopFeeder();
+
+            if (_source != null)
+            {
+                try
+                {
+                    var sys = AudioSystem.Instance;
+                    if (sys.IsRunning && sys.MasterMixer != null)
+                    {
+                        sys.MasterMixer.RemoveSource(_source);
+                    }
+                }
+                catch { }
+
+                try { _source.OnAudioPlayback -= HandleSourceAudioPlaybackRead; } catch { }
+                try { _source.Dispose(); } catch { }
+                _source = null;
+            }
+
+            _clipCache = null;
+            _clipTotalSamples = 0;
+            _clipChannels = 0;
+            Volatile.Write(ref _positionFrames, 0);
+        }
+
+        private void DetermineFormat()
         {
             if (_clip != null)
             {
@@ -185,144 +298,225 @@ namespace Eitan.EasyMic.Runtime
                 _sampleRate = AudioSettings.outputSampleRate;
                 _channels = Mathf.Max(1, SpeakerModeToChannels(AudioSettings.speakerMode));
             }
-
-            var sys = AudioSystem.Instance;
-            if (!sys.IsRunning)
-            {
-                sys.PreferNativeFormat();
-                sys.Start();
-            }
-
-            _source = new PlaybackAudioSource(_channels, _sampleRate, QUEUE_SECONDS, sys.MasterMixer);
-            _source.name = this.name;
-            _source.Volume = _volume;
-            _source.Mute = _mute;
-            _source.Solo = _solo;
-            if (_clip != null)
-            {
-                _source.TotalSourceFrames = _clip.samples;
-            }
-            _positionFrames = 0;
-            // 订阅底层回采并向外转发
-            _source.OnAudioPlayback += HandleSourceAudioPlaybackRead;
         }
 
-        private void StopPlayback()
+        private void CacheClipData()
         {
-            var src = _source;
-            _source = null;
-            if (src != null)
-            {
-                try
-                {
-                    var sys = AudioSystem.Instance;
-                    if (sys.IsRunning && sys.MasterMixer != null)
-                    {
-                        sys.MasterMixer.RemoveSource(src);
-                    }
-                }
-                catch { /* Swallow during shutdown/disable */ }
-                try { src.OnAudioPlayback -= HandleSourceAudioPlaybackRead; } catch { }
-                try { src.Dispose(); } catch { }
-            }
-            _positionFrames = 0;
-        }
+            _clipCache = null;
+            _clipTotalSamples = 0;
+            _clipChannels = 0;
+            _clipSampleRate = 0;
 
-        private void Update()
-        {
-            if (_source != null && _source.IsPlaying)
-            {
-                FeedFromClip(iterations: 2);
-            }
-        }
-
-        private void LateUpdate()
-        {
-            // Top-off in LateUpdate to mitigate editor UI stalls (e.g., window resizing)
-            if (_source != null && _source.IsPlaying)
-            {
-                FeedFromClip(iterations: 1);
-            }
-        }
-
-        private void FeedFromClip(int iterations)
-        {
-            if (_source == null || _clip == null)
+            if (_clip == null)
             {
                 return;
             }
 
-
-            int inCh = Mathf.Max(1, _clip.channels);
-
-            for (int it = 0; it < iterations; it++)
+            try
             {
-                int remainingFramesInClip = _clip.samples - _positionFrames;
-                if (remainingFramesInClip <= 0)
+                if (_clip.loadState == AudioDataLoadState.Unloaded)
                 {
-                    if (_loop)
+                    _clip.LoadAudioData();
+                }
+
+                if (_clip.loadState == AudioDataLoadState.Loading)
+                {
+                    // Wait briefly for asynchronous prepare without blocking frame for too long.
+                    var spinner = new SpinWait();
+                    int safety = 0;
+                    while (_clip.loadState == AudioDataLoadState.Loading && safety < 100)
                     {
-                        _positionFrames = 0;
-                        remainingFramesInClip = _clip.samples;
-                    }
-                    else
-                    {
-                        break; // complete
-                    }
-
-                }
-
-                int freeSamples = _source.FreeSamples;
-                if (freeSamples <= 0)
-                {
-                    break; // full
-                }
-
-
-                int freeFrames = freeSamples / inCh;
-                if (freeFrames <= 0)
-                {
-                    break;
-                }
-
-                // Read a moderate chunk to reduce GC and keep audio fed even under stalls
-
-                int framesToRead = Mathf.Min(remainingFramesInClip, freeFrames);
-                // Cap chunk size to avoid very large allocations/read operations
-                framesToRead = Mathf.Min(framesToRead, 8192 / inCh); // ~8192 samples cap
-                if (framesToRead <= 0)
-                {
-                    break;
-                }
-
-
-                int samplesToRead = framesToRead * inCh;
-                if (_readBuf == null || _readBuf.Length < samplesToRead)
-                {
-                    _readBuf = new float[samplesToRead];
-                }
-
-                if (_clip.GetData(_readBuf, _positionFrames))
-                {
-                    int writtenSamples = _source.Enqueue(_readBuf.AsSpan(0, samplesToRead));
-                    int writtenFrames = writtenSamples / inCh;
-                    _positionFrames += writtenFrames;
-                    if (!_loop && _positionFrames >= _clip.samples)
-                    {
-                        _positionFrames = _clip.samples;
-                        break;
-                    }
-                    if (writtenFrames <= 0)
-                    {
-                        break; // nothing enqueued
+                        spinner.SpinOnce();
+                        safety++;
                     }
                 }
-                else
+
+                if (_clip.loadState != AudioDataLoadState.Loaded)
                 {
-                    break;
+                    Debug.LogWarning($"EasyMic: Clip '{_clip.name}' not ready for playback; falling back to realtime feed.");
+                    return;
                 }
 
+                int samples = _clip.samples;
+                int channels = Mathf.Max(1, _clip.channels);
+                if (samples <= 0)
+                {
+                    return;
+                }
+
+                var buffer = new float[samples * channels];
+                if (_clip.GetData(buffer, 0))
+                {
+                    _clipCache = buffer;
+                    _clipChannels = channels;
+                    _clipSampleRate = Mathf.Max(8000, _clip.frequency);
+                    _clipTotalSamples = buffer.Length;
+                    Volatile.Write(ref _positionFrames, 0);
+                }
             }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"EasyMic: Failed to cache clip '{_clip.name}'. {ex.Message}");
+                _clipCache = null;
+            }
+        }
+
+        private void StartFeeder()
+        {
+            if (_clipCache == null || _clipCache.Length == 0)
+            {
+                return;
+            }
+
+            _stopSignal = new ManualResetEventSlim(false);
+            _wakeSignal = new AutoResetEvent(false);
+            _feedThread = new Thread(FeedLoop)
+            {
+                Name = $"EasyMicPlaybackFeed-{name}",
+                IsBackground = true,
+                Priority = System.Threading.ThreadPriority.Highest
+            };
+            _feedThread.Start();
+        }
+
+        private void StopFeeder()
+        {
+            var thread = _feedThread;
+            if (thread == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _stopSignal?.Set();
+                _wakeSignal?.Set();
+                if (!thread.Join(100))
+                {
+                    thread.Join(500);
+                }
+            }
+            catch { }
+            finally
+            {
+                _feedThread = null;
+                _stopSignal?.Dispose();
+                _wakeSignal?.Dispose();
+                _stopSignal = null;
+                _wakeSignal = null;
+            }
+        }
+
+        private void FeedLoop()
+        {
+            var temp = new float[Math.Max(4096, (_clipChannels > 0 ? _clipChannels : 1) * 1024)];
+            int clipFrames = _clipChannels > 0 ? _clipTotalSamples / _clipChannels : 0;
+            int cursorFrames = 0;
+
+            while (!_stopSignal.IsSet)
+            {
+                try
+                {
+                    var src = _source;
+                    if (src == null)
+                    {
+                        Thread.Sleep(10);
+                        continue;
+                    }
+
+                    if (!src.IsPlaying)
+                    {
+                        WaitFeeder();
+                        continue;
+                    }
+
+                    double buffered = src.BufferedSeconds;
+                    if (buffered > BufferHighWaterSeconds)
+                    {
+                        WaitFeeder();
+                        continue;
+                    }
+
+                    if (_clipCache == null || _clipCache.Length == 0 || clipFrames <= 0)
+                    {
+                        Thread.Sleep(10);
+                        continue;
+                    }
+
+                    if (cursorFrames >= clipFrames)
+                    {
+                        if (Loop)
+                        {
+                            cursorFrames = 0;
+                        }
+                        else
+                        {
+                            src.Pause();
+                            continue;
+                        }
+                    }
+
+                    int freeSamples = src.FreeSamples;
+                    if (freeSamples <= _clipChannels)
+                    {
+                        WaitFeeder();
+                        continue;
+                    }
+
+                    int framesBudget = Math.Min(freeSamples / Math.Max(1, _clipChannels), temp.Length / Math.Max(1, _clipChannels));
+                    if (framesBudget <= 0)
+                    {
+                        Thread.Sleep(2);
+                        continue;
+                    }
+
+                    int framesRemaining = clipFrames - cursorFrames;
+                    int framesToCopy = Math.Min(framesRemaining, framesBudget);
+                    if (framesToCopy <= 0)
+                    {
+                        Thread.Sleep(2);
+                        continue;
+                    }
+
+                    int samplesToCopy = framesToCopy * _clipChannels;
+                    Array.Copy(_clipCache, cursorFrames * _clipChannels, temp, 0, samplesToCopy);
+                    src.Enqueue(new ReadOnlySpan<float>(temp, 0, samplesToCopy));
+
+                    cursorFrames += framesToCopy;
+                    Volatile.Write(ref _positionFrames, cursorFrames);
+
+                    if (buffered < BufferLowWaterSeconds)
+                    {
+                        continue;
+                    }
+
+                    WaitFeeder();
+                }
+                catch
+                {
+                    Thread.Sleep(5);
+                }
+            }
+        }
+
+        private void WaitFeeder()
+        {
+            var wake = _wakeSignal;
+            if (wake == null)
+            {
+                Thread.Sleep(4);
+                return;
+            }
+
+            if (wake.WaitOne(4))
+            {
+                wake.Reset();
+            }
+        }
+
+        private void WakeFeeder()
+        {
+            _wakeSignal?.Set();
         }
 
         private static int SpeakerModeToChannels(AudioSpeakerMode mode)
@@ -339,10 +533,10 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        // 底层回采转发（注意：音频线程回调）
         private void HandleSourceAudioPlaybackRead(float[] data, int channels, int sampleRate)
         {
-            try { OnAudioPlaybackRead?.Invoke(data, channels, sampleRate); } catch { }
+            try { OnAudioPlaybackRead?.Invoke(data, channels, sampleRate); }
+            catch { }
         }
     }
 }

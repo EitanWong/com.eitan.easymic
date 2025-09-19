@@ -20,7 +20,12 @@ namespace Eitan.EasyMic.Runtime
 
         protected override void OnAudioWrite(Span<float> buffer, AudioState state)
         {
-            if (buffer.IsEmpty) return;
+            if (buffer.IsEmpty)
+            {
+                return;
+            }
+
+
             float t = _thresholdLinear;
             float makeup = DbToLin(MakeupDb);
             for (int i = 0; i < buffer.Length; i++)
