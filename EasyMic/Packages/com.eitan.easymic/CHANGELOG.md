@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2-exp.1] - 2025-09-22
+
+### Added
+- Added `SherpaKeywordDetector` processor, a keyword/wake-word detector based on the [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) plugin, for implementing wake-word functionality.
+
+### Changed
+- Optimized Easy Mic's code by removing the `soundio` dependency for desktop platforms.
+- Refactored and optimized code for better performance.
+- Enhanced detailed recording device information retrieval (channel count and supported sample rates) on both mobile and desktop platforms.
+- Optimized the `AudioPlayback` system to use a background audio thread, ensuring continuous audio playback even when the application is not in focus.
+
+
 ### Added
 - Enhanced README documentation with professional visual layout
 - Comprehensive bilingual documentation (English/Chinese) in Documentation~ folder

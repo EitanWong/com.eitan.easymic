@@ -1,6 +1,6 @@
 {
-    "name": "Eitan.EasyMic.Samples.SherpaOnnx",
-    "rootNamespace": "Eitan.EasyMic.Samples.SherpaOnnx",
+    "name": "Eitan.EasyMic.Samples.SherpaOnnx.KWS",
+    "rootNamespace": "Eitan.EasyMic.Samples.SherpaOnnx.KWS",
     "references": [
         "Eitan.EasyMic",
         "Eitan.EasyMic.SherpaOnnxUnity",

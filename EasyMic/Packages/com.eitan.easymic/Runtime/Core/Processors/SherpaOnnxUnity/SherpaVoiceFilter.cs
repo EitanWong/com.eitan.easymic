@@ -1,11 +1,11 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
-using System;
-using System.Threading;
-using Eitan.SherpaOnnxUnity.Runtime;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 {
+    using System;
+    using System.Threading;
+    using Eitan.SherpaOnnxUnity.Runtime;
+    using UnityEngine;
     /// <summary>
     /// Voice gate using Sherpa-Onnx VAD.
     /// - Buffers a short lead-in to avoid clipping speech onsets.
@@ -26,7 +26,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         // --- VAD State Management ---
         public volatile bool IsVoiceActive;
         private bool _wasVoiceActiveLastFrame;
-        
+
         // A reusable buffer for feeding audio data to the VAD service to avoid per-frame allocations.
         private float[] _vadBuffer;
 
@@ -34,7 +34,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         private AudioBuffer _preBuffer;
         private AudioBuffer _outBuffer;
         private int _preBufferCapacityInSamples;
-        
+
         // Reusable buffer for efficiently transferring data between the two ring buffers.
         private float[] _transferBuffer;
 
@@ -47,9 +47,9 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         {
             _vadService = vadService ?? throw new ArgumentNullException(nameof(vadService));
             _preBufferDurationInSeconds = preBufferDurationInSeconds;
-            
+
             _mainThreadContext = SynchronizationContext.Current;
-            
+
             _vadService.OnSpeakingStateChanged += HandleVoiceActivityChanged;
         }
 
@@ -62,7 +62,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             // Initialize ring buffers. Output buffer is larger to accommodate pre-buffer + live audio.
             _preBuffer = new AudioBuffer(_preBufferCapacityInSamples);
             _outBuffer = new AudioBuffer(_preBufferCapacityInSamples * 2);
-            
+
             // Pre-allocate the transfer buffer to the maximum possible size to avoid allocations on the hot path.
             _transferBuffer = new float[_preBufferCapacityInSamples];
         }
@@ -113,7 +113,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
                         }
                     }
                 }
-                
+
                 // Add the current audio frame to the output buffer.
                 _outBuffer.Write(audioBuffer);
             }
@@ -136,13 +136,13 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             {
                 _outBuffer.Read(audioBuffer.Slice(0, samplesToWrite));
             }
-            
+
             // If we wrote less than a full buffer, clear the remaining part to prevent stale audio.
             if (samplesToWrite < audioBuffer.Length)
             {
                 audioBuffer.Slice(samplesToWrite).Clear();
             }
-            
+
             // Update the state with the number of samples we actually wrote.
             state.Length = samplesToWrite;
 
@@ -154,26 +154,39 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
         private void HandleVoiceActivityChanged(bool isActive)
         {
-            if (IsDisposed) return;
+            if (IsDisposed)
+            {
+                return;
+            }
+
+
             IsVoiceActive = isActive;
             PostVoiceActivityToMainThread(isActive);
         }
-        
+
         private void PostVoiceActivityToMainThread(bool isActive)
         {
-            _mainThreadContext?.Post(_ => {
+            _mainThreadContext?.Post(_ =>
+            {
                 if (!IsDisposed)
+                {
                     OnVoiceActivityChanged?.Invoke(isActive);
+                }
+
             }, null);
         }
-        
+
         #endregion
 
         #region Dispose Pattern
-        
+
         public override void Dispose()
         {
-            if (IsDisposed) return;
+            if (IsDisposed)
+            {
+                return;
+            }
+
 
             _vadService.OnSpeakingStateChanged -= HandleVoiceActivityChanged;
             _preBuffer?.Clear();
@@ -183,7 +196,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             OnVoiceActivityChanged = null;
             base.Dispose();
         }
-        
+
         #endregion
     }
 }

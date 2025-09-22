@@ -45,6 +45,7 @@ Easy Mic 配备了全面的音频处理器套件：
 
 ### AI 集成
 *   **🗣️ `SherpaRealtimeSpeechRecognizer`**: 使用Sherpa-ONNX引擎的尖端实时语音转文本。**需要：** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
+*   **👂 `SherpaKeywordDetector`**: 关键词/唤醒词检测器，可用于制作唤醒词功能。**需要：** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
 
 ### 专业音频增强 💎
 对于需要录音棚品质音频的生产就绪应用，请考虑 **EasyMic 音频处理模块 (APM)**：

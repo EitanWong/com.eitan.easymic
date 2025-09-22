@@ -1,15 +1,13 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
-
-using UnityEngine;
-using UnityEngine.UI;
-using System.Linq;
-using Eitan.EasyMic.Runtime;
-using Eitan.SherpaOnnxUnity.Runtime;
-using System;
-using Eitan.EasyMic.Runtime.Apm;
-
-namespace Eitan.EasyMic.Samples.SherpaOnnx
+namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
 {
+    using UnityEngine;
+    using UnityEngine.UI;
+    using System.Linq;
+    using Eitan.EasyMic.Runtime;
+    using Eitan.SherpaOnnxUnity.Runtime;
+    using System;
+
     /// <summary>
     /// This is a comprehensive example demonstrating the capabilities of the EasyMic and SherpaOnnx Unity packages.
     /// It covers:
@@ -23,7 +21,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
     /// - Playing back and saving the recorded audio.
     /// - Managing UI states for a clear user experience.
     /// </summary>
-    public class EasyMicSherpaOnnxExample : MonoBehaviour, ISherpaFeedbackHandler
+    public class EasyMicSherpaOnnxASRExample : MonoBehaviour, ISherpaFeedbackHandler
     {
         #region UI Constants
         private const string STATE_NOT_LOADED = "Not Loaded";
@@ -42,7 +40,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
         private const string BTN_STOP_RECORDING = "Stop Recording";
         private const string BTN_PLAY = "Play";
         private const string BTN_STOP = "Stop";
-        
+
         private const string TXT_TRANSCRIPTION_DEFAULT = "Transcription will appear here...";
         #endregion
 
@@ -51,7 +49,8 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
         [Tooltip("AudioSource for playing back recorded audio clips. This is required.")]
         [SerializeField] private AudioSource _audioSource;
 
-        [Header("Setup & Configuration")][Tooltip("Dropdown to select the microphone device.")]
+        [Header("Setup & Configuration")]
+        [Tooltip("Dropdown to select the microphone device.")]
         [SerializeField] private Dropdown _selectDeviceDropdown;
         [Tooltip("Dropdown to select the Automatic Speech Recognition (ASR) model.")]
         [SerializeField] private Dropdown _asrModelsDropdown;
@@ -66,19 +65,22 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
         [Tooltip("The parent object for the VAD dropdown, used for layout control.")]
         [SerializeField] private RectTransform _vadDropdownLayoutContainer;
 
-        [Header("Recording Controls")][Tooltip("Button to start or stop the recording process.")]
+        [Header("Recording Controls")]
+        [Tooltip("Button to start or stop the recording process.")]
         [SerializeField] private Button _recordButton;
         [Tooltip("Parent container for the record button.")]
         [SerializeField] private RectTransform _recordingButtonContainer;
 
-        [Header("Status Display")][Tooltip("Image to visually indicate the current status (e.g., gray for idle, green for ready, red for recording).")]
+        [Header("Status Display")]
+        [Tooltip("Image to visually indicate the current status (e.g., gray for idle, green for ready, red for recording).")]
         [SerializeField] private RawImage _stateImage;
         [Tooltip("Text to display the current status message.")]
         [SerializeField] private Text _stateText;
         [Tooltip("Text to display the real-time or final transcription result.")]
         [SerializeField] private Text _transcriptionText;
 
-        [Header("Playback & Save Result")][Tooltip("The panel containing playback and save controls, visible after a recording is complete.")]
+        [Header("Playback & Save Result")]
+        [Tooltip("The panel containing playback and save controls, visible after a recording is complete.")]
         [SerializeField] private RectTransform _resultPanel;
         [Tooltip("Text to display the name of the recorded audio clip.")]
         [SerializeField] private Text _audioNameText;
@@ -105,7 +107,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
 
         private SpeechRecognition _asrService;
         private VoiceActivityDetection _vadService;
-        
+
         private readonly string _defaultVadModelName = "ten-vad";
         private readonly string _defaultAsrModelName = "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
         private const int SAMPLERATE = 16000;
@@ -127,7 +129,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
 
             BindUIEvents();
             SetInitialUIState();
-            
+
             SherpaOnnxUnityAPI.SetGithubProxy("https://gh-proxy.com/");
             OnRefreshButtonPressed();
         }
@@ -147,7 +149,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
         private void OnDestroy()
         {
             EasyMicAPI.StopAllRecordings();
-            UnloadModels(); 
+            UnloadModels();
             UnbindUIEvents();
         }
         #endregion
@@ -178,12 +180,36 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
 
         private void UnbindUIEvents()
         {
-            if (_saveButton) _saveButton.onClick.RemoveAllListeners();
-            if (_playOrStopButton) _playOrStopButton.onClick.RemoveAllListeners();
-            if (_recordButton) _recordButton.onClick.RemoveAllListeners();
-            if (_loadOrUnloadButton) _loadOrUnloadButton.onClick.RemoveAllListeners();
-            if (_refreshButton) _refreshButton.onClick.RemoveAllListeners();
-            if (_asrModelsDropdown) _asrModelsDropdown.onValueChanged.RemoveAllListeners();
+            if (_saveButton)
+            {
+                _saveButton.onClick.RemoveAllListeners();
+            }
+
+            if (_playOrStopButton)
+            {
+                _playOrStopButton.onClick.RemoveAllListeners();
+            }
+
+            if (_recordButton)
+            {
+                _recordButton.onClick.RemoveAllListeners();
+            }
+
+            if (_loadOrUnloadButton)
+            {
+                _loadOrUnloadButton.onClick.RemoveAllListeners();
+            }
+
+            if (_refreshButton)
+            {
+                _refreshButton.onClick.RemoveAllListeners();
+            }
+
+            if (_asrModelsDropdown)
+            {
+                _asrModelsDropdown.onValueChanged.RemoveAllListeners();
+            }
+
         }
 
         private void SetUIInteractability()
@@ -301,7 +327,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
                 }
                 else
                 {
-                     Debug.LogError($"Failed to save audio clip.");
+                    Debug.LogError($"Failed to save audio clip.");
                     _transcriptionText.text = "Failed to save audio.";
                 }
             }
@@ -318,7 +344,11 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
                 return;
             }
 
-            if (_audioSource.isPlaying) _audioSource.Stop();
+            if (_audioSource.isPlaying)
+            {
+                _audioSource.Stop();
+            }
+
 
             _currentTranscription = "";
             _transcriptionText.text = STATE_PREPARING;
@@ -355,9 +385,13 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
         private void AddProcessorsToHandle()
         {
 #if EASYMIC_APM_INTEGRATION
-            var bpApm = new AudioWorkerBlueprint(()=>new WebRtcApmModifier(), key: "webrtc-apm");
+            var bpApm = new AudioWorkerBlueprint(() => new EasyMic.Runtime.Apm.WebRtcApmModifier(), key: "webrtc-apm");
             EasyMicAPI.AddProcessor(_handle, bpApm);
 #endif
+
+
+            var bpDownmixer = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmixer");
+            EasyMicAPI.AddProcessor(_handle, bpDownmixer);
 
             var selectedAsrModel = _asrModelsDropdown.options[_asrModelsDropdown.value].text;
             bool isOnlineModel = SherpaOnnxUnityAPI.IsOnlineModel(selectedAsrModel);
@@ -366,7 +400,8 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
             {
                 if (_asrService != null)
                 {
-                    _bpRealtime ??= new AudioWorkerBlueprint(() => {
+                    _bpRealtime ??= new AudioWorkerBlueprint(() =>
+                    {
                         var r = new Eitan.EasyMic.Runtime.SherpaOnnxUnity.SherpaRealtimeSpeechRecognizer(_asrService);
                         r.OnRecognitionResult += OnTranscriptionUpdate;
                         return r;
@@ -383,7 +418,8 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
                 }
                 if (_asrService != null)
                 {
-                    _bpOffline ??= new AudioWorkerBlueprint(() => {
+                    _bpOffline ??= new AudioWorkerBlueprint(() =>
+                    {
                         var r = new Eitan.EasyMic.Runtime.SherpaOnnxUnity.SherpaOfflineSpeechRecognizer(_asrService);
                         r.OnRecognitionResult += OnTranscriptionUpdate;
                         return r;
@@ -429,7 +465,12 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
 
         private void UnloadModels()
         {
-            if (_handle.IsValid) EasyMicAPI.StopRecording(_handle);
+            if (_handle.IsValid)
+            {
+                EasyMicAPI.StopRecording(_handle);
+            }
+
+
             _handle = default;
 
             _asrService?.Dispose();
@@ -454,7 +495,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx
             _stateText.text = STATE_LOADING_FAILED;
             _stateImage.color = Color.red;
         }
-        
+
         private void OnTranscriptionUpdate(string transcription)
         {
             if (!string.IsNullOrEmpty(transcription))

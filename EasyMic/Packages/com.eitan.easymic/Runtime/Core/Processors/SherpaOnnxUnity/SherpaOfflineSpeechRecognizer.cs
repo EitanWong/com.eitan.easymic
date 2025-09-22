@@ -1,12 +1,12 @@
 ﻿#if EASYMIC_SHERPA_ONNX_INTEGRATION
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Eitan.SherpaOnnxUnity.Runtime;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 {
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Eitan.SherpaOnnxUnity.Runtime;
+    using UnityEngine;
     /// <summary>
     /// Offline recognizer. Accumulates audio in a lock-free ring buffer while VAD (external) indicates speech,
     /// then runs batch recognition asynchronously on a worker task to keep the reader thread non-blocking.
@@ -31,7 +31,11 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         {
             _svc = service ?? throw new ArgumentNullException(nameof(service));
             if (_svc.IsOnlineModel)
+            {
+
                 throw new ArgumentException("Use offline model for offline recognizer.");
+            }
+
         }
 
         public override void Initialize(AudioState state)
@@ -46,7 +50,11 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         // This method is called on a background thread by the audio reader.
         protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested)
+            {
+                return;
+            }
+
 
             try
             {

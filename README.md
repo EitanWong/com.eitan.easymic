@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>Latest Version:</strong> <code>0.1.1-exp</code> (2025-08-24) ·
+    <strong>Latest Version:</strong> <code>0.1.2-exp.1</code> (2025-09-22) ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
   </p>
   <p align="center">
-    <em>Highlights:</em> New low-latency playback/mixing subsystem (AudioSystem/AudioMixer/PlaybackAudioSource), refactored non-blocking recording core, and a new <code>Samples~/Playback Example</code> scene. Docs clarify AEC playback requirement.
+    <em>Highlights:</em> Added `SherpaKeywordDetector` for wake-word detection. Removed `soundio` dependency on desktop. Optimized performance and audio playback now uses a background thread.
   </p>
   
   <p align="center">

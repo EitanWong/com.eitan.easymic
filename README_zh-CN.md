@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>最新版本：</strong><code>0.1.1-exp</code>（2025-08-24） ·
+    <strong>最新版本：</strong><code>0.1.2-exp.1</code>（2025-09-22） ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
   </p>
   <p align="center">
-    <em>更新要点：</em> 新增低延迟播放/混音子系统（AudioSystem/AudioMixer/PlaybackAudioSource），录制底层重构为无阻塞高性能架构，新增 <code>Samples~/Playback Example</code> 示例场景；文档补充 AEC 播放路径要求。
+    <em>更新要点：</em> 添加了 `SherpaKeywordDetector` 唤醒词检测器。移除了桌面平台的 `soundio` 依赖。优化了性能，音频播放现在使用后台线程。
   </p>
   
   <p align="center">
