@@ -1,6 +1,6 @@
 {
   "name": "com.eitan.easymic",
-  "version": "0.1.1-exp",
+  "version": "0.1.2-exp.1",
   "displayName": "EasyMic",
   "description": "A simple Unity plugin for low-latency raw audio capture with a modular real-time processing pipeline.",
   "keywords": [
@@ -49,9 +49,14 @@
       "path": "Samples~/Playback Example"
     },
     {
-      "displayName": "SherpaOnnx Example",
+      "displayName": "SherpaOnnx ASR Example",
       "description": "A simple scene demonstrating real-time speech recognition by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
-      "path": "Samples~/SherpaOnnx Example"
+      "path": "Samples~/SherpaOnnx ASR Example"
+    },
+    {
+      "displayName": "SherpaOnnx KWS Example",
+      "description": "A simple scene demonstrating keyword spotting by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
+      "path": "Samples~/SherpaOnnx KWS Example"
     }
   ],
   "repository": {
@@ -62,7 +67,6 @@
     "name": "Eitan",
     "url": "https://github.com/EitanWong"
   },
-  "dependencies": {},
   "publishConfig": {
     "registry": "https://package.openupm.com"
   }

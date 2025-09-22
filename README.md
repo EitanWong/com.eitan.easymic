@@ -48,6 +48,7 @@ Easy Mic ships with a comprehensive suite of audio processors:
 
 ### AI Integration
 *   **🗣️ `SherpaRealtimeSpeechRecognizer`**: Cutting-edge real-time speech-to-text using the Sherpa-ONNX engine. **Requires:** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
+*   **👂 `SherpaKeywordDetector`**: Keyword/wake-word detector for creating voice activation features. **Requires:** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
 
 ### Professional Audio Enhancement 💎
 For production-ready applications requiring studio-quality audio, consider the **EasyMic Audio Processing Module (APM)**:
