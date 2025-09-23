@@ -5,7 +5,7 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Samples/EasyMic Audio Processing Module/0.1.1-exp/Audio Processing
       Example/EasyMicAudioProcessingExample.unity
     guid: 0dfd0f7909e02413096420c3db0c24b5

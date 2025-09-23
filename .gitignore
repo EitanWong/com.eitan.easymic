@@ -98,4 +98,6 @@ EasyMic/Assets/Demo/Samples/AudioProcessing/
 # ================== #
 CLAUDE.md
 GEMINI.md
+
 EasyMic/Packages/com.eitan.easymic.apm
+EasyMic/Packages/com.eitan.sherpa-onnx-unity

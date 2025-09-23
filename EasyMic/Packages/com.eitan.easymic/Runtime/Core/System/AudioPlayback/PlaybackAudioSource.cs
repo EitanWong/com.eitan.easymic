@@ -24,6 +24,12 @@ namespace Eitan.EasyMic.Runtime
         /// Signature: (samples, channels, sampleRate)
         /// </summary>
         public event Action<float[], int, int> OnAudioPlayback;
+
+        /// <summary>
+        /// Raised once the source has finished draining all scheduled audio and an end-of-stream was signalled.
+        /// Consumers can use this to track clip or stream completion.
+        /// </summary>
+        public event Action<PlaybackAudioSource> OnPlaybackCompleted;
         // Resampler state
         private float[] _resBuf;     // interleaved source frames cache for resampling
         private int _resFrames;      // frames currently in _resBuf
@@ -32,6 +38,14 @@ namespace Eitan.EasyMic.Runtime
         private long _playedSourceFrames; // advanced source-domain frames
         private volatile bool _isPlaying = true;
         private long _totalSourceFrames = -1; // unknown when < 0
+
+        // Conversion helpers for format negotiation (enqueue path). Allocated lazily.
+        private float[] _convertBuffer;
+
+        // End-of-stream tracking.
+        private int _pendingStreamEnd; // 0/1 flag when callers request completion once drained
+        private int _playbackCompleted; // 0/1 guard to dispatch completion once per drain
+        private int _loopBoundaryPending; // 0/1 guard to surface loop boundary callback on audio thread
 
         // Meters (snapshot by last render)
         private float[] _meterPeak; // per-output-channel of last render
@@ -129,7 +143,66 @@ namespace Eitan.EasyMic.Runtime
                 return 0;
             }
 
+            ResetCompletionGuard();
             return _queue.Write(interleaved);
+        }
+
+        public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, bool markEndOfStream = false)
+        {
+            if (interleaved.IsEmpty)
+            {
+                if (markEndOfStream)
+                {
+                    SignalEndOfStream();
+                }
+                return 0;
+            }
+
+            if (channels <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(channels));
+            }
+
+            if (sampleRate <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(sampleRate));
+            }
+
+            ResetCompletionGuard();
+
+            int srcFrames = interleaved.Length / channels;
+            if (srcFrames <= 0)
+            {
+                if (markEndOfStream)
+                {
+                    SignalEndOfStream();
+                }
+                return 0;
+            }
+
+            int srcSamples = srcFrames * channels;
+            var src = interleaved.Slice(0, srcSamples);
+
+            int written = (channels == Channels && sampleRate == SampleRate)
+                ? _queue.Write(src)
+                : ConvertAndEnqueue(src, channels, sampleRate);
+
+            if (markEndOfStream)
+            {
+                SignalEndOfStream();
+            }
+
+            return written;
+        }
+
+        public void SignalEndOfStream()
+        {
+            System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 1);
+        }
+
+        internal void AnnounceLoopBoundary()
+        {
+            System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 1);
         }
 
         public int QueuedSamples => _queue.ReadableCount;
@@ -169,6 +242,9 @@ namespace Eitan.EasyMic.Runtime
             _resFrames = 0;
             _queue.Clear();
             _totalSourceFrames = 0;
+            System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 0);
+            System.Threading.Interlocked.Exchange(ref _playbackCompleted, 0);
+            System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 0);
         }
 
         /// <summary>
@@ -177,20 +253,27 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate)
         {
+            TryDispatchLoopBoundary();
             if (destination.IsEmpty)
             {
+                TryRaiseCompletionIfDrained();
+                TryDispatchLoopBoundary();
                 return;
             }
 
 
             if (!_isPlaying)
             {
+                TryRaiseCompletionIfDrained();
+                TryDispatchLoopBoundary();
                 return;
             }
 
 
             if (Mute || Volume <= 0f)
             {
+                TryRaiseCompletionIfDrained();
+                TryDispatchLoopBoundary();
                 return;
             }
 
@@ -325,6 +408,8 @@ namespace Eitan.EasyMic.Runtime
                     _meterPeak = peakLocal;
                     _meterRms = rms;
                 }
+                TryRaiseCompletionIfDrained();
+                TryDispatchLoopBoundary();
                 return;
             }
 
@@ -332,6 +417,7 @@ namespace Eitan.EasyMic.Runtime
             int outFrames = destination.Length / Math.Max(1, sysChannels);
             if (outFrames <= 0)
             {
+                TryDispatchLoopBoundary();
                 return;
             }
 
@@ -544,6 +630,233 @@ namespace Eitan.EasyMic.Runtime
                 }
                 Array.Copy(cbScratch, 0, _callbackBuffer, 0, outIndex);
                 try { OnAudioPlayback?.Invoke(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
+            }
+            TryRaiseCompletionIfDrained();
+            TryDispatchLoopBoundary();
+        }
+
+        private void ResetCompletionGuard()
+        {
+            if (System.Threading.Interlocked.CompareExchange(ref _playbackCompleted, 0, 1) == 1)
+            {
+                System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 0);
+            }
+            else
+            {
+                System.Threading.Volatile.Write(ref _playbackCompleted, 0);
+            }
+        }
+
+        private int ConvertAndEnqueue(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate)
+        {
+            int srcFrames = source.Length / srcChannels;
+            if (srcFrames <= 0)
+            {
+                return 0;
+            }
+
+            int targetFrames = (srcSampleRate == SampleRate)
+                ? srcFrames
+                : (int)Math.Ceiling(srcFrames * (double)SampleRate / Math.Max(1, srcSampleRate));
+            if (targetFrames <= 0)
+            {
+                return 0;
+            }
+
+            int targetSamples = targetFrames * Channels;
+            EnsureConvertBufferCapacity(targetSamples);
+            var dest = new Span<float>(_convertBuffer, 0, targetSamples);
+
+            if (srcSampleRate == SampleRate)
+            {
+                ConvertChannelsOnly(source, srcChannels, dest, srcFrames);
+            }
+            else
+            {
+                ConvertWithResample(source, srcChannels, srcSampleRate, dest, targetFrames);
+            }
+
+            return _queue.Write(dest);
+        }
+
+        private void EnsureConvertBufferCapacity(int neededSamples)
+        {
+            if (_convertBuffer != null && _convertBuffer.Length >= neededSamples)
+            {
+                return;
+            }
+
+            int newSize = _convertBuffer == null || _convertBuffer.Length == 0 ? 1024 : _convertBuffer.Length;
+            while (newSize < neededSamples)
+            {
+                newSize *= 2;
+            }
+
+            _convertBuffer = new float[newSize];
+        }
+
+        private void ConvertChannelsOnly(ReadOnlySpan<float> source, int srcChannels, Span<float> dest, int frames)
+        {
+            int copySamples = Math.Min(source.Length, frames * srcChannels);
+            source = source.Slice(0, copySamples);
+
+            if (srcChannels == Channels)
+            {
+                source.CopyTo(dest);
+                return;
+            }
+
+            for (int frame = 0; frame < frames; frame++)
+            {
+                int srcIndex = frame * srcChannels;
+                int dstIndex = frame * Channels;
+
+                if (srcChannels == 1)
+                {
+                    float s = source[srcIndex];
+                    for (int ch = 0; ch < Channels; ch++)
+                    {
+                        dest[dstIndex + ch] = s;
+                    }
+                    continue;
+                }
+
+                if (Channels == 1)
+                {
+                    float acc = 0f;
+                    for (int ch = 0; ch < srcChannels; ch++)
+                    {
+                        acc += source[srcIndex + ch];
+                    }
+                    dest[dstIndex] = acc / srcChannels;
+                    continue;
+                }
+
+                float avg = 0f;
+                for (int ch = 0; ch < srcChannels; ch++)
+                {
+                    avg += source[srcIndex + ch];
+                }
+                avg /= srcChannels;
+                for (int ch = 0; ch < Channels; ch++)
+                {
+                    dest[dstIndex + ch] = avg;
+                }
+            }
+        }
+
+        private void ConvertWithResample(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate, Span<float> dest, int targetFrames)
+        {
+            int srcFrames = source.Length / srcChannels;
+            if (srcFrames <= 0)
+            {
+                dest.Slice(0, targetFrames * Channels).Clear();
+                return;
+            }
+
+            double step = (double)srcSampleRate / SampleRate;
+            for (int frame = 0; frame < targetFrames; frame++)
+            {
+                double srcPos = frame * step;
+
+                int dstIndex = frame * Channels;
+                if (srcChannels == Channels)
+                {
+                    for (int ch = 0; ch < Channels; ch++)
+                    {
+                        dest[dstIndex + ch] = SampleChannelLinear(source, srcFrames, srcChannels, srcPos, ch);
+                    }
+                    continue;
+                }
+
+                if (srcChannels == 1)
+                {
+                    float s = SampleChannelLinear(source, srcFrames, 1, srcPos, 0);
+                    for (int ch = 0; ch < Channels; ch++)
+                    {
+                        dest[dstIndex + ch] = s;
+                    }
+                    continue;
+                }
+
+                if (Channels == 1)
+                {
+                    float acc = 0f;
+                    for (int ch = 0; ch < srcChannels; ch++)
+                    {
+                        acc += SampleChannelLinear(source, srcFrames, srcChannels, srcPos, ch);
+                    }
+                    dest[dstIndex] = acc / srcChannels;
+                    continue;
+                }
+
+                float avg = 0f;
+                for (int ch = 0; ch < srcChannels; ch++)
+                {
+                    avg += SampleChannelLinear(source, srcFrames, srcChannels, srcPos, ch);
+                }
+                avg /= srcChannels;
+                for (int ch = 0; ch < Channels; ch++)
+                {
+                    dest[dstIndex + ch] = avg;
+                }
+            }
+        }
+
+        private static float SampleChannelLinear(ReadOnlySpan<float> source, int frames, int channels, double position, int channel)
+        {
+            if (frames <= 0)
+            {
+                return 0f;
+            }
+
+            double maxIndex = Math.Max(0, frames - 1);
+            double clamped = position;
+            if (clamped < 0.0)
+            {
+                clamped = 0.0;
+            }
+            else if (clamped > maxIndex)
+            {
+                clamped = maxIndex;
+            }
+            int i0 = (int)clamped;
+            int i1 = Math.Min(frames - 1, i0 + 1);
+            double frac = clamped - i0;
+
+            int idx0 = i0 * channels + Math.Min(channel, channels - 1);
+            int idx1 = i1 * channels + Math.Min(channel, channels - 1);
+            float s0 = source[idx0];
+            float s1 = source[idx1];
+            return s0 + (float)((s1 - s0) * frac);
+        }
+
+        private void TryRaiseCompletionIfDrained()
+        {
+            if (System.Threading.Volatile.Read(ref _pendingStreamEnd) == 0)
+            {
+                return;
+            }
+
+            if (!_queue.IsEmpty || _resFrames > 0)
+            {
+                return;
+            }
+
+            if (System.Threading.Interlocked.CompareExchange(ref _playbackCompleted, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _isPlaying = false;
+            try { OnPlaybackCompleted?.Invoke(this); } catch { }
+        }
+
+        private void TryDispatchLoopBoundary()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 0) == 1)
+            {
+                try { OnPlaybackCompleted?.Invoke(this); } catch { }
             }
         }
 
