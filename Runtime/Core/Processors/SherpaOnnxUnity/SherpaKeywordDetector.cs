@@ -63,7 +63,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
                     try
                     {
                         var keyword = await _kws.DetectAsync(data, _sampleRate, _cts.Token).ConfigureAwait(false);
-                        if (keyword != null)
+                        if (!string.IsNullOrEmpty(keyword) && !string.IsNullOrWhiteSpace(keyword))
                         {
                             if (_mainThreadContext != null)
                             {
