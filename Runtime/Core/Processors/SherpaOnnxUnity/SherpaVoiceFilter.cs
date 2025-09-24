@@ -18,6 +18,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
         // --- Configuration ---
         private readonly float _preBufferDurationInSeconds;
+        private readonly int _vadSampleRate;
 
         // --- Services & Threading ---
         private readonly VoiceActivityDetection _vadService;
@@ -29,6 +30,11 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
         // A reusable buffer for feeding audio data to the VAD service to avoid per-frame allocations.
         private float[] _vadBuffer;
+        private float[] _monoBuffer;
+        private float[] _resampleBuffer;
+        private int _inputSampleRate;
+        private int _inputChannelCount;
+        private bool _requiresResample;
 
         // --- Buffering for Latency Compensation ---
         private AudioBuffer _preBuffer;
@@ -43,10 +49,11 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         /// </summary>
         /// <param name="vadService">The voice activity detection service.</param>
         /// <param name="preBufferDurationInSeconds">The duration of audio to cache before speech starts. This helps prevent clipping the beginning of speech.</param>
-        public SherpaVoiceFilter(VoiceActivityDetection vadService, float preBufferDurationInSeconds = 0.3f)
+        public SherpaVoiceFilter(VoiceActivityDetection vadService, float preBufferDurationInSeconds = 0.3f, int vadSampleRate = 16000)
         {
             _vadService = vadService ?? throw new ArgumentNullException(nameof(vadService));
             _preBufferDurationInSeconds = preBufferDurationInSeconds;
+            _vadSampleRate = Math.Max(1, vadSampleRate);
 
             _mainThreadContext = SynchronizationContext.Current;
 
@@ -56,15 +63,23 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         public override void Initialize(AudioState state)
         {
             base.Initialize(state);
-            // Calculate the total number of samples to hold in the pre-buffer based on the audio settings.
-            _preBufferCapacityInSamples = (int)(state.SampleRate * state.ChannelCount * _preBufferDurationInSeconds);
+            _inputSampleRate = Math.Max(1, state.SampleRate);
+            _inputChannelCount = Math.Max(1, state.ChannelCount);
+            _requiresResample = _inputSampleRate != _vadSampleRate;
 
-            // Initialize ring buffers. Output buffer is larger to accommodate pre-buffer + live audio.
-            _preBuffer = new AudioBuffer(_preBufferCapacityInSamples);
-            _outBuffer = new AudioBuffer(_preBufferCapacityInSamples * 2);
+            // Calculate the total number of samples to hold in the pre-buffer based on the audio settings.
+            _preBufferCapacityInSamples = Math.Max(1, (int)(state.SampleRate * state.ChannelCount * _preBufferDurationInSeconds));
+
+            // Initialize ring buffers. Keep capacities tight to minimize post-speech drain latency.
+            int tailCapacity = Math.Max(1, (state.SampleRate * state.ChannelCount) / 10); // ≈100 ms tail
+            int preBufferCapacity = _preBufferCapacityInSamples;
+            int outBufferCapacity = Math.Max(preBufferCapacity + tailCapacity, preBufferCapacity * 2);
+
+            _preBuffer = new AudioBuffer(preBufferCapacity);
+            _outBuffer = new AudioBuffer(outBufferCapacity);
 
             // Pre-allocate the transfer buffer to the maximum possible size to avoid allocations on the hot path.
-            _transferBuffer = new float[_preBufferCapacityInSamples];
+            _transferBuffer = new float[_preBuffer.Capacity];
         }
 
         /// <summary>
@@ -80,15 +95,33 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
                 return;
             }
 
+            if (_inputSampleRate != state.SampleRate || _inputChannelCount != state.ChannelCount)
+            {
+                _inputSampleRate = Math.Max(1, state.SampleRate);
+                _inputChannelCount = Math.Max(1, state.ChannelCount);
+                _requiresResample = _inputSampleRate != _vadSampleRate;
+            }
+
             // 1. Feed the VAD service with the latest audio data.
             if (audioBuffer.Length > 0)
             {
-                if (_vadBuffer == null || _vadBuffer.Length != audioBuffer.Length)
+                int channels = Math.Max(1, state.ChannelCount);
+                int frameCount = channels > 0 ? audioBuffer.Length / channels : audioBuffer.Length;
+
+                if (frameCount > 0)
                 {
-                    _vadBuffer = new float[audioBuffer.Length];
+                    var vadSpan = PrepareVadInput(audioBuffer, channels, frameCount);
+                    if (!vadSpan.IsEmpty)
+                    {
+                        if (_vadBuffer == null || _vadBuffer.Length != vadSpan.Length)
+                        {
+                            _vadBuffer = new float[vadSpan.Length];
+                        }
+
+                        vadSpan.CopyTo(_vadBuffer);
+                        _vadService.StreamDetect(_vadBuffer);
+                    }
                 }
-                audioBuffer.CopyTo(_vadBuffer);
-                _vadService.StreamDetect(_vadBuffer);
             }
 
             // 2. Read the volatile VAD state once for this frame to ensure consistency.
@@ -105,29 +138,23 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
                     int count = _preBuffer.ReadableCount;
                     if (count > 0)
                     {
-                        var tempSpan = new Span<float>(_transferBuffer, 0, count);
+                        var tempSpan = new Span<float>(_transferBuffer, 0, Math.Min(count, _transferBuffer.Length));
                         int readCount = _preBuffer.Read(tempSpan);
                         if (readCount > 0)
                         {
-                            _outBuffer.Write(tempSpan.Slice(0, readCount));
+                            WriteAll(_outBuffer, tempSpan.Slice(0, readCount));
                         }
                     }
                 }
 
                 // Add the current audio frame to the output buffer.
-                _outBuffer.Write(audioBuffer);
+                WriteAll(_outBuffer, audioBuffer);
             }
             else
             {
                 // --- Voice is Inactive ---
                 // We are not speaking, so cache this frame in the pre-buffer, making space if necessary.
-                int spaceNeeded = audioBuffer.Length;
-                int writable = _preBuffer.WritableCount;
-                if (spaceNeeded > writable)
-                {
-                    _preBuffer.Skip(spaceNeeded - writable);
-                }
-                _preBuffer.Write(audioBuffer);
+                WriteAll(_preBuffer, audioBuffer);
             }
 
             // 4. Write the collected audio from the output buffer to the actual output audio span.
@@ -148,6 +175,159 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
             // 5. Update state for the next frame.
             _wasVoiceActiveLastFrame = isCurrentlyActive;
+        }
+
+        private ReadOnlySpan<float> PrepareVadInput(ReadOnlySpan<float> source, int channelCount, int frameCount)
+        {
+            if (frameCount <= 0)
+            {
+                return ReadOnlySpan<float>.Empty;
+            }
+
+            if (channelCount == 1 && !_requiresResample)
+            {
+                return source.Slice(0, frameCount);
+            }
+
+            EnsureBuffer(ref _monoBuffer, frameCount);
+            DownmixToMono(_monoBuffer.AsSpan(0, frameCount), source, channelCount);
+
+            var monoSpan = _monoBuffer.AsSpan(0, frameCount);
+            if (!_requiresResample)
+            {
+                return monoSpan;
+            }
+
+            int estimated = GetResampledLength(frameCount, _inputSampleRate, _vadSampleRate);
+            EnsureBuffer(ref _resampleBuffer, estimated);
+            int actual = Resample(monoSpan, _inputSampleRate, _vadSampleRate, _resampleBuffer.AsSpan());
+
+            return _resampleBuffer.AsSpan(0, actual);
+        }
+
+        private static void EnsureBuffer(ref float[] buffer, int requiredLength)
+        {
+            if (requiredLength <= 0)
+            {
+                return;
+            }
+
+            if (buffer == null || buffer.Length < requiredLength)
+            {
+                buffer = new float[requiredLength];
+            }
+        }
+
+        private static void DownmixToMono(Span<float> destination, ReadOnlySpan<float> source, int channelCount)
+        {
+            if (channelCount <= 1)
+            {
+                source.Slice(0, destination.Length).CopyTo(destination);
+                return;
+            }
+
+            int frames = Math.Min(destination.Length, source.Length / channelCount);
+            int srcIndex = 0;
+            for (int frame = 0; frame < frames; frame++)
+            {
+                float sum = 0f;
+                for (int ch = 0; ch < channelCount; ch++)
+                {
+                    sum += source[srcIndex++];
+                }
+                destination[frame] = sum / channelCount;
+            }
+        }
+
+        private static int GetResampledLength(int inputLength, int sourceRate, int targetRate)
+        {
+            if (inputLength <= 0)
+            {
+                return 0;
+            }
+
+            if (sourceRate == targetRate)
+            {
+                return inputLength;
+            }
+
+            return Math.Max(1, (int)MathF.Round(inputLength * targetRate / (float)sourceRate));
+        }
+
+        private static int Resample(ReadOnlySpan<float> source, int sourceRate, int targetRate, Span<float> destination)
+        {
+            if (destination.IsEmpty)
+            {
+                return 0;
+            }
+
+            if (sourceRate == targetRate || source.Length <= 1)
+            {
+                int copyLength = Math.Min(source.Length, destination.Length);
+                source.Slice(0, copyLength).CopyTo(destination);
+                return copyLength;
+            }
+
+            int desiredLength = GetResampledLength(source.Length, sourceRate, targetRate);
+            int outputLength = Math.Min(desiredLength, destination.Length);
+
+            double step = sourceRate / (double)targetRate;
+            double position = 0d;
+            int lastIndex = source.Length - 1;
+
+            for (int i = 0; i < outputLength; i++)
+            {
+                int index = (int)position;
+                double fraction = position - index;
+
+                if (index >= lastIndex)
+                {
+                    destination[i] = source[lastIndex];
+                }
+                else
+                {
+                    float s0 = source[index];
+                    float s1 = source[index + 1];
+                    destination[i] = s0 + (float)((s1 - s0) * fraction);
+                }
+
+                position += step;
+            }
+
+            return outputLength;
+        }
+
+        private static void WriteAll(AudioBuffer buffer, ReadOnlySpan<float> data)
+        {
+            if (buffer == null || data.IsEmpty)
+            {
+                return;
+            }
+
+            ReadOnlySpan<float> span = data;
+            if (span.Length > buffer.Capacity)
+            {
+                span = span.Slice(span.Length - buffer.Capacity);
+            }
+
+            int offset = 0;
+            while (offset < span.Length)
+            {
+                int written = buffer.Write(span.Slice(offset));
+                if (written > 0)
+                {
+                    offset += written;
+                    continue;
+                }
+
+                int remaining = span.Length - offset;
+                int toSkip = Math.Min(remaining, buffer.ReadableCount);
+                if (toSkip <= 0)
+                {
+                    toSkip = 1;
+                }
+                buffer.Skip(toSkip);
+            }
         }
 
         #region Event Handlers & Thread Marshalling
@@ -192,6 +372,9 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             _preBuffer?.Clear();
             _outBuffer?.Clear();
             _transferBuffer = null;
+            _monoBuffer = null;
+            _resampleBuffer = null;
+            _vadBuffer = null;
 
             OnVoiceActivityChanged = null;
             base.Dispose();
@@ -201,3 +384,4 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
     }
 }
 #endif
+
