@@ -5,8 +5,7 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: Assets/Samples/EasyMic Audio Processing Module/0.1.1-exp/Audio Processing
-      Example/EasyMicAudioProcessingExample.unity
-    guid: 0dfd0f7909e02413096420c3db0c24b5
+  - enabled: 1
+    path: Assets/Samples/EasyMic/0.1.2-exp.1/SherpaOnnx ASR Example/EasyMicSherpaOnnxASRExample.unity
+    guid: 34b05bf0afa384f7cbf5c291ad2d407f
   m_configObjects: {}
