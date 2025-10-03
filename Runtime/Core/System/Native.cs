@@ -157,11 +157,9 @@ namespace Eitan.EasyMic.Runtime
         public static extern IntPtr AllocateDeviceConfig(Capability capabilityType, uint sampleRate, AudioCallback dataCallback, IntPtr pSfConfig);
 
         // Legacy/alternate variants kept for backward compatibility (may not exist in current native build).
-        // iOS framework doesn't include _ex variant, so exclude from iOS builds to prevent linker errors
-#if !UNITY_IOS
+        // iOS uses EasyMicIOSWrapper.mm to provide this function
         [DllImport(LibraryName, EntryPoint = "sf_allocate_device_config_ex", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr AllocateDeviceConfigEx(DeviceType capabilityType, SampleFormat format, uint channels, uint sampleRate, AudioCallbackEx dataCallback, IntPtr pUserData, IntPtr playbackDevice, IntPtr captureDevice);
-#endif
 
         #endregion
 
