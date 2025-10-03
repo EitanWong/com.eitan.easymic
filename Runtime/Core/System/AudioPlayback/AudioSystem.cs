@@ -243,6 +243,7 @@ namespace Eitan.EasyMic.Runtime
             var rate = Math.Max(8000u, desiredSampleRate);
             var channels = Math.Max(1u, desiredChannels);
 
+#if !UNITY_IOS
             try
             {
                 _cbEx = OnCallbackEx;
@@ -263,6 +264,7 @@ namespace Eitan.EasyMic.Runtime
                     IntPtr.Zero);
             }
             catch (EntryPointNotFoundException)
+#endif
             {
                 _useEx = false;
                 if (_selfHandle.IsAllocated)

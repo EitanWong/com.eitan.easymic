@@ -278,6 +278,7 @@ namespace Eitan.EasyMic.Runtime
 
                 try
                 {
+#if !UNITY_IOS
                     try
                     {
                         config = Native.AllocateDeviceConfigEx(
@@ -292,6 +293,7 @@ namespace Eitan.EasyMic.Runtime
                         _usingUserDataCallback = true;
                     }
                     catch (EntryPointNotFoundException)
+#endif
                     {
                         _usingUserDataCallback = false;
                         config = CreateLegacyDeviceConfig(out subHandle, out dtoHandle);
