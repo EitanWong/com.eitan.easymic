@@ -25,8 +25,11 @@ PluginImporter:
   - first:
       iOS: iOS
     second:
-      enabled: 0
-      settings: {}
+      enabled: 1
+      settings:
+        AddToEmbeddedBinaries: true
+        CompileFlags:
+        FrameworkDependencies:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
