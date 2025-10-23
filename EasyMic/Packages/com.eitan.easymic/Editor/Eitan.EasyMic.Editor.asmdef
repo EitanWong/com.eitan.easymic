@@ -2,7 +2,8 @@
     "name": "Eitan.EasyMic.Editor",
     "rootNamespace": "Eitan.EasyMic.Editor",
     "references": [
-        "GUID:ffbca9e1633ba48bca018caa0d7f0a71"
+        "GUID:ffbca9e1633ba48bca018caa0d7f0a71",
+        "GUID:a84730b5b56004206b2dc853c0a4bca5"
     ],
     "includePlatforms": [
         "Editor"

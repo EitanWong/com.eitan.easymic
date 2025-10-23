@@ -54,7 +54,7 @@ namespace Eitan.EasyMic.Runtime
         /// <summary>
         /// Processes the audio buffer, applying the noise gate effect.
         /// </summary>
-        protected override void OnAudioWrite(Span<float> audioBuffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> audioBuffer, AudioContext state)
         {
 
 
@@ -213,7 +213,7 @@ namespace Eitan.EasyMic.Runtime
         /// <summary>
         /// Initializes or updates audio parameters and recalculates derived values.
         /// </summary>
-        private void UpdateParameters(AudioState state)
+        private void UpdateParameters(AudioContext state)
         {
             if (_sampleRate == state.SampleRate && _channelCount == state.ChannelCount)
             {

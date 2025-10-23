@@ -31,6 +31,7 @@ namespace Eitan.EasyMic.Runtime
         private readonly int _mask; // 仅在 _useMask=true 时有效
 
         private readonly float[] _buffer;
+        private readonly int _frameStride;
 
         // 用填充结构减轻伪共享（false sharing）
         // 不影响 API/兼容性；若不需要，也可将 PaddedInt 改为普通 int 并相应修改 Volatile.Read/Write 调用。
@@ -51,17 +52,24 @@ namespace Eitan.EasyMic.Runtime
         /// 构造函数。
         /// </summary>
         /// <param name="capacity">对外可用的最大样本容量（建议接近 2 的幂，便于内部优化，但不是必须）。</param>
-        public AudioBuffer(int capacity)
+        /// <param name="frameStride">对齐粒度（通常等于声道数）。所有读写都会对齐至该粒度。</param>
+        public AudioBuffer(int capacity, int frameStride = 1)
         {
             if (capacity <= 0)
             {
-
                 throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be positive.");
             }
 
+            if (frameStride <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(frameStride), "Frame stride must be positive.");
+            }
 
-            Capacity = capacity;
-            _size = capacity + 1;           // 内部长度，多预留 1
+            _frameStride = frameStride;
+
+            int alignedCapacity = AlignCapacity(capacity);
+            _size = NextPowerOfTwo(Math.Max(2, alignedCapacity + 1));
+            Capacity = _size - 1;
             _buffer = new float[_size];
 
             // 根据 _size 判断是否能走掩码路径（仅当 _size 是 2 的幂）
@@ -89,7 +97,8 @@ namespace Eitan.EasyMic.Runtime
             {
                 int w = Volatile.Read(ref _writePos.Value);
                 int r = Volatile.Read(ref _readPos.Value);
-                return AvailableToRead(w, r);
+                int readable = AvailableToRead(w, r);
+                return readable - (readable % _frameStride);
             }
         }
 
@@ -102,9 +111,12 @@ namespace Eitan.EasyMic.Runtime
             {
                 int w = Volatile.Read(ref _writePos.Value);
                 int r = Volatile.Read(ref _readPos.Value);
-                return AvailableToWrite(w, r);
+                int writable = AvailableToWrite(w, r);
+                return writable - (writable % _frameStride);
             }
         }
+
+        public int FrameStride => _frameStride;
 
         /// <summary>缓冲区是否为空（近似判断）。</summary>
         public bool IsEmpty
@@ -148,6 +160,7 @@ namespace Eitan.EasyMic.Runtime
 
             int writable = AvailableToWrite(w, r);
             int toWrite = Math.Min(data.Length, writable);
+            toWrite -= toWrite % _frameStride;
             if (toWrite == 0)
             {
                 return 0;
@@ -181,6 +194,11 @@ namespace Eitan.EasyMic.Runtime
 
             int w = Volatile.Read(ref _writePos.Value);
             int r = Volatile.Read(ref _readPos.Value);
+
+            if ((data.Length % _frameStride) != 0)
+            {
+                throw new ArgumentException("Data length must align with frame stride.", nameof(data));
+            }
 
             int writable = AvailableToWrite(w, r);
             if (writable < data.Length)
@@ -222,6 +240,7 @@ namespace Eitan.EasyMic.Runtime
 
             int readable = AvailableToRead(w, r);
             int toRead = Math.Min(destination.Length, readable);
+            toRead -= toRead % _frameStride;
             if (toRead == 0)
             {
                 return 0;
@@ -250,6 +269,11 @@ namespace Eitan.EasyMic.Runtime
             {
 
                 throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+            if ((count % _frameStride) != 0)
+            {
+                throw new ArgumentException("Count must align with frame stride.", nameof(count));
             }
 
 
@@ -299,6 +323,7 @@ namespace Eitan.EasyMic.Runtime
 
             int readable = AvailableToRead(w, r);
             int toCopy = Math.Min(destination.Length, readable);
+            toCopy -= toCopy % _frameStride;
             if (toCopy == 0)
             {
                 return 0;
@@ -333,6 +358,7 @@ namespace Eitan.EasyMic.Runtime
 
             int readable = AvailableToRead(w, r);
             int toSkip = Math.Min(count, readable);
+            toSkip -= toSkip % _frameStride;
             if (toSkip == 0)
             {
                 return 0;
@@ -355,6 +381,32 @@ namespace Eitan.EasyMic.Runtime
         // =========================
         // 内部辅助
         // =========================
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private int AlignCapacity(int requested)
+        {
+            int stride = _frameStride;
+            int aligned = ((requested + stride - 1) / stride) * stride;
+            return aligned;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int NextPowerOfTwo(int value)
+        {
+            if (value <= 2)
+            {
+                return 2;
+            }
+
+            value--;
+            value |= value >> 1;
+            value |= value >> 2;
+            value |= value >> 4;
+            value |= value >> 8;
+            value |= value >> 16;
+            value++;
+            return value < 2 ? 2 : value;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int AvailableToRead(int w, int r)

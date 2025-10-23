@@ -35,7 +35,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             _sampleRate = state.SampleRate;
             base.Initialize(state);

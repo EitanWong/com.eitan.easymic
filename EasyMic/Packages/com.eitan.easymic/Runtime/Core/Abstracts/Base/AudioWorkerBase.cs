@@ -8,18 +8,19 @@ namespace Eitan.EasyMic.Runtime
     public abstract class AudioWorkerBase : IAudioWorker
     {
         protected bool IsInitialized { get; private set; }
-        protected bool IsDisposed{ get; private set; }
-        public virtual void Initialize(AudioState state)
+        protected bool IsDisposed { get; private set; }
+        public bool Enabled =true;
+        public virtual void Initialize(AudioContext state)
         {
-            IsInitialized = true;;
+            IsInitialized = true; ;
         }
 
-        public abstract void OnAudioPass(Span<float> audiobuffer, AudioState state);
+        public abstract void OnAudioPass(Span<float> audiobuffer, AudioContext state);
 
         public virtual void Dispose()
         {
             if (IsDisposed) { return; }
-                IsDisposed = true;
+            IsDisposed = true;
             IsInitialized = false;
         }
     }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -55,7 +54,7 @@ namespace Eitan.EasyMic.Runtime
                 throw new InvalidOperationException($"Unable to init context. {result}");
             }
 
-            Application.quitting += OnApplicationQuitting;
+            UnityEngine.Application.quitting += OnApplicationQuitting;
 
             RefreshDevicesInternal(true);
             EnableAutoRefresh();
@@ -79,7 +78,7 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            Application.quitting -= OnApplicationQuitting;
+            UnityEngine.Application.quitting -= OnApplicationQuitting;
 
             DisableAutoRefresh();
             StopAllRecordings();
@@ -90,9 +89,10 @@ namespace Eitan.EasyMic.Runtime
                 {
                     Native.ContextUninit(_context);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogError($"Error uninitializing context: {ex.Message}");
+                    // Debug.LogError($"Error uninitializing context: {ex.Message}");
+                    throw;
                 }
 
                 try { Native.Free(_context); } catch { }

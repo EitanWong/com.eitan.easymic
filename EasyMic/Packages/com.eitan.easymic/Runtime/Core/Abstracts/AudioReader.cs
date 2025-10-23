@@ -35,7 +35,7 @@ namespace Eitan.EasyMic.Runtime
             _capacitySeconds = Math.Max(1, capacitySeconds);
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             StopWorkerThread();
             base.Initialize(state);
@@ -71,9 +71,9 @@ namespace Eitan.EasyMic.Runtime
             base.Dispose();
         }
 
-        public sealed override void OnAudioPass(Span<float> audiobuffer, AudioState state)
+        public sealed override void OnAudioPass(Span<float> audiobuffer, AudioContext state)
         {
-            if (!IsInitialized || !_running)
+            if (!IsInitialized || !_running || !Enabled)
             {
                 return;
             }

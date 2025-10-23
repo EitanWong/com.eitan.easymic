@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -223,14 +221,7 @@ namespace Eitan.EasyMic.Runtime
                         recovered = session.TrySwitchDevice(replacement, resolvedRate, resolvedChannel);
                         if (recovered)
                         {
-                            try
-                            {
-                                Debug.Log($"EasyMic: Recording {pair.Key} rerouted to '{session.MicDevice.Name}' ({resolvedRate}, {resolvedChannel}) after device removal.");
-                            }
-                            catch
-                            {
-                                // logging only
-                            }
+                            Log($"Recording {pair.Key} rerouted to '{session.MicDevice.Name}' ({resolvedRate}, {resolvedChannel}) after device removal.", LogLevel.Info);
                         }
                     }
 
@@ -241,11 +232,11 @@ namespace Eitan.EasyMic.Runtime
                         {
                             session.Dispose();
                         }
-                        catch (Exception ex)
+                        catch (Exception)
                         {
-                            Debug.LogError($"EasyMic: Error disposing session during device removal fallback. {ex.Message}");
+                            throw;
                         }
-                        Debug.LogWarning($"EasyMic: Recording {pair.Key} stopped because capture device '{session.MicDevice.Name}' was removed and no fallback device was available.");
+                        Log($"Recording {pair.Key} stopped because capture device '{session.MicDevice.Name}' was removed and no fallback device was available.", LogLevel.Warning);
                     }
                 }
 
@@ -279,11 +270,7 @@ namespace Eitan.EasyMic.Runtime
 
                     if (session.TryRestorePreferredDevice(addedDevices))
                     {
-                        try
-                        {
-                            Debug.Log($"EasyMic: Recording restored to preferred device '{session.MicDevice.Name}'.");
-                        }
-                        catch { }
+                        Log($"Recording restored to preferred device '{session.MicDevice.Name}'.", LogLevel.Info);
                     }
                 }
             }

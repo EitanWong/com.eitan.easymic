@@ -1,5 +1,7 @@
+#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using Eitan.EasyMic.Runtime.Mono;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,7 +9,7 @@ namespace Eitan.EasyMic.Runtime.Editor
 {
     public class AudioSystemDiagnosticsWindow : EditorWindow
     {
-        [MenuItem("Window/EasyMic/AudioSystem Diagnostics")] 
+        [MenuItem("Window/EasyMic/AudioSystem Diagnostics")]
         public static void ShowWindow()
         {
             GetWindow<AudioSystemDiagnosticsWindow>(false, "AudioSystem Diagnostics", true);
@@ -124,14 +126,14 @@ namespace Eitan.EasyMic.Runtime.Editor
             if (_showSceneSources)
             {
                 using (new EditorGUILayout.VerticalScope("box"))
-            {
-                _showSceneGroup = EditorGUILayout.Foldout(_showSceneGroup, "Scene Playback Sources", true);
-                if (_showSceneGroup)
                 {
-                    DrawSceneColumnsHeader();
-                    DrawSceneSources();
+                    _showSceneGroup = EditorGUILayout.Foldout(_showSceneGroup, "Scene Playback Sources", true);
+                    if (_showSceneGroup)
+                    {
+                        DrawSceneColumnsHeader();
+                        DrawSceneSources();
+                    }
                 }
-            }
             }
 
 
@@ -386,7 +388,7 @@ namespace Eitan.EasyMic.Runtime.Editor
             // background (zebra)
             if ((index & 1) == 0)
             {
-                EditorGUI.DrawRect(r, new Color(1,1,1,0.03f));
+                EditorGUI.DrawRect(r, new Color(1, 1, 1, 0.03f));
             }
             // column layout
 
@@ -401,12 +403,12 @@ namespace Eitan.EasyMic.Runtime.Editor
             }
             x += pingW + 4f;
             // status dot
-            var dot = new Rect(x, r.y + (r.height-8f)*0.5f, statusW, 8f);
-            Color dc = row.active ? new Color(0.2f,0.9f,0.2f) : (row.muted ? new Color(0.5f,0.5f,0.5f) : new Color(0.8f,0.8f,0.2f));
+            var dot = new Rect(x, r.y + (r.height - 8f) * 0.5f, statusW, 8f);
+            Color dc = row.active ? new Color(0.2f, 0.9f, 0.2f) : (row.muted ? new Color(0.5f, 0.5f, 0.5f) : new Color(0.8f, 0.8f, 0.2f));
             EditorGUI.DrawRect(new Rect(dot.x, dot.y, 8f, 8f), dc);
             x += statusW + gap;
             // name/path
-            float fixedTail = srW + chW + queueW + meterW + volLabelW + volSliderW + muteW + soloW + (gap*8) + 6f;
+            float fixedTail = srW + chW + queueW + meterW + volLabelW + volSliderW + muteW + soloW + (gap * 8) + 6f;
             float nameW = Mathf.Max(60f, r.width - (x - r.x) - fixedTail);
             var nameRect = new Rect(x, r.y + 2, nameW, r.height - 4);
             GUI.Label(nameRect, row.path);
@@ -449,14 +451,14 @@ namespace Eitan.EasyMic.Runtime.Editor
             }
             else
             {
-                EditorGUI.DrawRect(meterRect, new Color(0.1f,0.1f,0.1f));
+                EditorGUI.DrawRect(meterRect, new Color(0.1f, 0.1f, 0.1f));
             }
             x += meterW + gap;
             // Volume slider
             GUI.Label(new Rect(x, r.y + 2, volLabelW, r.height - 4), "Vol"); x += volLabelW + 2f;
             if (row.hasSrc && row.source != null)
             {
-                float nv = GUI.HorizontalSlider(new Rect(x, r.y + (r.height-12f)*0.5f, volSliderW, 12f), row.source.Volume, 0f, 2f);
+                float nv = GUI.HorizontalSlider(new Rect(x, r.y + (r.height - 12f) * 0.5f, volSliderW, 12f), row.source.Volume, 0f, 2f);
                 if (Mathf.Abs(nv - row.source.Volume) > 1e-4f)
                 {
                     row.source.Volume = nv;
@@ -489,7 +491,8 @@ namespace Eitan.EasyMic.Runtime.Editor
             var go = row.behaviour ? row.behaviour.gameObject : null;
             menu.AddItem(new GUIContent("Ping"), false, () => { if (go) { EditorGUIUtility.PingObject(go); } });
             menu.AddItem(new GUIContent("Select"), false, () => { if (go) { Selection.activeObject = go; } });
-            menu.AddItem(new GUIContent("Reveal in Hierarchy"), false, () => {
+            menu.AddItem(new GUIContent("Reveal in Hierarchy"), false, () =>
+            {
                 EditorApplication.ExecuteMenuItem("Window/General/Hierarchy");
                 if (go) { EditorGUIUtility.PingObject(go); Selection.activeObject = go; }
             });
@@ -1027,3 +1030,5 @@ namespace Eitan.EasyMic.Runtime.Editor
         public int GetHashCode(T obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
     }
 }
+
+#endif

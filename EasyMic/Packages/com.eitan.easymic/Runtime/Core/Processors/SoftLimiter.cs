@@ -12,13 +12,13 @@ namespace Eitan.EasyMic.Runtime
         public float ThresholdDb { get; set; } = -0.1f; // near 0dB
         public float MakeupDb { get; set; } = 0f;
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             base.Initialize(state);
             _thresholdLinear = DbToLin(ThresholdDb);
         }
 
-        protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
         {
             if (buffer.IsEmpty)
             {

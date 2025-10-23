@@ -127,15 +127,6 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private static void LogError(string message)
-        {
-#if UNITY_2018_1_OR_NEWER
-            try { UnityEngine.Debug.LogError(message); } catch { }
-#else
-            System.Diagnostics.Debug.WriteLine(message);
-#endif
-        }
-
         private static void ExecuteRefresh(MicDeviceWatcher watcher)
         {
             if (watcher == null)
@@ -152,7 +143,8 @@ namespace Eitan.EasyMic.Runtime
             }
             catch (Exception ex)
             {
-                LogError($"EasyMic: Device watcher refresh failed: {ex.Message}");
+                watcher._system.Log($"EasyMic: Device watcher refresh failed: {ex.Message}", MicSystem.LogLevel.Error);
+                throw ex;
             }
             finally
             {

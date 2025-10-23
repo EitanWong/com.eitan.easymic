@@ -1,8 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Threading;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -32,11 +29,11 @@ namespace Eitan.EasyMic.Runtime
         private IntPtr _context = IntPtr.Zero;
         private IntPtr _device = IntPtr.Zero;
         private IntPtr _deviceConfig = IntPtr.Zero;
-        #pragma warning disable 0414
+#pragma warning disable 0414
         private Native.AudioCallbackEx _cbEx;
         private Native.AudioCallback _cb;
         private bool _useEx;
-        #pragma warning restore 0414
+#pragma warning restore 0414
         private GCHandle _selfHandle;
         private bool _running;
         private bool _setRunInBackground;
@@ -111,16 +108,16 @@ namespace Eitan.EasyMic.Runtime
 
                 try
                 {
-                    _previousRunInBackground = Application.runInBackground;
+                    _previousRunInBackground = UnityEngine.Application.runInBackground;
                     if (!_previousRunInBackground)
                     {
-                        Application.runInBackground = true;
+                        UnityEngine.Application.runInBackground = true;
                         _setRunInBackground = true;
                     }
                 }
                 catch { _setRunInBackground = false; }
 
-                try { Application.quitting += OnApplicationQuitting; } catch { }
+                try { UnityEngine.Application.quitting += OnApplicationQuitting; } catch { }
                 _running = true;
                 return true;
             }
@@ -135,7 +132,7 @@ namespace Eitan.EasyMic.Runtime
         {
             try
             {
-                try { Application.quitting -= OnApplicationQuitting; } catch { }
+                try { UnityEngine.Application.quitting -= OnApplicationQuitting; } catch { }
                 if (_device != IntPtr.Zero)
                 {
                     try { Native.DeviceStop(_device); } catch { }
@@ -152,7 +149,7 @@ namespace Eitan.EasyMic.Runtime
                 }
                 if (_setRunInBackground)
                 {
-                    try { Application.runInBackground = _previousRunInBackground; } catch { }
+                    try { UnityEngine.Application.runInBackground = _previousRunInBackground; } catch { }
                     _setRunInBackground = false;
                 }
                 // Clear event handlers to avoid leaks to user delegates
@@ -194,7 +191,7 @@ namespace Eitan.EasyMic.Runtime
                 // Render full tree via master mixer
                 try { _masterMixer?.RenderAdditive(outSpan, (int)_channels, (int)_sampleRate); }
                 catch { }
-                
+
                 // Update meters
                 UpdateMeters(outSpan, (int)_channels);
 
@@ -206,9 +203,9 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
+#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
         [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
-        #endif
+#endif
         private static void OnCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
         {
             var handle = GCHandle.FromIntPtr(userData);
@@ -218,9 +215,9 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
+#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
         [AOT.MonoPInvokeCallback(typeof(Native.AudioCallback))]
-        #endif
+#endif
         private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
         {
             // Fallback: singleton

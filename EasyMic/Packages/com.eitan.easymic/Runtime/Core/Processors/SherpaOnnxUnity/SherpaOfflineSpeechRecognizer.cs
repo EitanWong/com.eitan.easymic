@@ -1,4 +1,4 @@
-﻿#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 
 namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 {
@@ -38,7 +38,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
 
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             _sampleRate = state.SampleRate;
             int channels = Math.Max(1, state.ChannelCount);

@@ -123,18 +123,30 @@ namespace Eitan.EasyMic.Runtime
             {
                 return fallback;
             }
+            return supported[supported.Length - 1];
+        }
 
-            if (supported.Contains(Channel.Mono))
+        public SampleRate GetPreferredSampleRate(SampleRate fallback = SampleRate.Hz16000)
+        {
+
+            var supported = GetSupportedSampleRateEnums();
+
+            if (supported.Length == 0)
             {
-                return Channel.Mono;
+                return fallback;
             }
 
-            if (supported.Contains(Channel.Stereo))
-            {
-                return Channel.Stereo;
-            }
+            // if (supported.Contains(SampleRate.Hz16000))
+            // {
+            //     return SampleRate.Hz16000;
+            // }
 
-            return supported[0];
+            // if (supported.Contains(SampleRate.Hz48000))
+            // {
+            //     return SampleRate.Hz48000;
+            // }
+
+            return supported[supported.Length - 1];
         }
 
         /// <summary>

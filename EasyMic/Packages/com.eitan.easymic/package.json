@@ -49,6 +49,11 @@
       "path": "Samples~/Playback Example"
     },
     {
+      "displayName": "AudioPlayback API Example",
+      "description": "A simple scene demonstrating the fundamental usage of EasyMic for audioplayback api",
+      "path": "Samples~/AudioPlayback API Example"
+    },
+    {
       "displayName": "SherpaOnnx ASR Example",
       "description": "A simple scene demonstrating real-time speech recognition by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
       "path": "Samples~/SherpaOnnx ASR Example"

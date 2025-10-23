@@ -1,0 +1,17 @@
+{
+    "name": "Eitan.EasyMic.Demo.AIChat.Samantha",
+    "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha",
+    "references": [
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

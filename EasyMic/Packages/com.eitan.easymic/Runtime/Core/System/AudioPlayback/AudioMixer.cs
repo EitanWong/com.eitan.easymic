@@ -10,7 +10,7 @@ namespace Eitan.EasyMic.Runtime
     {
         public float MasterVolume { get; set; } = 1.0f;
         public AudioPipeline Pipeline { get; } = new AudioPipeline();
-        private AudioState _state;
+        private AudioContext _state;
         // Reusable accumulation buffer to avoid allocator interaction on audio threads
         private float[] _accumBuf = Array.Empty<float>();
 
@@ -24,7 +24,7 @@ namespace Eitan.EasyMic.Runtime
 
         public void Initialize(int channels, int sampleRate)
         {
-            _state = new AudioState(channels, sampleRate, 0);
+            _state = new AudioContext(channels, sampleRate, 0);
             Pipeline.Initialize(_state);
         }
 

@@ -155,9 +155,19 @@ namespace Eitan.EasyMic.Runtime.Editor
                         {
                             try { behaviour.Play(); } catch { }
                         }
-                        if (GUILayout.Button("Pause"))
+                        if (behaviour.IsPlaying)
                         {
-                            try { behaviour.Pause(); } catch { }
+                            if (GUILayout.Button("Pause"))
+                            {
+                                try { behaviour.Pause(); } catch { }
+                            }
+                        }
+                        else
+                        {
+                            if (GUILayout.Button("Resume"))
+                            {
+                                try { behaviour.Resume(); } catch { }
+                            }
                         }
                         if (GUILayout.Button("Stop"))
                         {

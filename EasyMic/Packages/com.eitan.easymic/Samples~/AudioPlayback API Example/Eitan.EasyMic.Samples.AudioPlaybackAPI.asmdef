@@ -1,0 +1,16 @@
+{
+    "name": "Eitan.EasyMic.Samples.AudioPlaybackAPI",
+    "rootNamespace": "Eitan.EasyMic.Samples.AudioPlaybackAPI",
+    "references": [
+        "Eitan.EasyMic"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

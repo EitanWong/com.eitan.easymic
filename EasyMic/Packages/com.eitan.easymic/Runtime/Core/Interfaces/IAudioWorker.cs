@@ -11,11 +11,11 @@ namespace Eitan.EasyMic.Runtime
         /// <summary>
         /// Initializes the worker with the recording's audio format.
         /// </summary>
-        void Initialize(AudioState state);
+        void Initialize(AudioContext state);
 
         /// <summary>
         /// Processes a chunk of audio data.
         /// </summary>
-        void OnAudioPass(Span<float> buffer, AudioState state);
+        void OnAudioPass(Span<float> buffer, AudioContext state);
     }
 }
