@@ -220,7 +220,9 @@ namespace Eitan.EasyMic.Runtime
 
     internal sealed class ManagedPlayback : IDisposable
     {
-        private const float QueueSeconds = 0.2f;
+        private const string LogPrefix = "[AudioPlayback.ManagedPlayback] ";
+        private const float QueueSeconds = 1f;
+        // Mirror the proven MonoBehaviour feeder thresholds for steady buffering.
         private const double BufferHighWaterSeconds = 0.12;
         private const double BufferLowWaterSeconds = 0.03;
 
@@ -239,13 +241,23 @@ namespace Eitan.EasyMic.Runtime
         private int _clipSampleRate;
         private int _clipTotalSamples;
         private long _clipConvertedFrames;
+        private bool _clipFirstChunkLogged;
+        private bool _clipDropLogged;
+        private bool _clipEndLogged;
 
         private Thread _feedThread;
         private ManualResetEventSlim _stopSignal;
         private AutoResetEvent _wakeSignal;
 
-        private volatile int _positionFrames;
+        private int _positionFrames;
         private volatile bool _completed;
+
+        // --- Streaming-specific state ---
+        private volatile bool _streamMode;
+        private volatile bool _endOfStreamSignaled;
+        private volatile bool _streamFormatLocked;
+        private volatile bool _streamPlaybackStarted;
+        private volatile bool _eosSignaledToSource;
 
         public ManagedPlayback(int id, bool autoDisposeOnComplete, Action<int> onCompleted)
         {
@@ -282,6 +294,7 @@ namespace Eitan.EasyMic.Runtime
                 throw new ArgumentNullException(nameof(clip));
             }
 
+            _streamMode = false;
             _loop = loop;
 
             ResetTimeline(clearQueue: true, clearClip: true);
@@ -306,7 +319,15 @@ namespace Eitan.EasyMic.Runtime
 
         public void ConfigureStream(int? preferredChannels, int? preferredSampleRate)
         {
+            _streamMode = true;
+            _endOfStreamSignaled = false;
+            _streamFormatLocked = false;
+            _streamPlaybackStarted = false;
+            _eosSignaledToSource = false;
+
             ResetTimeline(clearQueue: true, clearClip: true);
+
+            // Recreate source with preferred format, but it can be overridden by the first chunk.
             if (_source != null)
             {
                 int channels = preferredChannels.HasValue ? Mathf.Max(1, preferredChannels.Value) : _source.Channels;
@@ -325,6 +346,8 @@ namespace Eitan.EasyMic.Runtime
             _clipConvertedFrames = 0;
             _completed = false;
             _loop = false;
+
+            StartFeeder();
         }
 
         public void Play()
@@ -334,13 +357,21 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (_clip != null && _clipCache != null && _clipCache.Length > 0 && _feedThread == null)
+            if (_streamMode)
+            {
+                if (!_streamPlaybackStarted)
+                {
+                    _streamPlaybackStarted = true;
+                    Debug.Log($"{LogPrefix}Handle {_id}: Manually starting stream playback.");
+                }
+            }
+            else if (_clip != null && _clipCache != null && _clipCache.Length > 0 && _feedThread == null)
             {
                 StartFeeder();
             }
 
             _source.Play();
-            _wakeSignal?.Set();
+            WakeFeeder();
         }
 
         public void Pause()
@@ -356,44 +387,116 @@ namespace Eitan.EasyMic.Runtime
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
         {
-            if (_source == null)
+            if (_disposed || _source == null)
             {
                 return;
+            }
+
+
+            if (markEndOfStream && !_endOfStreamSignaled)
+            {
+                _endOfStreamSignaled = true;
+                Debug.Log($"{LogPrefix}Handle {_id}: End-of-stream marker received.");
+                WakeFeeder();
             }
 
             if (samples == null || count <= 0)
             {
-                if (markEndOfStream)
-                {
-                    _source.SignalEndOfStream();
-                }
                 return;
+            }
+
+
+            if (_eosSignaledToSource)
+            {
+                Debug.LogWarning($"{LogPrefix}Handle {_id}: Audio chunk received after end-of-stream signal. Dropping.");
+                return;
+            }
+
+            // 锁定/校验流格式（保持你原有逻辑）
+            if (!_streamFormatLocked)
+            {
+                if (channels <= 0 || sampleRate <= 0)
+                {
+                    Debug.LogWarning($"{LogPrefix}Handle {_id}: Dropping initial invalid chunk (0 channels or 0 sample rate).");
+                    return;
+                }
+                if (_source.Channels != channels || _source.SampleRate != sampleRate)
+                {
+                    Debug.Log($"{LogPrefix}Handle {_id}: First chunk received. Recreating source to match stream format: {channels}ch @ {sampleRate}Hz.");
+                    RecreateSource(channels, sampleRate);
+                }
+                else
+                {
+                    Debug.Log($"{LogPrefix}Handle {_id}: First chunk received. Source format matches stream: {channels}ch @ {sampleRate}Hz.");
+                }
+                _streamFormatLocked = true;
+            }
+            else if (channels != _source.Channels || sampleRate != _source.SampleRate)
+            {
+                Debug.LogWarning($"{LogPrefix}Handle {_id}: Dropping chunk with mismatched audio format. Expected: {_source.Channels}ch @ {_source.SampleRate}Hz, Received: {channels}ch @ {sampleRate}Hz.");
+                return;
+            }
+
+            if (!_streamPlaybackStarted)
+            {
+                _source.Play();
+                _streamPlaybackStarted = true;
+                Debug.Log($"{LogPrefix}Handle {_id}: Starting stream playback on first chunk.");
             }
 
             int capped = Mathf.Min(count, samples.Length);
-            if (capped <= 0)
+
+            // ① 帧齐整：确保样本数是通道数的整数倍
+            int remainder = capped % channels;
+            if (remainder != 0)
             {
-                if (markEndOfStream)
+                int aligned = capped - remainder;
+                if (aligned <= 0)
                 {
-                    _source.SignalEndOfStream();
+                    if (markEndOfStream)
+                    {
+                        _source.SignalEndOfStream();   // 极端情况下也要把 EOS 发出去
+                        _eosSignaledToSource = true;
+                    }
+                    Debug.LogWarning($"{LogPrefix}Handle {_id}: Dropping {remainder} trailing samples to preserve frame alignment ({channels} ch).");
+                    return;
                 }
-                return;
+                Debug.LogWarning($"{LogPrefix}Handle {_id}: Dropping {remainder} trailing samples to preserve frame alignment ({channels} ch).");
+                capped = aligned;
             }
 
-            _source.Enqueue(new ReadOnlySpan<float>(samples, 0, capped), channels, sampleRate, markEndOfStream);
-            if (!_source.IsPlaying)
+            // ② 发送
+            int written = _source.Enqueue(new ReadOnlySpan<float>(samples, 0, capped), channels, sampleRate, markEndOfStream);
+            if (markEndOfStream)
             {
-                _source.Play();
+                _eosSignaledToSource = true;
+            }
+
+            // ③ 可选：记录部分写入（有助定位丢帧）
+            if (written <= 0)
+            {
+                Debug.LogWarning($"{LogPrefix}Handle {_id}: Stream chunk not written (written <= 0). FreeSamples={_source.FreeSamples}, Buffered={_source.BufferedSeconds:F3}s.");
             }
         }
 
         public void CompleteStream()
         {
             _loop = false;
-            _source?.SignalEndOfStream();
-            _wakeSignal?.Set();
-        }
+            if (!_endOfStreamSignaled)
+            {
+                _endOfStreamSignaled = true;
+                Debug.Log($"{LogPrefix}Handle {_id}: CompleteStream() called explicitly.");
+            }
 
+            // 立即把 EOS 发给底层，避免只靠 watchdog
+            if (_source != null && !_eosSignaledToSource)
+            {
+                _source.SignalEndOfStream();
+                _eosSignaledToSource = true;
+            }
+
+            WakeFeeder();
+        }
         public void RegisterCompletionCallback(Action callback, bool invokeIfCompleted)
         {
             if (callback == null)
@@ -434,6 +537,7 @@ namespace Eitan.EasyMic.Runtime
                     _completed = true;
                     callbacks = new List<Action>(_completionCallbacks);
                     _completionCallbacks.Clear();
+                    Debug.Log($"{LogPrefix}Handle {_id}: Notifying {callbacks.Count} completion callbacks.");
                 }
             }
 
@@ -559,8 +663,11 @@ namespace Eitan.EasyMic.Runtime
                 _clip = null;
             }
 
-            _positionFrames = 0;
+            Volatile.Write(ref _positionFrames, 0);
             _completed = false;
+            _clipFirstChunkLogged = false;
+            _clipDropLogged = false;
+            _clipEndLogged = false;
         }
 
         private void CacheClipData()
@@ -569,7 +676,7 @@ namespace Eitan.EasyMic.Runtime
             _clipChannels = 0;
             _clipSampleRate = 0;
             _clipTotalSamples = 0;
-            _positionFrames = 0;
+            Volatile.Write(ref _positionFrames, 0);
 
             if (_clip == null)
             {
@@ -614,6 +721,10 @@ namespace Eitan.EasyMic.Runtime
                     _clipChannels = channels;
                     _clipSampleRate = Mathf.Max(8000, _clip.frequency);
                     _clipTotalSamples = buffer.Length;
+                    Volatile.Write(ref _positionFrames, 0);
+                    _clipFirstChunkLogged = false;
+                    _clipDropLogged = false;
+                    _clipEndLogged = false;
                 }
             }
             catch (Exception ex)
@@ -625,20 +736,31 @@ namespace Eitan.EasyMic.Runtime
 
         private long EstimateClipConvertedFrames()
         {
-            if (_clipCache == null || _clipCache.Length == 0 || _clipSampleRate <= 0 || _source == null)
+            if (_clip == null || _source == null || _clipSampleRate <= 0)
             {
                 return 0;
             }
 
-            int frames = _clipTotalSamples / Math.Max(1, _clipChannels);
+            int clipFrames = Mathf.Max(0, _clip.samples);
+            if (clipFrames == 0)
+            {
+                return 0;
+            }
+
             double ratio = (double)_source.SampleRate / Math.Max(1, _clipSampleRate);
-            double converted = Math.Ceiling(frames * ratio);
-            return converted < 1 ? 0 : (long)converted;
+            double frames = Math.Ceiling(clipFrames * ratio);
+            return frames < 1 ? 0 : (long)frames;
         }
 
         private void StartFeeder()
         {
-            if (_source == null || _clipCache == null || _clipCache.Length == 0)
+            if (_source == null)
+            {
+                return;
+            }
+
+            bool shouldStart = _streamMode || (_clipCache != null && _clipCache.Length > 0);
+            if (!shouldStart)
             {
                 return;
             }
@@ -646,9 +768,9 @@ namespace Eitan.EasyMic.Runtime
             StopFeeder();
             _stopSignal = new ManualResetEventSlim(false);
             _wakeSignal = new AutoResetEvent(false);
-            _feedThread = new Thread(FeedLoop)
+            _feedThread = new Thread(UnifiedFeedLoop)
             {
-                Name = $"EasyMicPlaybackFeed-Global-{_id}",
+                Name = $"EasyMicPlayback-Feed-{_id}",
                 IsBackground = true,
                 Priority = System.Threading.ThreadPriority.Highest
             };
@@ -666,7 +788,7 @@ namespace Eitan.EasyMic.Runtime
             try
             {
                 _stopSignal?.Set();
-                _wakeSignal?.Set();
+                WakeFeeder();
                 if (!thread.Join(100))
                 {
                     thread.Join(500);
@@ -683,7 +805,68 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private void FeedLoop()
+        private void UnifiedFeedLoop()
+        {
+
+            if (_streamMode)
+            {
+                StreamWatchdogLoop();
+            }
+            else
+            {
+                ClipFeedLoop();
+            }
+
+        }
+
+        private void StreamWatchdogLoop()
+        {
+            Debug.Log($"{LogPrefix}Stream watchdog started for handle {_id}.");
+            while (!_stopSignal.IsSet)
+            {
+                try
+                {
+                    var src = _source;
+                    if (src == null || _disposed)
+                    {
+                        break;
+                    }
+
+                    if (_endOfStreamSignaled && !_eosSignaledToSource)
+                    {
+                        src.SignalEndOfStream();
+                        _eosSignaledToSource = true;
+                        Debug.Log($"{LogPrefix}Handle {_id}: Watchdog has signaled end-of-stream to the underlying source.");
+                    }
+
+                    if (_endOfStreamSignaled && !src.IsPlaying && src.BufferedSeconds < 0.01)
+                    {
+                        Debug.Log($"{LogPrefix}Stream watchdog detected completion for handle {_id}. Buffered: {src.BufferedSeconds:F3}s, IsPlaying: {src.IsPlaying}.");
+                        HandlePlaybackCompleted(src);
+                        break;
+                    }
+
+                    // 空指针安全等待
+                    var wake = _wakeSignal;
+                    if (wake != null)
+                    {
+                        wake.WaitOne(20);
+                    }
+                    else
+                    {
+                        Thread.Sleep(20);
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"{LogPrefix}Stream watchdog loop for handle {_id} encountered an error: {ex.Message}");
+                    Thread.Sleep(50);
+                }
+            }
+            Debug.Log($"{LogPrefix}Stream watchdog stopped for handle {_id}.");
+        }
+        private void ClipFeedLoop()
         {
             int clipFrames = _clipChannels > 0 ? _clipTotalSamples / Math.Max(1, _clipChannels) : 0;
             int cursorFrames = 0;
@@ -721,7 +904,7 @@ namespace Eitan.EasyMic.Runtime
                         if (_loop)
                         {
                             cursorFrames = 0;
-                            _positionFrames = 0;
+                            Volatile.Write(ref _positionFrames, 0);
                             src.AnnounceLoopBoundary();
                             continue;
                         }
@@ -764,13 +947,24 @@ namespace Eitan.EasyMic.Runtime
                     bool completing = !_loop && framesToCopy == framesRemaining;
                     int samplesToCopy = framesToCopy * channels;
                     var span = new ReadOnlySpan<float>(_clipCache, cursorFrames * channels, samplesToCopy);
-                    src.Enqueue(span, channels, _clipSampleRate, completing);
+                    LogClipFirstChunk(src);
+                    int expectedTargetSamples = EstimateTargetSamples(src, framesToCopy);
+                    int written = src.Enqueue(span, channels, _clipSampleRate, completing);
+                    if (expectedTargetSamples > 0 && written < expectedTargetSamples)
+                    {
+                        LogClipDrop(framesToCopy, expectedTargetSamples, written, src);
+                    }
+                    else if (written <= 0)
+                    {
+                        LogClipDrop(framesToCopy, expectedTargetSamples, written, src);
+                    }
 
                     cursorFrames += framesToCopy;
-                    _positionFrames = Math.Min(cursorFrames, clipFrames);
+                    Volatile.Write(ref _positionFrames, Math.Min(cursorFrames, clipFrames));
 
                     if (completing)
                     {
+                        LogClipEndOfStream();
                         continue;
                     }
 
@@ -800,14 +994,105 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (wake.WaitOne(4))
+            try
             {
-                wake.Reset();
+                if (wake.WaitOne(4))
+                {
+                    wake.Reset();
+                }
             }
+            catch (ObjectDisposedException)
+            {
+                // Feeder is tearing down; nothing to wait on.
+            }
+        }
+
+        private void WakeFeeder()
+        {
+            try
+            {
+                _wakeSignal?.Set();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Feeder already stopped.
+            }
+        }
+
+        private void LogClipFirstChunk(PlaybackAudioSource source)
+        {
+            if (_clipFirstChunkLogged || source == null)
+            {
+                return;
+            }
+
+            _clipFirstChunkLogged = true;
+            string clipName = _clip != null ? _clip.name : "<clip>";
+            Debug.Log($"{LogPrefix}Handle {_id}: First clip chunk enqueued. Clip '{clipName}' {_clipChannels}ch @{_clipSampleRate}Hz -> Output {source.Channels}ch @{source.SampleRate}Hz.");
+        }
+
+        private void LogClipDrop(int clipFramesRequested, int expectedSamples, int writtenSamples, PlaybackAudioSource source)
+        {
+            if (_clipDropLogged)
+            {
+                return;
+            }
+
+            _clipDropLogged = true;
+            double buffered = source != null ? source.BufferedSeconds : 0.0;
+            int free = source != null ? source.FreeSamples : 0;
+            Debug.LogWarning($"{LogPrefix}Handle {_id}: Clip chunk truncated. Requested {clipFramesRequested} frames (~{expectedSamples} samples), wrote {writtenSamples}. Buffered={buffered:F3}s, FreeSamples={free}.");
+        }
+
+        private void LogClipEndOfStream()
+        {
+            if (_clipEndLogged)
+            {
+                return;
+            }
+
+            _clipEndLogged = true;
+            Debug.Log($"{LogPrefix}Handle {_id}: Clip playback enqueued end-of-stream marker.");
+        }
+
+        private int EstimateTargetSamples(PlaybackAudioSource source, int clipFrames)
+        {
+            if (source == null || clipFrames <= 0 || _clipSampleRate <= 0)
+            {
+                return 0;
+            }
+
+            int destChannels = Math.Max(1, source.Channels);
+            int clipRate = Math.Max(1, _clipSampleRate);
+            double ratio = (double)Math.Max(1, source.SampleRate) / clipRate;
+            long targetFrames = source.SampleRate == clipRate
+                ? clipFrames
+                : (long)Math.Ceiling(clipFrames * ratio);
+            if (targetFrames <= 0)
+            {
+                return 0;
+            }
+
+            long targetSamples = targetFrames * destChannels;
+            if (targetSamples <= 0)
+            {
+                return 0;
+            }
+
+            return targetSamples > int.MaxValue ? int.MaxValue : (int)targetSamples;
         }
 
         private void HandlePlaybackCompleted(PlaybackAudioSource source)
         {
+            // This can be called by the source's event or by the stream watchdog.
+            // The _onCompleted call chain is responsible for ensuring it only runs once via the _completed flag.
+            if (_completed)
+            {
+                return;
+            }
+
+
+            Debug.Log($"{LogPrefix}Handle {_id}: HandlePlaybackCompleted called. AutoDispose: {AutoDisposeOnComplete}, Loop: {_loop}");
             _onCompleted?.Invoke(_id);
         }
 
@@ -830,4 +1115,5 @@ namespace Eitan.EasyMic.Runtime
             }
         }
     }
+
 }

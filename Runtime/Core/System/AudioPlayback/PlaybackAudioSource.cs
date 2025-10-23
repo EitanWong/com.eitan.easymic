@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -8,14 +9,21 @@ namespace Eitan.EasyMic.Runtime
     /// </summary>
     public sealed class PlaybackAudioSource : IDisposable
     {
+        private const float DenormalGuard = 1e-20f;
+        private const int StarvationFadeFrames = 32;
+        private const int ResamplerGuardFrames = 2;
+        private const int EnqueueSpinBeforeSleep = 512;
+        private const int EnqueueSleepMilliseconds = 1;
+
         public string name;
         private readonly AudioBuffer _queue;
         private readonly float[] _work; // temp buffer for per-frame processing
         private readonly AudioPipeline _pipeline;
-        private readonly AudioState _state;
+        private readonly AudioContext _state;
         // Real-time callback buffer
         private float[] _callbackBuffer;
-        
+        private readonly Dictionary<int, float[]> _callbackBufferCache = new Dictionary<int, float[]>(4);
+
         /// <summary>
         /// Real-time playback callback similar to Unity's OnAudioFilterRead. but readonly
         /// Invoked on the audio thread with the samples that this source contributed
@@ -50,6 +58,9 @@ namespace Eitan.EasyMic.Runtime
         // Meters (snapshot by last render)
         private float[] _meterPeak; // per-output-channel of last render
         private float[] _meterRms;  // per-output-channel of last render
+        private float[] _meterPeakScratch;
+        private double[] _meterSumSqScratch;
+        private float[] _lastOutputPerChannel;
 
         public float Volume { get; set; } = 1.0f;
         public bool Mute { get; set; } = false;
@@ -119,17 +130,19 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        public PlaybackAudioSource(int channels, int sampleRate, float queueSeconds = 0.01f, AudioMixer attachTo = null)
+        public PlaybackAudioSource(int channels, int sampleRate, float queueSeconds = 1f, AudioMixer attachTo = null)
         {
             Channels = Math.Max(1, channels);
             SampleRate = Math.Max(8000, sampleRate);
-            int cap = (int)Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2);
-            _queue = new AudioBuffer(cap);
-            _work = new float[Math.Max(Channels * SampleRate / 50, 256)]; // ~20ms default min
+            int cap = AlignToFrameSamples((int)Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2));
+            _queue = new AudioBuffer(cap, Channels);
+            int workSamples = AlignToFrameSamples(Math.Max(Channels * SampleRate / 50, 256));
+            _work = new float[workSamples > 0 ? workSamples : Channels]; // ~20ms default min
             _pipeline = new AudioPipeline();
-            _state = new AudioState(Channels, SampleRate, 0);
+            _state = new AudioContext(Channels, SampleRate, 0);
             _pipeline.Initialize(_state);
-            _resBuf = new float[Math.Max(Channels * 512, 4096)];
+            int resSamples = AlignToFrameSamples(Math.Max(Channels * 512, 4096));
+            _resBuf = new float[resSamples];
             _resFrames = 0;
             _phase = 0.0;
             _playedSourceFrames = 0;
@@ -143,8 +156,14 @@ namespace Eitan.EasyMic.Runtime
                 return 0;
             }
 
+            int alignedSamples = interleaved.Length - (interleaved.Length % Channels);
+            if (alignedSamples <= 0)
+            {
+                return 0;
+            }
+
             ResetCompletionGuard();
-            return _queue.Write(interleaved);
+            return _queue.Write(interleaved.Slice(0, alignedSamples));
         }
 
         public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, bool markEndOfStream = false)
@@ -183,9 +202,53 @@ namespace Eitan.EasyMic.Runtime
             int srcSamples = srcFrames * channels;
             var src = interleaved.Slice(0, srcSamples);
 
-            int written = (channels == Channels && sampleRate == SampleRate)
-                ? _queue.Write(src)
-                : ConvertAndEnqueue(src, channels, sampleRate);
+            return (channels == Channels && sampleRate == SampleRate)
+                ? WriteToQueue(src, markEndOfStream)
+                : ConvertAndEnqueue(src, channels, sampleRate, markEndOfStream);
+        }
+
+        public void SignalEndOfStream()
+        {
+            System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 1);
+        }
+
+        private int WriteToQueue(ReadOnlySpan<float> samples, bool markEndOfStream)
+        {
+            if (samples.IsEmpty)
+            {
+                if (markEndOfStream)
+                {
+                    SignalEndOfStream();
+                }
+                return 0;
+            }
+
+            int totalSamples = samples.Length;
+            int written = 0;
+            var spinner = new System.Threading.SpinWait();
+            int stallIterations = 0;
+
+            while (written < totalSamples)
+            {
+                int justWritten = _queue.Write(samples.Slice(written));
+                if (justWritten <= 0)
+                {
+                    stallIterations++;
+                    if (stallIterations >= EnqueueSpinBeforeSleep)
+                    {
+                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
+                    }
+                    else
+                    {
+                        spinner.SpinOnce();
+                    }
+                    continue;
+                }
+
+                written += justWritten;
+                stallIterations = 0;
+                spinner.Reset();
+            }
 
             if (markEndOfStream)
             {
@@ -195,12 +258,7 @@ namespace Eitan.EasyMic.Runtime
             return written;
         }
 
-        public void SignalEndOfStream()
-        {
-            System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 1);
-        }
-
-        internal void AnnounceLoopBoundary()
+        public void AnnounceLoopBoundary()
         {
             System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 1);
         }
@@ -254,187 +312,302 @@ namespace Eitan.EasyMic.Runtime
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate)
         {
             TryDispatchLoopBoundary();
-            if (destination.IsEmpty)
+
+            int totalSamples = destination.Length;
+            if (totalSamples == 0)
             {
                 TryRaiseCompletionIfDrained();
                 TryDispatchLoopBoundary();
                 return;
             }
 
+            EnsureCallbackBuffer(totalSamples);
+            var callbackSlice = new Span<float>(_callbackBuffer, 0, totalSamples);
+            callbackSlice.Clear();
 
-            if (!_isPlaying)
+            int outChannels = Math.Max(1, sysChannels);
+            int totalFrames = outChannels > 0 ? totalSamples / outChannels : 0;
+            bool allowPlayback = _isPlaying;
+            bool mixToDestination = allowPlayback && !Mute;
+
+            int framesFromSource = 0;
+            if (allowPlayback)
             {
-                TryRaiseCompletionIfDrained();
-                TryDispatchLoopBoundary();
-                return;
-            }
-
-
-            if (Mute || Volume <= 0f)
-            {
-                TryRaiseCompletionIfDrained();
-                TryDispatchLoopBoundary();
-                return;
-            }
-
-            // Local meter accumulation for this render pass (in output channel domain)
-
-            int outCh = Math.Max(1, sysChannels);
-            float[] peakLocal = null;
-            double[] sumSqLocal = null;
-            int framesAccum = 0;
-            void EnsureMeterBuffers()
-            {
-                if (peakLocal == null || peakLocal.Length != outCh)
+                if (sysChannels == Channels && sysSampleRate == SampleRate)
                 {
-                    peakLocal = new float[outCh];
-                    sumSqLocal = new double[outCh];
-                    for (int i = 0; i < outCh; i++) { peakLocal[i] = 0f; sumSqLocal[i] = 0.0; }
+                    framesFromSource = RenderNativeRate(destination, callbackSlice, outChannels, totalFrames, mixToDestination);
+                }
+                else
+                {
+                    framesFromSource = RenderResampled(destination, callbackSlice, sysChannels, sysSampleRate, totalFrames, mixToDestination);
                 }
             }
 
-            if (sysChannels == Channels && sysSampleRate == SampleRate)
+            if (framesFromSource > totalFrames)
             {
-                int needed = destination.Length;
-                int processed = 0;
-                while (processed < needed)
-                {
-                    int chunk = Math.Min(_work.Length, needed - processed);
-                    // Align to whole frames to avoid drifting on partial reads.
-                    chunk -= (chunk % Channels);
-                    if (chunk <= 0)
-                    {
-                        break;
-                    }
-
-
-                    int read = _queue.Read(new Span<float>(_work, 0, chunk));
-                    // Safety: enforce frame alignment on the returned count as well.
-                    int readAligned = read - (read % Channels);
-                    if (readAligned <= 0)
-                    {
-                        break;
-                    }
-
-
-                    _state.Length = readAligned;
-                    _pipeline.OnAudioPass(new Span<float>(_work, 0, readAligned), _state);
-                    if (Volume != 1.0f)
-                    {
-                        // meters over this chunk
-                        EnsureMeterBuffers();
-                        int frames = readAligned / Channels;
-                        // ensure callback buffer
-                        if (_callbackBuffer == null || _callbackBuffer.Length < readAligned)
-                        {
-                            _callbackBuffer = new float[readAligned];
-                        }
-
-
-                        for (int f = 0; f < frames; f++)
-                        {
-                            int b = f * Channels;
-                            for (int ch = 0; ch < Channels; ch++)
-                            {
-                                float s = _work[b + ch] * Volume;
-                                _callbackBuffer[b + ch] = s;
-                                float a = MathF.Abs(s);
-                                if (a > peakLocal[ch])
-                                {
-                                    peakLocal[ch] = a;
-                                }
-
-
-                                sumSqLocal[ch] += s * s;
-                            }
-                        }
-                        framesAccum += frames;
-                        // mix and invoke callback for this chunk
-                        for (int i = 0; i < readAligned; i++)
-                        {
-                            destination[processed + i] += _callbackBuffer[i];
-                        }
-
-
-                        try { OnAudioPlayback?.Invoke(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
-                    }
-                    else
-                    {
-                        EnsureMeterBuffers();
-                        int frames = readAligned / Channels;
-                        if (_callbackBuffer == null || _callbackBuffer.Length < readAligned)
-                        {
-                            _callbackBuffer = new float[readAligned];
-                        }
-
-                        for (int f = 0; f < frames; f++)
-                        {
-                            int b = f * Channels;
-                            for (int ch = 0; ch < Channels; ch++)
-                            {
-                                float s = _work[b + ch];
-                                _callbackBuffer[b + ch] = s;
-                                float a = MathF.Abs(s);
-                                if (a > peakLocal[ch])
-                                {
-                                    peakLocal[ch] = a;
-                                }
-
-
-                                sumSqLocal[ch] += s * s;
-                            }
-                        }
-                        framesAccum += frames;
-                        for (int i = 0; i < readAligned; i++)
-                        {
-                            destination[processed + i] += _callbackBuffer[i];
-                        }
-
-
-                        try { OnAudioPlayback?.Invoke(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
-                    }
-                    processed += readAligned;
-                    // progress (source domain)
-                    System.Threading.Interlocked.Add(ref _playedSourceFrames, readAligned / Channels);
-                }
-                // Commit meters snapshot
-                if (framesAccum > 0)
-                {
-                    var rms = new float[outCh];
-                    for (int ch = 0; ch < outCh; ch++)
-                    {
-                        rms[ch] = (float)Math.Sqrt(sumSqLocal[ch] / framesAccum);
-                    }
-                    _meterPeak = peakLocal;
-                    _meterRms = rms;
-                }
-                TryRaiseCompletionIfDrained();
-                TryDispatchLoopBoundary();
-                return;
+                framesFromSource = totalFrames;
             }
 
-            // Resample + channel map path
-            int outFrames = destination.Length / Math.Max(1, sysChannels);
-            if (outFrames <= 0)
+            ApplyUnderflowFade(destination, callbackSlice, framesFromSource, totalFrames, outChannels, mixToDestination);
+            ApplyMeters(callbackSlice, outChannels, totalFrames);
+
+            TryRaiseCompletionIfDrained();
+            TryDispatchLoopBoundary();
+            DispatchCallback(callbackSlice, sysChannels, sysSampleRate);
+        }
+
+        private int RenderNativeRate(Span<float> destination, Span<float> callbackSlice, int outChannels, int totalFrames, bool mixToDestination)
+        {
+            if (totalFrames <= 0)
             {
-                TryDispatchLoopBoundary();
-                return;
+                return 0;
             }
 
+            int totalSamples = totalFrames * outChannels;
+            int processedSamples = 0;
+            int framesFromSource = 0;
+            float volume = Volume;
+            bool applyVolume = MathF.Abs(volume - 1f) > 1e-5f;
+
+            while (processedSamples < totalSamples)
+            {
+                int remainingSamples = totalSamples - processedSamples;
+                int chunkSamples = Math.Min(_work.Length, remainingSamples);
+                chunkSamples -= chunkSamples % Channels;
+                if (chunkSamples <= 0)
+                {
+                    break;
+                }
+
+                Span<float> workSpan = new Span<float>(_work, 0, chunkSamples);
+                int read = _queue.Read(workSpan);
+                read -= read % Channels;
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                var processedSpan = workSpan.Slice(0, read);
+
+                _state.Length = read;
+                _pipeline.OnAudioPass(processedSpan, _state);
+
+                var destSlice = destination.Slice(processedSamples, read);
+                var cbSlice = callbackSlice.Slice(processedSamples, read);
+
+                if (applyVolume)
+                {
+                    for (int i = 0; i < read; i++)
+                    {
+                        float sample = processedSpan[i] * volume;
+                        sample += DenormalGuard;
+                        sample -= DenormalGuard;
+                        if (mixToDestination)
+                        {
+                            destSlice[i] += sample;
+                        }
+                        cbSlice[i] = sample;
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < read; i++)
+                    {
+                        float sample = processedSpan[i];
+                        sample += DenormalGuard;
+                        sample -= DenormalGuard;
+                        if (mixToDestination)
+                        {
+                            destSlice[i] += sample;
+                        }
+                        cbSlice[i] = sample;
+                    }
+                }
+
+                processedSamples += read;
+                framesFromSource += read / Channels;
+                System.Threading.Interlocked.Add(ref _playedSourceFrames, read / Channels);
+            }
+
+            return framesFromSource;
+        }
+
+        private int RenderResampled(Span<float> destination, Span<float> callbackSlice, int sysChannels, int sysSampleRate, int totalFrames, bool mixToDestination)
+        {
+            if (totalFrames <= 0)
+            {
+                return 0;
+            }
+
+            int outChannels = Math.Max(1, sysChannels);
             double step = (double)SampleRate / Math.Max(1, sysSampleRate);
+            double startPhase = _phase;
+            double phase = startPhase;
 
-            int neededSrcFrames = (int)Math.Ceiling(_phase + outFrames * step) + 3; // lookahead for cubic
+            int neededSrcFrames = (int)Math.Ceiling(startPhase + totalFrames * step) + ResamplerGuardFrames;
             EnsureResBufCapacity(neededSrcFrames * Channels);
-            while (_resFrames < neededSrcFrames)
+            FillResBuffer(neededSrcFrames);
+
+            int initialResFrames = _resFrames;
+            if (_resFrames < neededSrcFrames)
             {
-                // Only read full frames to avoid losing leftover samples which would
-                // cause cumulative drift (perceived as speed-up over time).
+                int missing = neededSrcFrames - _resFrames;
+                new Span<float>(_resBuf, _resFrames * Channels, missing * Channels).Clear();
+                _resFrames += missing;
+            }
+
+            float volume = Volume;
+            bool applyVolume = MathF.Abs(volume - 1f) > 1e-5f;
+
+            int destIndex = 0;
+            int cbIndex = 0;
+
+            for (int frame = 0; frame < totalFrames; frame++)
+            {
+                int i0 = (int)phase;
+                if (i0 >= _resFrames)
+                {
+                    i0 = _resFrames - 1;
+                }
+
+                int i1 = Math.Min(_resFrames - 1, i0 + 1);
+                double frac = phase - i0;
+
+                if (Channels == outChannels)
+                {
+                    for (int ch = 0; ch < outChannels; ch++)
+                    {
+                        int idx0 = i0 * Channels + ch;
+                        int idx1 = i1 * Channels + ch;
+                        float sample = _resBuf[idx0] + (float)((_resBuf[idx1] - _resBuf[idx0]) * frac);
+                        if (applyVolume)
+                        {
+                            sample *= volume;
+                        }
+                        sample += DenormalGuard;
+                        sample -= DenormalGuard;
+                        if (mixToDestination)
+                        {
+                            destination[destIndex + ch] += sample;
+                        }
+                        callbackSlice[cbIndex + ch] = sample;
+                    }
+                }
+                else if (Channels == 1 && outChannels == 2)
+                {
+                    float s0 = _resBuf[i0];
+                    float s1 = _resBuf[i1];
+                    float sample = s0 + (float)((s1 - s0) * frac);
+                    if (applyVolume)
+                    {
+                        sample *= volume;
+                    }
+                    sample += DenormalGuard;
+                    sample -= DenormalGuard;
+                    if (mixToDestination)
+                    {
+                        destination[destIndex] += sample;
+                        destination[destIndex + 1] += sample;
+                    }
+                    callbackSlice[cbIndex] = sample;
+                    callbackSlice[cbIndex + 1] = sample;
+                }
+                else if (Channels == 2 && outChannels == 1)
+                {
+                    int base0 = i0 * Channels;
+                    int base1 = i1 * Channels;
+                    float l = _resBuf[base0] + (float)((_resBuf[base1] - _resBuf[base0]) * frac);
+                    float r = _resBuf[base0 + 1] + (float)((_resBuf[base1 + 1] - _resBuf[base0 + 1]) * frac);
+                    float sample = (l + r) * 0.5f;
+                    if (applyVolume)
+                    {
+                        sample *= volume;
+                    }
+                    sample += DenormalGuard;
+                    sample -= DenormalGuard;
+                    if (mixToDestination)
+                    {
+                        destination[destIndex] += sample;
+                    }
+                    callbackSlice[cbIndex] = sample;
+                }
+                else
+                {
+                    float acc = 0f;
+                    for (int ch = 0; ch < Channels; ch++)
+                    {
+                        int idx0 = i0 * Channels + ch;
+                        int idx1 = i1 * Channels + ch;
+                        acc += _resBuf[idx0] + (float)((_resBuf[idx1] - _resBuf[idx0]) * frac);
+                    }
+                    float sample = acc / Channels;
+                    if (applyVolume)
+                    {
+                        sample *= volume;
+                    }
+                    sample += DenormalGuard;
+                    sample -= DenormalGuard;
+                    if (mixToDestination)
+                    {
+                        for (int ch = 0; ch < outChannels; ch++)
+                        {
+                            destination[destIndex + ch] += sample;
+                        }
+                    }
+                    for (int ch = 0; ch < outChannels; ch++)
+                    {
+                        callbackSlice[cbIndex + ch] = sample;
+                    }
+                }
+
+                destIndex += outChannels;
+                cbIndex += outChannels;
+                phase += step;
+            }
+
+            int framesFromSource = 0;
+            if (initialResFrames > 0 && step > 0.0)
+            {
+                double maxSourceIndex = Math.Max(0.0, initialResFrames - 1 - startPhase);
+                double framesAvailable = (maxSourceIndex / step) + 1.0;
+                if (framesAvailable > 0.0)
+                {
+                    framesFromSource = (int)Math.Min(totalFrames, Math.Floor(framesAvailable));
+                }
+            }
+
+            int consumed = (int)Math.Floor(phase);
+            int drop = Math.Max(0, consumed - ResamplerGuardFrames);
+            if (drop > 0)
+            {
+                int remainingFrames = Math.Max(0, _resFrames - drop);
+                if (remainingFrames > 0)
+                {
+                    Buffer.BlockCopy(_resBuf, drop * Channels * sizeof(float), _resBuf, 0, remainingFrames * Channels * sizeof(float));
+                }
+                _resFrames = remainingFrames;
+                phase -= drop;
+                if (phase < 0.0)
+                {
+                    phase = 0.0;
+                }
+                System.Threading.Interlocked.Add(ref _playedSourceFrames, drop);
+            }
+
+            _phase = phase;
+
+            return framesFromSource;
+        }
+
+        private void FillResBuffer(int neededFrames)
+        {
+            while (_resFrames < neededFrames)
+            {
                 int capacitySamples = _resBuf.Length - _resFrames * Channels;
                 if (capacitySamples <= 0)
                 {
                     break;
                 }
-
 
                 int readable = _queue.ReadableCount;
                 if (readable <= 0)
@@ -442,197 +615,181 @@ namespace Eitan.EasyMic.Runtime
                     break;
                 }
 
-
                 int toReadSamples = Math.Min(Math.Min(capacitySamples, _work.Length), readable);
-                int toReadAligned = toReadSamples - (toReadSamples % Channels);
-                if (toReadAligned <= 0)
+                toReadSamples -= toReadSamples % Channels;
+                if (toReadSamples <= 0)
                 {
                     break;
                 }
 
-
-                int read = _queue.Read(new Span<float>(_work, 0, toReadAligned));
+                int read = _queue.Read(new Span<float>(_work, 0, toReadSamples));
+                read -= read % Channels;
                 if (read <= 0)
                 {
                     break;
                 }
-                // Safety: align to full frames in case underlying buffer returns an odd count.
 
-                int readAligned = read - (read % Channels);
-                if (readAligned <= 0)
-                {
-                    break;
-                }
-
-
-                new ReadOnlySpan<float>(_work, 0, readAligned).CopyTo(new Span<float>(_resBuf, _resFrames * Channels, readAligned));
-                _resFrames += readAligned / Channels;
+                new ReadOnlySpan<float>(_work, 0, read).CopyTo(new Span<float>(_resBuf, _resFrames * Channels, read));
+                _resFrames += read / Channels;
             }
+        }
 
-            EnsureMeterBuffers();
-            int outIndex = 0;
-            // Prepare a scratch buffer for callback accumulation. We will trim to actual size later.
-            float[] cbScratch = null;
-            if (outFrames > 0)
+        private void ApplyUnderflowFade(Span<float> destination, Span<float> callbackSlice, int framesFromSource, int totalFrames, int outChannels, bool mixToDestination)
+        {
+            if (totalFrames <= 0 || outChannels <= 0)
             {
-                int alloc = Math.Max(0, outFrames * Math.Max(1, sysChannels));
-                cbScratch = (alloc > 0) ? new float[alloc] : Array.Empty<float>();
+                return;
             }
-            for (int f = 0; f < outFrames; f++)
+
+            EnsureLastOutputBuffer(outChannels);
+
+            if (framesFromSource > 0)
             {
-                int i0 = (int)Math.Floor(_phase);
-                double t = _phase - i0;
-
-                if (Channels == sysChannels)
+                int lastIndex = (framesFromSource - 1) * outChannels;
+                for (int ch = 0; ch < outChannels; ch++)
                 {
-                    for (int ch = 0; ch < sysChannels; ch++)
-                    {
-                        float s = CubicAtChannel(_resBuf, _resFrames, Channels, i0, ch, t) * Volume;
-                        destination[outIndex++] += s;
-                        if (cbScratch != null)
-                        {
-                            cbScratch[outIndex - 1] = s;
-                        }
-
-
-                        float a = MathF.Abs(s);
-                        if (a > peakLocal[ch])
-                        {
-                            peakLocal[ch] = a;
-                        }
-
-
-                        sumSqLocal[ch] += s * s;
-                    }
+                    _lastOutputPerChannel[ch] = callbackSlice[lastIndex + ch];
                 }
-                else if (Channels == 1 && sysChannels == 2)
-                {
-                    float s = CubicAtChannel(_resBuf, _resFrames, 1, i0, 0, t) * Volume;
-                    destination[outIndex++] += s;
-                    destination[outIndex++] += s;
-                    if (cbScratch != null)
-                    {
-                        cbScratch[outIndex - 2] = s;
-                        cbScratch[outIndex - 1] = s;
-                    }
-                    float a = MathF.Abs(s);
-                    if (a > peakLocal[0])
-                    {
-                        peakLocal[0] = a;
-                    }
-
-
-                    if (a > peakLocal[1])
-                    {
-                        peakLocal[1] = a;
-                    }
-
-
-                    sumSqLocal[0] += s * s;
-                    sumSqLocal[1] += s * s;
-                }
-                else if (Channels == 2 && sysChannels == 1)
-                {
-                    float l = CubicAtChannel(_resBuf, _resFrames, 2, i0, 0, t);
-                    float r = CubicAtChannel(_resBuf, _resFrames, 2, i0, 1, t);
-                    float s = (l + r) * 0.5f * Volume;
-                    destination[outIndex++] += s;
-                    if (cbScratch != null)
-                    {
-                        cbScratch[outIndex - 1] = s;
-                    }
-
-
-                    float a = MathF.Abs(s);
-                    if (a > peakLocal[0])
-                    {
-                        peakLocal[0] = a;
-                    }
-
-
-                    sumSqLocal[0] += s * s;
-                }
-                else
-                {
-                    float avg = 0f;
-                    for (int ch = 0; ch < Channels; ch++)
-                    {
-                        avg += CubicAtChannel(_resBuf, _resFrames, Channels, i0, ch, t);
-                    }
-
-                    float s = (avg / Channels) * Volume;
-                    for (int ch = 0; ch < sysChannels; ch++)
-                    {
-                        destination[outIndex++] += s;
-                        if (cbScratch != null)
-                        {
-                            cbScratch[outIndex - 1] = s;
-                        }
-
-                        float a = MathF.Abs(s);
-                        if (a > peakLocal[ch])
-                        {
-                            peakLocal[ch] = a;
-                        }
-
-
-                        sumSqLocal[ch] += s * s;
-                    }
-                }
-                _phase += step;
-                if ((int)Math.Floor(_phase) + 2 >= _resFrames)
-                {
-                    break;
-                }
-
-
-                framesAccum++;
             }
 
-            int consumed = Math.Max(0, Math.Min(_resFrames, (int)Math.Floor(_phase) - 1));
-            const int keep = 3;
-            int drop = Math.Max(0, consumed - keep);
-            if (drop > 0)
+            if (framesFromSource >= totalFrames)
             {
-                int remainingFrames = _resFrames - drop;
-                Buffer.BlockCopy(_resBuf, drop * Channels * 4, _resBuf, 0, remainingFrames * Channels * 4);
-                _resFrames = remainingFrames;
-                _phase -= drop;
-                if (_phase < 0)
-                {
-                    _phase = 0;
-                }
-                // progress (source domain)
-
-                System.Threading.Interlocked.Add(ref _playedSourceFrames, drop);
+                return;
             }
 
-            if (framesAccum > 0)
+            int fadeFrames = Math.Min(StarvationFadeFrames, totalFrames - framesFromSource);
+            for (int f = 0; f < fadeFrames; f++)
             {
-                var rms = new float[outCh];
-                for (int ch = 0; ch < outCh; ch++)
+                float t = (float)(f + 1) / (fadeFrames + 1);
+                int sampleIndex = (framesFromSource + f) * outChannels;
+                for (int ch = 0; ch < outChannels; ch++)
                 {
-                    rms[ch] = (float)Math.Sqrt(sumSqLocal[ch] / framesAccum);
+                    float sample = _lastOutputPerChannel[ch] * (1f - t);
+                    sample += DenormalGuard;
+                    sample -= DenormalGuard;
+                    if (mixToDestination)
+                    {
+                        destination[sampleIndex + ch] += sample;
+                    }
+                    callbackSlice[sampleIndex + ch] = sample;
                 }
-
-
-                _meterPeak = peakLocal;
-                _meterRms = rms;
             }
 
-            // Dispatch callback with exactly the contributed samples for this pass
-            if (outIndex > 0 && cbScratch != null)
+            int zeroStart = (framesFromSource + fadeFrames) * outChannels;
+            if (zeroStart < callbackSlice.Length)
             {
-                // Reuse persistent callback buffer if sizes match; otherwise create new exact-size array
-                if (_callbackBuffer == null || _callbackBuffer.Length != outIndex)
-                {
-                    _callbackBuffer = new float[outIndex];
-                }
-                Array.Copy(cbScratch, 0, _callbackBuffer, 0, outIndex);
-                try { OnAudioPlayback?.Invoke(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
+                callbackSlice.Slice(zeroStart).Clear();
             }
-            TryRaiseCompletionIfDrained();
-            TryDispatchLoopBoundary();
+
+            Array.Clear(_lastOutputPerChannel, 0, outChannels);
+        }
+
+        private void EnsureLastOutputBuffer(int channelCount)
+        {
+            if (_lastOutputPerChannel == null || _lastOutputPerChannel.Length < channelCount)
+            {
+                _lastOutputPerChannel = new float[channelCount];
+            }
+        }
+
+        private void EnsureCallbackBuffer(int sampleCount)
+        {
+            if (_callbackBuffer != null && _callbackBuffer.Length == sampleCount)
+            {
+                return;
+            }
+
+            if (_callbackBufferCache.TryGetValue(sampleCount, out var cached))
+            {
+                _callbackBuffer = cached;
+                return;
+            }
+
+            var buffer = new float[sampleCount];
+            _callbackBufferCache[sampleCount] = buffer;
+            _callbackBuffer = buffer;
+        }
+
+        private void DispatchCallback(Span<float> callbackSlice, int sysChannels, int sysSampleRate)
+        {
+            var handler = OnAudioPlayback;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try { handler(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
+        }
+
+        private void ApplyMeters(Span<float> data, int channels, int frames)
+        {
+            if (channels <= 0 || frames <= 0)
+            {
+                if (_meterPeak != null && _meterPeak.Length >= channels && channels > 0)
+                {
+                    Array.Clear(_meterPeak, 0, channels);
+                }
+                if (_meterRms != null && _meterRms.Length >= channels && channels > 0)
+                {
+                    Array.Clear(_meterRms, 0, channels);
+                }
+                return;
+            }
+
+            EnsureMeterScratch(channels);
+
+            for (int frame = 0; frame < frames; frame++)
+            {
+                int baseIndex = frame * channels;
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    float sample = data[baseIndex + ch];
+                    float abs = MathF.Abs(sample);
+                    if (abs > _meterPeakScratch[ch])
+                    {
+                        _meterPeakScratch[ch] = abs;
+                    }
+                    _meterSumSqScratch[ch] += sample * sample;
+                }
+            }
+
+            if (_meterPeak == null || _meterPeak.Length != channels)
+            {
+                _meterPeak = new float[channels];
+            }
+            if (_meterRms == null || _meterRms.Length != channels)
+            {
+                _meterRms = new float[channels];
+            }
+
+            for (int ch = 0; ch < channels; ch++)
+            {
+                _meterPeak[ch] = _meterPeakScratch[ch];
+                _meterRms[ch] = (float)Math.Sqrt(_meterSumSqScratch[ch] / frames);
+            }
+        }
+
+        private void EnsureMeterScratch(int channelCount)
+        {
+            if (_meterPeakScratch == null || _meterPeakScratch.Length < channelCount)
+            {
+                _meterPeakScratch = new float[channelCount];
+            }
+            if (_meterSumSqScratch == null || _meterSumSqScratch.Length < channelCount)
+            {
+                _meterSumSqScratch = new double[channelCount];
+            }
+
+            Array.Clear(_meterPeakScratch, 0, channelCount);
+            Array.Clear(_meterSumSqScratch, 0, channelCount);
+        }
+
+        private int AlignToFrameSamples(int sampleCount)
+        {
+            int stride = Math.Max(1, Channels);
+            int remainder = sampleCount % stride;
+            int aligned = remainder == 0 ? sampleCount : sampleCount + (stride - remainder);
+            return aligned <= 0 ? stride : aligned;
         }
 
         private void ResetCompletionGuard()
@@ -647,11 +804,15 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private int ConvertAndEnqueue(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate)
+        private int ConvertAndEnqueue(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate, bool markEndOfStream)
         {
             int srcFrames = source.Length / srcChannels;
             if (srcFrames <= 0)
             {
+                if (markEndOfStream)
+                {
+                    SignalEndOfStream();
+                }
                 return 0;
             }
 
@@ -660,6 +821,10 @@ namespace Eitan.EasyMic.Runtime
                 : (int)Math.Ceiling(srcFrames * (double)SampleRate / Math.Max(1, srcSampleRate));
             if (targetFrames <= 0)
             {
+                if (markEndOfStream)
+                {
+                    SignalEndOfStream();
+                }
                 return 0;
             }
 
@@ -676,7 +841,7 @@ namespace Eitan.EasyMic.Runtime
                 ConvertWithResample(source, srcChannels, srcSampleRate, dest, targetFrames);
             }
 
-            return _queue.Write(dest);
+            return WriteToQueue(dest.Slice(0, targetSamples), markEndOfStream);
         }
 
         private void EnsureConvertBufferCapacity(int neededSamples)
@@ -838,7 +1003,12 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (!_queue.IsEmpty || _resFrames > 0)
+            if (!_queue.IsEmpty)
+            {
+                return;
+            }
+
+            if (_resFrames > ResamplerGuardFrames)
             {
                 return;
             }
@@ -849,6 +1019,11 @@ namespace Eitan.EasyMic.Runtime
             }
 
             _isPlaying = false;
+            if (_lastOutputPerChannel != null)
+            {
+                Array.Clear(_lastOutputPerChannel, 0, _lastOutputPerChannel.Length);
+            }
+
             try { OnPlaybackCompleted?.Invoke(this); } catch { }
         }
 
@@ -862,13 +1037,17 @@ namespace Eitan.EasyMic.Runtime
 
         private void EnsureResBufCapacity(int neededSamples)
         {
+            neededSamples = AlignToFrameSamples(neededSamples);
             if (_resBuf.Length >= neededSamples)
             {
                 return;
             }
 
-
             int newSize = _resBuf.Length;
+            if (newSize == 0)
+            {
+                newSize = AlignToFrameSamples(Channels * 4);
+            }
             while (newSize < neededSamples)
             {
                 newSize *= 2;
@@ -878,28 +1057,6 @@ namespace Eitan.EasyMic.Runtime
             var nb = new float[newSize];
             Array.Copy(_resBuf, nb, _resFrames * Channels);
             _resBuf = nb;
-        }
-
-        private static float CubicAtChannel(float[] buf, int frames, int chCount, int baseIndex, int ch, double t)
-        {
-            int i_1 = Math.Max(0, baseIndex - 1);
-            int i0 = Math.Max(0, baseIndex);
-            int i1 = Math.Min(frames - 1, baseIndex + 1);
-            int i2 = Math.Min(frames - 1, baseIndex + 2);
-            float y_1 = buf[i_1 * chCount + ch];
-            float y0 = buf[i0 * chCount + ch];
-            float y1 = buf[i1 * chCount + ch];
-            float y2 = buf[i2 * chCount + ch];
-            return CatmullRom(y_1, y0, y1, y2, (float)t);
-        }
-
-        private static float CatmullRom(float y0, float y1, float y2, float y3, float t)
-        {
-            float a0 = -0.5f*y0 + 1.5f*y1 - 1.5f*y2 + 0.5f*y3;
-            float a1 = y0 - 2.5f*y1 + 2.0f*y2 - 0.5f*y3;
-            float a2 = -0.5f*y0 + 0.5f*y2;
-            float a3 = y1;
-            return ((a0 * t + a1) * t + a2) * t + a3;
         }
 
         public void AddProcessor(AudioWorkerBlueprint blueprint)

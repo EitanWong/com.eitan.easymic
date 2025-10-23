@@ -5,6 +5,7 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
     using System.Collections;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Threading.Tasks;
     using Eitan.EasyMic;
 
     using Eitan.EasyMic.Runtime;
@@ -120,7 +121,7 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
                 _originalFontSize = _keywordText.fontSize;
             }
 
-            InitDropdown();
+            _ = InitDropdownAsync();
             InitKeywordsPanelUI();
             UpdateState(AppState.NotLoaded);
             OnRefreshButtonPressed();
@@ -160,9 +161,13 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
             _clearKeywordsBtn.onClick.RemoveAllListeners();
         }
 
-        private void InitDropdown()
+        private async Task InitDropdownAsync()
         {
-            var manifest = SherpaOnnxModelRegistry.Instance.GetManifest();
+            _modelIDDropdown.options.Clear();
+            _modelIDDropdown.captionText.text = "Fetching model manifest from GitHub…";
+            _modelLoadOrUnloadButton.gameObject.SetActive(false);
+            var manifest = await SherpaOnnxModelRegistry.Instance.GetManifestAsync();
+            _modelLoadOrUnloadButton.gameObject.SetActive(true);
             _modelIDDropdown.options.Clear();
             if (manifest.models != null)
             {

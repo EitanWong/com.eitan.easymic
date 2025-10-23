@@ -10,16 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.2-exp.1] - 2025-09-22
 
 ### Added
+
 - Added `SherpaKeywordDetector` processor, a keyword/wake-word detector based on the [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) plugin, for implementing wake-word functionality.
 
 ### Changed
+
 - Optimized Easy Mic's code by removing the `soundio` dependency for desktop platforms.
 - Refactored and optimized code for better performance.
 - Enhanced detailed recording device information retrieval (channel count and supported sample rates) on both mobile and desktop platforms.
 - Optimized the `AudioPlayback` system to use a background audio thread, ensuring continuous audio playback even when the application is not in focus.
 
-
 ### Added
+
 - Enhanced README documentation with professional visual layout
 - Comprehensive bilingual documentation (English/Chinese) in Documentation~ folder
 - Third-party notices for libsoundio and miniaudio dependencies
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - APM extension package marketing and contact information
 
 ### Changed
+
 - Updated README files with centered layout, professional styling, and improved visual hierarchy
 - Simplified technical backend explanations for better accessibility
 - Enhanced documentation structure with grid-based navigation
@@ -35,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.1-exp] - 2025-08-24
 
 ### Added
+
 - New low-latency playback and mixing subsystem under `Runtime/Core/AudioPlayback`:
   - `AudioSystem`, `AudioMixer`, `PlaybackAudioSource` for high‑performance additive mixing, resampling, and per‑source pipelines/meters.
   - `PlaybackAudioSourceBehaviour` MonoBehaviour wrapper for easy scene integration.
@@ -42,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation callouts referencing APM’s AEC playback requirement.
 
 ### Changed
+
 - Refactored the recording subsystem for non‑blocking, high‑performance capture:
   - Lock‑free SPSC ring buffers on the audio callback path to avoid stalls.
   - Zero‑allocation hot path and improved latency/stability across backends.
@@ -51,18 +56,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0-exp.1] - 2025-07-26
 
 ### Added
+
 - Repository privacy controls via .gitignore updates
 - Exclusion of private APM package (`com.eitan.easymic.apm`) from public repository
 - Exclusion of large demo assets (`EasyMic/Assets/Demo/Samples/AudioProcessing`) from version control
 - Proper open-source repository structure while maintaining private components
 
 ### Changed
+
 - Updated .gitignore to ensure clean public repository structure
 - Separated public and private package components for proper licensing compliance
 
 ## [0.1.0-exp.0] - 2025-07-17
 
 ### Added
+
 - Initial release of Easy Mic for Unity
 - Cross-platform real-time audio recording capabilities
 - Native audio backends using libsoundio and miniaudio
@@ -76,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SherpaOnnxUnity integration for speech recognition
 - Cross-platform native plugin support:
   - Windows (x86, x86_64, ARM64)
-  - macOS (x86_64, ARM64)  
+  - macOS (x86_64, ARM64)
   - Linux (x86_64, ARM, ARM64)
   - Android (armeabi-v7a, arm64-v8a, x86_64)
   - iOS (Universal Framework)
@@ -90,17 +98,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite for quality assurance
 
 ### Technical Implementation
+
 - EasyMicAPI facade pattern for simplified public interface
 - MicSystem manager for device enumeration and session lifecycle
 - RecordingHandle struct for type-safe session identification
 - AudioPipeline for dynamic processor chain management
-- AudioState context passing for format-aware processing
+- AudioContext context passing for format-aware processing
 - Native interop layer with platform-specific implementations
 - Permission handling utilities for microphone access
 - Device enumeration and management utilities
 - Audio format conversion and extension utilities
 
 ### Documentation
+
 - Getting started guide with installation instructions
 - Core concepts documentation explaining architecture
 - Audio pipeline deep dive with processing flow diagrams
@@ -112,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform deployment instructions
 
 ### Platform Support
+
 - Unity 2021.3 LTS and higher
 - .NET Standard 2.1 compatibility
 - Full cross-platform native plugin support

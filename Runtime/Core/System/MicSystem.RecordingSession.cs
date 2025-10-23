@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Threading;
-using UnityEngine;
-using AOT;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -20,7 +17,7 @@ namespace Eitan.EasyMic.Runtime
             private readonly List<AudioWorkerBlueprint> _blueprints = new List<AudioWorkerBlueprint>();
             private readonly AudioPipeline _audioPipeline = new AudioPipeline();
             private readonly IntPtr _context;
-            private readonly AudioState _state;
+            private readonly AudioContext _state;
             private readonly MicDevice _preferredDevice;
             private readonly string _preferredIdentifier;
             private readonly SampleRate _requestedSampleRate;
@@ -41,17 +38,19 @@ namespace Eitan.EasyMic.Runtime
             public Channel Channel { get; private set; }
 
             public int ProcessorCount => _audioPipeline.WorkerCount;
+            private ILogger _logger;
 
-            public RecordingSession(IntPtr context, MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints)
+            public RecordingSession(IntPtr context, MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints, ILogger logger)
             {
                 _context = context;
-                _state = new AudioState((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
+                _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
                 _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
                 _preferredDevice = device;
                 _preferredIdentifier = device.GetIdentifier();
                 _requestedSampleRate = sampleRate;
                 _requestedChannel = channel;
                 _usingFallback = false;
+                _logger = logger;
 
                 ApplyFormat(device, sampleRate, channel);
                 InitializePipeline(blueprints);
@@ -92,17 +91,13 @@ namespace Eitan.EasyMic.Runtime
                         ReleaseNativeResources();
                         ApplyFormat(targetDevice, sampleRate, channel);
                         InitializeNativeDeviceCore();
-                        try
-                        {
-                            Debug.Log($"EasyMic: Recording session switched to '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.");
-                        }
-                        catch { }
+                        Log($"EasyMic: Recording session switched to '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
                         _usingFallback = !MicDevice.SameIdentityAs(_preferredDevice);
                         return true;
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"EasyMic: Failed to switch capture session to '{targetDevice.Name}'. {ex.Message}");
+                        Log($"Failed to switch capture session to '{targetDevice.Name}'. {ex.Message}", LogLevel.Error);
                         ReleaseNativeResources();
                         ApplyFormat(previousDevice, previousRate, previousChannel);
                         _usingFallback = previousFallback;
@@ -112,7 +107,7 @@ namespace Eitan.EasyMic.Runtime
                         }
                         catch (Exception restoreEx)
                         {
-                            Debug.LogError($"EasyMic: Failed to restore capture session on '{previousDevice.Name}'. {restoreEx.Message}");
+                            Log($"Failed to restore capture session on '{previousDevice.Name}'. {restoreEx.Message}", LogLevel.Error);
                             ReleaseNativeResources();
                         }
                         return false;
@@ -146,6 +141,15 @@ namespace Eitan.EasyMic.Runtime
                     }
                 }
 
+                return false;
+            }
+
+            public bool IsSameDevice(MicDevice device)
+            {
+                if (this.MicDevice.HasValidId && this.MicDevice.DeviceId == device.DeviceId)
+                {
+                    return true;
+                }
                 return false;
             }
 
@@ -328,11 +332,7 @@ namespace Eitan.EasyMic.Runtime
 
                     _audioPipeline.Initialize(_state);
 
-                    try
-                    {
-                        Debug.Log($"EasyMic: Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.");
-                    }
-                    catch { }
+                    Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
                 }
                 finally
                 {
@@ -425,8 +425,9 @@ namespace Eitan.EasyMic.Runtime
 
                 _usingUserDataCallback = false;
             }
-
-            [MonoPInvokeCallback(typeof(Native.AudioCallback))]
+#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
+            [AOT.MonoPInvokeCallback(typeof(Native.AudioCallback))]
+#endif
             private static void StaticAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
                 if (s_devicePtrSessionMap.TryGetValue(device, out var session))
@@ -435,7 +436,9 @@ namespace Eitan.EasyMic.Runtime
                 }
             }
 
-            [MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
+#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
+            [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
+#endif
             private static void StaticAudioCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
             {
                 if (userData == IntPtr.Zero)
@@ -466,7 +469,7 @@ namespace Eitan.EasyMic.Runtime
                 ProcessAudioBuffer(GetSpan<float>(input, sampleCount), _state);
             }
 
-            private void ProcessAudioBuffer(Span<float> buffer, AudioState state)
+            private void ProcessAudioBuffer(Span<float> buffer, AudioContext state)
             {
                 _audioPipeline.OnAudioPass(buffer, state);
             }
@@ -475,6 +478,33 @@ namespace Eitan.EasyMic.Runtime
             {
                 return new Span<T>((void*)ptr, length);
             }
+
+
+            #region Logger
+            private void Log(string message, LogLevel type)
+            {
+                if (this._logger == null)
+                {
+                    this._logger = new Mono.UnityLogger();
+                    // throw new NullReferenceException("MicSystem has no logger set up. Set a logger first.");
+                }
+                switch (type)
+                {
+                    case LogLevel.Info:
+                        _logger.LogInfo(message);
+                        break;
+                    case LogLevel.Warning:
+                        _logger.LogWarning(message);
+                        break;
+                    case LogLevel.Error:
+                        _logger.LogError(message);
+                        break;
+                    default:
+                        throw new System.Exception($"{type} logtype not support.");
+                }
+            }
+            #endregion
         }
+
     }
 }

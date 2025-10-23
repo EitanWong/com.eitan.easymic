@@ -7,6 +7,7 @@ Easy Mic comes with a comprehensive collection of audio processors designed for 
 ## 📖 AudioReader Processors
 
 ### 📊 VolumeAnalyzer (Example Implementation)
+
 Analyzes audio volume without modifying the stream.
 
 ```csharp
@@ -14,23 +15,23 @@ public class VolumeAnalyzer : AudioReader
 {
     private float _currentRMS;
     private float _currentPeak;
-    
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         float sum = 0f;
         float peak = 0f;
-        
+
         for (int i = 0; i < buffer.Length; i++)
         {
             float sample = Math.Abs(buffer[i]);
             sum += sample * sample;
             if (sample > peak) peak = sample;
         }
-        
+
         _currentRMS = MathF.Sqrt(sum / buffer.Length);
         _currentPeak = peak;
     }
-    
+
     public float GetRMSVolume() => _currentRMS;
     public float GetPeakVolume() => _currentPeak;
     public float GetRMSVolumeDb() => 20f * MathF.Log10(_currentRMS + 1e-10f);
@@ -40,15 +41,18 @@ public class VolumeAnalyzer : AudioReader
 ## ✏️ AudioWriter Processors
 
 ### 📼 AudioCapturer
+
 Captures incoming audio data into a buffer or saves it to a file.
 
 #### Features
+
 - **High-Performance Buffer**: Uses lock-free `AudioBuffer` for zero-GC captures
 - **Unity Integration**: Direct conversion to `AudioClip`
 - **Configurable Duration**: Set maximum capture duration
 - **Multi-Channel Support**: Handles mono and stereo audio
 
 #### Usage
+
 ```csharp
 // Create blueprint and add to pipeline
 var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
@@ -61,37 +65,40 @@ AudioClip clip = capturer?.GetCapturedAudioClip();
 ```
 
 #### Constructor
+
 ```csharp
 public AudioCapturer(int maxDurationInSeconds = 60)
 ```
 
 #### Key Methods
+
 - `GetCapturedAudioSamples()` - Returns raw float array
 - `GetCapturedAudioClip()` - Returns Unity AudioClip
 - `Clear()` - Clears the capture buffer
 
 #### Implementation Details
+
 ```csharp
 public class AudioCapturer : AudioReader
 {
     private AudioBuffer _audioBuffer;
     private readonly int _maxCaptureDuration;
-    private AudioState _audioState;
+    private AudioContext _AudioContext;
 
-    public override void Initialize(AudioState state)
+    public override void Initialize(AudioContext state)
     {
         // Calculate total samples needed
         int totalSamples = state.Length * _maxCaptureDuration;
         _audioBuffer = new AudioBuffer(totalSamples);
-        _audioState = state;
+        _AudioContext = state;
         base.Initialize(state);
     }
 
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         _audioBuffer.Write(buffer);
-        if (_audioState != state)
-            _audioState = state;
+        if (_AudioContext != state)
+            _AudioContext = state;
     }
 }
 ```
@@ -99,21 +106,25 @@ public class AudioCapturer : AudioReader
 ---
 
 ### 🔄 AudioDownmixer
+
 Converts multi-channel audio (e.g., stereo) into single-channel audio (mono).
 
 #### Features
+
 - **Intelligent Mixing**: Preserves audio quality during downmixing
 - **Configurable Algorithms**: Multiple mixing strategies
 - **Performance Optimized**: Zero allocations during processing
 - **Channel-Aware**: Automatically detects input channel configuration
 
 #### Usage
+
 ```csharp
 var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
 EasyMicAPI.AddProcessor(recordingHandle, bpDownmix);
 ```
 
 #### Mixing Algorithms
+
 ```csharp
 public enum MixingAlgorithm
 {
@@ -125,6 +136,7 @@ public enum MixingAlgorithm
 ```
 
 #### Configuration
+
 ```csharp
 var downmixer = new AudioDownmixer
 {
@@ -135,28 +147,29 @@ var downmixer = new AudioDownmixer
 ```
 
 #### Implementation Example
+
 ```csharp
-protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
 {
     if (state.ChannelCount <= 1) return; // Already mono
-    
+
     int frameCount = buffer.Length / state.ChannelCount;
-    
+
     for (int frame = 0; frame < frameCount; frame++)
     {
         int baseIndex = frame * state.ChannelCount;
         float mixedSample = 0f;
-        
+
         // Mix all channels
         for (int ch = 0; ch < state.ChannelCount; ch++)
             mixedSample += buffer[baseIndex + ch];
-            
+
         mixedSample /= state.ChannelCount;
-        
+
         // Write mixed sample to all channels (or just first for true mono)
         buffer[baseIndex] = mixedSample;
     }
-    
+
     // Update state to reflect new channel count
     state.ChannelCount = 1;
 }
@@ -165,9 +178,11 @@ protected override void OnAudioWrite(Span<float> buffer, AudioState state)
 ---
 
 ### 🔇 VolumeGateFilter
+
 A sophisticated noise gate that silences audio below a volume threshold with smooth transitions.
 
 #### Features
+
 - **Professional Gate States**: Closed, Attacking, Open, Holding, Releasing
 - **Lookahead Processing**: Preserves transients and prevents artifacts
 - **Multi-Channel Aware**: Processes all channels simultaneously
@@ -175,6 +190,7 @@ A sophisticated noise gate that silences audio below a volume threshold with smo
 - **Real-Time Parameter Updates**: Adjust settings during recording
 
 #### Configuration Properties
+
 ```csharp
 public class VolumeGateFilter : AudioWriter
 {
@@ -183,7 +199,7 @@ public class VolumeGateFilter : AudioWriter
     public float HoldTime { get; set; } = 0.25f;         // Hold time (250ms)
     public float ReleaseTime { get; set; } = 0.2f;       // Time to close (200ms)
     public float LookaheadTime { get; set; } = 0.005f;   // Lookahead (5ms)
-    
+
     // Read-only status
     public VolumeGateState CurrentState { get; private set; }
     public float CurrentDb { get; }
@@ -191,6 +207,7 @@ public class VolumeGateFilter : AudioWriter
 ```
 
 #### Gate States
+
 ```csharp
 public enum VolumeGateState
 {
@@ -203,6 +220,7 @@ public enum VolumeGateState
 ```
 
 #### Usage Examples
+
 ```csharp
 // Basic noise gate
 var bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter
@@ -221,25 +239,26 @@ gate.ThresholdDb = -30f;
 ```
 
 #### Advanced Configuration
+
 ```csharp
 public class AdaptiveGateController : MonoBehaviour
 {
     private AudioWorkerBlueprint _bpGate;
     private VolumeGateFilter _gate;
-    
+
     void Start()
     {
         _bpGate = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
         EasyMicAPI.AddProcessor(recordingHandle, _bpGate);
         _gate = EasyMicAPI.GetProcessor<VolumeGateFilter>(recordingHandle, _bpGate);
     }
-    
+
     void Update()
     {
         // Adapt threshold based on ambient noise
         float ambientLevel = GetAmbientNoiseLevel();
         _gate.ThresholdDb = ambientLevel + 6f; // 6dB above ambient
-        
+
         // Display current state
         Debug.Log($"Gate State: {_gate.CurrentState}, Level: {_gate.CurrentDb:F1}dB");
     }
@@ -247,8 +266,9 @@ public class AdaptiveGateController : MonoBehaviour
 ```
 
 #### Technical Implementation Highlights
+
 ```csharp
-protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
 {
     ProcessAudio(buffer);
 }
@@ -256,13 +276,13 @@ protected override void OnAudioWrite(Span<float> buffer, AudioState state)
 private void ProcessAudio(Span<float> audioBuffer)
 {
     int frameCount = audioBuffer.Length / _channelCount;
-    
+
     for (int i = 0; i < frameCount; i++)
     {
         // Lookahead detection for transient preservation
         int detectionPos = (_writePosition + _lookaheadFrames * _channelCount) % _bufferSize;
         int processPos = _writePosition;
-        
+
         // Envelope detection using future audio
         float maxInFrame = 0f;
         for (int ch = 0; ch < _channelCount; ch++)
@@ -270,16 +290,16 @@ private void ProcessAudio(Span<float> audioBuffer)
             float sample = MathF.Abs(_internalBuffer[detectionPos + ch]);
             if (sample > maxInFrame) maxInFrame = sample;
         }
-        
+
         // Update envelope with attack/release
         if (maxInFrame > _envelope)
             _envelope = maxInFrame; // Instant attack
         else
             _envelope *= _envelopeReleaseCoeff; // Smooth release
-            
+
         // State machine update
         UpdateGateState(_envelope >= _thresholdLinear, 1.0f / _sampleRate);
-        
+
         // Apply gain based on current state
         ApplyGateGain(audioBuffer, i);
     }
@@ -289,38 +309,42 @@ private void ProcessAudio(Span<float> audioBuffer)
 ---
 
 ### 🔁 LoopbackPlayer
+
 Real-time audio loopback for monitoring and testing applications.
 
 #### Features
+
 - **Zero-Latency Monitoring**: Direct audio passthrough
 - **Volume Control**: Adjustable monitoring level
 - **Mute Capability**: Toggle monitoring on/off
 - **Performance Optimized**: Minimal processing overhead
 
 #### Usage
+
 ```csharp
 var bpLoop = new AudioWorkerBlueprint(() => new LoopbackPlayer { Volume = 0.5f, IsMuted = false }, key: "loop");
 EasyMicAPI.AddProcessor(recordingHandle, bpLoop);
 ```
 
 #### Implementation
+
 ```csharp
 public class LoopbackPlayer : AudioWriter
 {
     public float Volume { get; set; } = 1.0f;
     public bool IsMuted { get; set; } = false;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (IsMuted || Volume <= 0f) return;
-        
+
         // Simply scale the audio for monitoring
         if (Volume != 1.0f)
         {
             for (int i = 0; i < buffer.Length; i++)
                 buffer[i] *= Volume;
         }
-        
+
         // In a real implementation, this might route to speakers
         // For now, it just applies volume scaling
     }
@@ -330,9 +354,11 @@ public class LoopbackPlayer : AudioWriter
 ---
 
 ### 🗣️ SherpaRealtimeSpeechRecognizer
+
 Real-time speech-to-text processor using the Sherpa-ONNX engine.
 
 #### Features
+
 - **Real-Time Recognition**: Low-latency speech-to-text
 - **Multiple Languages**: Support for various language models
 - **Confidence Scoring**: Recognition confidence levels
@@ -340,12 +366,14 @@ Real-time speech-to-text processor using the Sherpa-ONNX engine.
 - **Event-Based**: Callbacks for recognition events
 
 #### Requirements
+
 ```csharp
 // Requires the Sherpa-ONNX Unity package
 // Install via: https://github.com/EitanWong/com.eitan.sherpa-onnx-unity
 ```
 
 #### Usage
+
 ```csharp
 var recognizer = new SherpaRealtimeSpeechRecognizer("path/to/model");
 recognizer.OnPartialResult += (text) => Debug.Log($"Partial: {text}");
@@ -355,13 +383,14 @@ EasyMicAPI.AddProcessor(recordingHandle, recognizer);
 ```
 
 #### Events
+
 ```csharp
 public class SherpaRealtimeSpeechRecognizer : AudioReader
 {
     public event Action<string> OnPartialResult;
     public event Action<string> OnFinalResult;
     public event Action<float> OnConfidenceUpdated;
-    
+
     public float MinConfidence { get; set; } = 0.5f;
     public bool IsListening { get; private set; }
 }
@@ -372,10 +401,11 @@ public class SherpaRealtimeSpeechRecognizer : AudioReader
 ## 🎛️ Creating Custom Processors
 
 ### AudioReader Template
+
 ```csharp
 public class CustomAnalyzer : AudioReader
 {
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         // Your analysis code here - cannot modify buffer
         // Perfect for: volume meters, pitch detection, silence detection
@@ -384,20 +414,21 @@ public class CustomAnalyzer : AudioReader
 ```
 
 ### AudioWriter Template
+
 ```csharp
 public class CustomEffect : AudioWriter
 {
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // Your processing code here - can modify buffer
         // Perfect for: filters, effects, format conversion
-        
+
         for (int i = 0; i < buffer.Length; i++)
         {
             buffer[i] = ProcessSample(buffer[i]);
         }
     }
-    
+
     private float ProcessSample(float input)
     {
         // Your sample processing logic
@@ -407,60 +438,61 @@ public class CustomEffect : AudioWriter
 ```
 
 ### Advanced Custom Processor
+
 ```csharp
 public class AdvancedProcessor : AudioWriter
 {
     private float[] _delayBuffer;
     private int _bufferSize;
     private int _writePos;
-    
-    public override void Initialize(AudioState state)
+
+    public override void Initialize(AudioContext state)
     {
         base.Initialize(state);
-        
+
         // Initialize based on audio format
         _bufferSize = state.SampleRate; // 1 second delay
         _delayBuffer = new float[_bufferSize * state.ChannelCount];
         _writePos = 0;
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // Handle format changes
         if (_delayBuffer.Length != _bufferSize * state.ChannelCount)
         {
             Initialize(state);
         }
-        
+
         // Process audio with state information
         ProcessFrames(buffer, state);
     }
-    
-    private void ProcessFrames(Span<float> buffer, AudioState state)
+
+    private void ProcessFrames(Span<float> buffer, AudioContext state)
     {
         int frameCount = buffer.Length / state.ChannelCount;
-        
+
         for (int frame = 0; frame < frameCount; frame++)
         {
             for (int ch = 0; ch < state.ChannelCount; ch++)
             {
                 int bufferIndex = frame * state.ChannelCount + ch;
                 int delayIndex = _writePos * state.ChannelCount + ch;
-                
+
                 // Get delayed sample
                 float delayed = _delayBuffer[delayIndex];
-                
+
                 // Store current sample
                 _delayBuffer[delayIndex] = buffer[bufferIndex];
-                
+
                 // Output delayed sample
                 buffer[bufferIndex] = delayed;
             }
-            
+
             _writePos = (_writePos + 1) % _bufferSize;
         }
     }
-    
+
     public override void Dispose()
     {
         _delayBuffer = null;
@@ -472,18 +504,21 @@ public class AdvancedProcessor : AudioWriter
 ## 🎯 Processor Best Practices
 
 ### Performance Guidelines
+
 - **Minimize allocations** in OnAudioPass methods
 - **Reuse buffers** when possible
 - **Avoid complex calculations** on the audio thread
 - **Use efficient algorithms** for real-time processing
 
 ### Thread Safety
+
 - **Use volatile** for simple state variables
 - **Avoid locks** in audio processing methods
 - **Pre-calculate** expensive operations in Initialize()
 - **Be careful** with property setters during processing
 
 ### Resource Management
+
 - **Override Dispose()** to clean up resources
 - **Clear large buffers** in Dispose()
 - **Remove event handlers** to prevent memory leaks
@@ -494,7 +529,7 @@ public class AdvancedProcessor : AudioWriter
 Explore more advanced topics:
 
 - **[API Reference](api-reference.md)** - Complete API documentation
-- **[Best Practices](best-practices.md)** - Performance optimization techniques  
+- **[Best Practices](best-practices.md)** - Performance optimization techniques
 - **[Examples](examples.md)** - Real-world processor configurations
 - **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
 

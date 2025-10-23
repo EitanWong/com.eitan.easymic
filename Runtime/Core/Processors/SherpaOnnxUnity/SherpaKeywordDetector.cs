@@ -27,7 +27,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             _kws = service ?? throw new ArgumentNullException(nameof(service));
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             _sampleRate = state.SampleRate;
             base.Initialize(state);

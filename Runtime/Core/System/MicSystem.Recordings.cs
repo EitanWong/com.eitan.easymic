@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Linq;
+using Eitan.EasyMic.Runtime.Exceptions;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -18,13 +19,18 @@ namespace Eitan.EasyMic.Runtime
             var chosen = ResolveDevice(device);
             if (!chosen.HasValidId)
             {
-                Debug.LogError("EasyMic: No valid capture device available.");
-                return default;
+                throw new EasyMicDeviceNotFoundException("No valid capture device available.");
+            }
+
+            // check if the microphone has been in recording status.
+            var IsRecording = IsDeviceRecording(device);
+            if (IsRecording)
+            {
+                throw new EasyMicDeviceConflictException("A recording session is already in progress. Please stop the current recording before starting a new one.");
             }
 
             var recordingId = _nextRecordingId++;
-
-            var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints);
+            var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger);
             lock (_operateLock)
             {
                 _activeRecordings[recordingId] = session;
@@ -160,6 +166,51 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return default;
+        }
+
+        /// <summary>
+        /// Check if the devices is recording right now
+        /// </summary>
+        /// <param name="device"></param>
+        /// <returns></returns> <summary>
+        public bool IsDeviceRecording(MicDevice device)
+        {
+            if (_activeRecordings == null || _activeRecordings.Count <= 0)
+            {
+                return false;
+            }
+            for (int i = 0; i < _activeRecordings.Count; i++)
+            {
+                if (_activeRecordings[i].IsSameDevice(device))
+                {
+                    return true;
+                }
+
+            }
+            return false;
+        }
+
+        public bool IsHandleAlive(RecordingHandle handle)
+        {
+
+            if (_activeRecordings == null || _activeRecordings.Count <= 0)
+            {
+                return false;
+            }
+            if (!handle.IsValid)
+            {
+                return false;
+            }
+
+            lock (_operateLock)
+            {
+                if (_activeRecordings.TryGetValue(handle.Id, out var session))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

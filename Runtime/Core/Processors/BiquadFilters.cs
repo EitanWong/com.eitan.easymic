@@ -18,7 +18,7 @@ namespace Eitan.EasyMic.Runtime
             GainDb = gainDb;
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             base.Initialize(state);
             z1 = new float[Math.Max(1, state.ChannelCount)];
@@ -28,7 +28,7 @@ namespace Eitan.EasyMic.Runtime
 
         protected abstract void UpdateCoeffs(int sampleRate);
 
-        protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
         {
             int chs = Math.Max(1, state.ChannelCount);
             if (z1 == null || z1.Length != chs)

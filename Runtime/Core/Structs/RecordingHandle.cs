@@ -18,5 +18,7 @@ namespace Eitan.EasyMic.Runtime
         public override int GetHashCode() => Id;
         public static bool operator ==(RecordingHandle left, RecordingHandle right) => left.Equals(right);
         public static bool operator !=(RecordingHandle left, RecordingHandle right) => !left.Equals(right);
+
+        public bool IsAlive => EasyMicAPI.IsHandleAlive(this);
     }
 }

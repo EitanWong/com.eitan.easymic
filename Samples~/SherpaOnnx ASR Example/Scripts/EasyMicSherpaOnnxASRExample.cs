@@ -7,6 +7,8 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
     using Eitan.EasyMic.Runtime;
     using Eitan.SherpaOnnxUnity.Runtime;
     using System;
+    using System.Threading.Tasks;
+
 
     /// <summary>
     /// This is a comprehensive example demonstrating the capabilities of the EasyMic and SherpaOnnx Unity packages.
@@ -249,15 +251,26 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
                 Debug.LogWarning("No microphone devices found.");
             }
 
+            _ = RefreshModelsDropdownAsync();
+
+            UpdateVadDropdownState();
+        }
+
+        private async Task RefreshModelsDropdownAsync()
+        {
+
             _asrModelsDropdown.ClearOptions();
-            _asrModelsDropdown.AddOptions(SherpaOnnxUnityAPI.GetModelIDByType(SherpaOnnxModuleType.SpeechRecognition).ToList());
+            _asrModelsDropdown.captionText.text = "Fetching model manifest from GitHub…";
+            var _asrModelIDArray = await SherpaOnnxUnityAPI.GetModelIDByTypeAsync(SherpaOnnxModuleType.SpeechRecognition);
+            _asrModelsDropdown.AddOptions(_asrModelIDArray.ToList());
+
             _asrModelsDropdown.value = _asrModelsDropdown.options.FindIndex(m => m.text == _defaultAsrModelName);
 
             _vadModelsDropdown.ClearOptions();
-            _vadModelsDropdown.AddOptions(SherpaOnnxUnityAPI.GetModelIDByType(SherpaOnnxModuleType.VoiceActivityDetection).ToList());
+            _vadModelsDropdown.captionText.text = "Fetching model manifest from GitHub…";
+            var _vadModelsIDArray = await SherpaOnnxUnityAPI.GetModelIDByTypeAsync(SherpaOnnxModuleType.VoiceActivityDetection);
+            _vadModelsDropdown.AddOptions(_vadModelsIDArray.ToList());
             _vadModelsDropdown.value = _vadModelsDropdown.options.FindIndex(m => m.text == _defaultVadModelName);
-
-            UpdateVadDropdownState();
         }
 
         private void OnAsrModelChanged(int index) => UpdateVadDropdownState();

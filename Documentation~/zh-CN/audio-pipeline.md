@@ -20,7 +20,7 @@
 - **🔄 动态配置**：录音过程中添加/移除处理器
 - **🧵 线程安全**：所有操作都是线程安全的
 - **🎯 有序执行**：处理器按添加顺序执行
-- **🧠 零GC设计**：音频处理过程中无内存分配
+- **🧠 零 GC 设计**：音频处理过程中无内存分配
 - **🛡️ 错误恢复**：单个处理器错误不会导致管道崩溃
 
 ## 🏗️ 管道架构
@@ -32,9 +32,9 @@ public sealed class AudioPipeline : IAudioWorker
 {
     private readonly List<IAudioWorker> _workers = new List<IAudioWorker>();
     private readonly object _lock = new object();
-    private AudioState _initializeState;
+    private AudioContext _initializeState;
     private bool _isInitialized;
-    
+
     public int WorkerCount { get; } // 线程安全的工作器计数访问
 }
 ```
@@ -68,6 +68,7 @@ EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 ```
 
 **内部发生的操作：**
+
 1. 管道检查处理器是否已存在
 2. 如果管道已经初始化，处理器会立即初始化
 3. 处理器添加到链的末尾
@@ -78,7 +79,7 @@ EasyMicAPI.AddProcessor(recordingHandle, bpGate);
 录音开始时，所有处理器都会被初始化：
 
 ```csharp
-public void Initialize(AudioState state)
+public void Initialize(AudioContext state)
 {
     _initializeState = state;
     lock (_lock)
@@ -95,7 +96,7 @@ public void Initialize(AudioState state)
 在录音过程中，音频流经每个处理器：
 
 ```csharp
-public void OnAudioPass(Span<float> buffer, AudioState state)
+public void OnAudioPass(Span<float> buffer, AudioContext state)
 {
     foreach (var worker in _workers)
     {
@@ -103,7 +104,7 @@ public void OnAudioPass(Span<float> buffer, AudioState state)
         Span<float> bufferForWorker = buffer;
         if (state.Length > 0 && state.Length < buffer.Length)
             bufferForWorker = buffer.Slice(0, state.Length);
-            
+
         worker.OnAudioPass(bufferForWorker, state);
     }
 }
@@ -118,6 +119,7 @@ EasyMicAPI.RemoveProcessor(recordingHandle, bpGate);
 ```
 
 **发生的操作：**
+
 1. 处理器从链中移除
 2. 处理器自动释放资源
 3. 管道继续运行剩余的处理器
@@ -132,22 +134,23 @@ EasyMicAPI.RemoveProcessor(recordingHandle, bpGate);
 public class VolumeAnalyzer : AudioReader
 {
     private float _currentVolume;
-    
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         // 计算RMS音量
         float sum = 0f;
         for (int i = 0; i < buffer.Length; i++)
             sum += buffer[i] * buffer[i];
-            
+
         _currentVolume = MathF.Sqrt(sum / buffer.Length);
     }
-    
+
     public float GetCurrentVolume() => _currentVolume;
 }
 ```
 
 **优势：**
+
 - ✅ **编译时安全**：无法意外修改音频
 - ✅ **性能优化**：无需不必要的复制
 - ✅ **意图明确**：明确表示只读操作
@@ -160,8 +163,8 @@ public class VolumeAnalyzer : AudioReader
 public class SimpleGainProcessor : AudioWriter
 {
     public float Gain { get; set; } = 1.0f;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         for (int i = 0; i < buffer.Length; i++)
             buffer[i] *= Gain;
@@ -170,6 +173,7 @@ public class SimpleGainProcessor : AudioWriter
 ```
 
 **优势：**
+
 - ✅ **直接修改**：高效的就地处理
 - ✅ **类型清晰**：明显表示音频会被修改
 - ✅ **性能优越**：无需中间缓冲区
@@ -183,22 +187,22 @@ public class SimpleGainProcessor : AudioWriter
 ```csharp
 public class ChannelAwareProcessor : AudioWriter
 {
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         int frameCount = buffer.Length / state.ChannelCount;
-        
+
         for (int frame = 0; frame < frameCount; frame++)
         {
             for (int channel = 0; channel < state.ChannelCount; channel++)
             {
                 int sampleIndex = frame * state.ChannelCount + channel;
-                
+
                 // 按声道处理
                 buffer[sampleIndex] = ProcessChannel(buffer[sampleIndex], channel);
             }
         }
     }
-    
+
     private float ProcessChannel(float sample, int channel)
     {
         // 声道特定处理
@@ -217,27 +221,27 @@ public class DelayProcessor : AudioWriter
     private readonly float[] _delayBuffer;
     private int _writePosition;
     private readonly int _delaySamples;
-    
+
     public DelayProcessor(float delaySeconds, int sampleRate)
     {
         _delaySamples = (int)(delaySeconds * sampleRate);
         _delayBuffer = new float[_delaySamples];
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         for (int i = 0; i < buffer.Length; i++)
         {
             // 获取延迟样本
             int readPos = (_writePosition - _delaySamples + _delayBuffer.Length) % _delayBuffer.Length;
             float delayedSample = _delayBuffer[readPos];
-            
+
             // 存储当前样本
             _delayBuffer[_writePosition] = buffer[i];
-            
+
             // 输出混合结果
             buffer[i] = (buffer[i] + delayedSample * 0.3f);
-            
+
             _writePosition = (_writePosition + 1) % _delayBuffer.Length;
         }
     }
@@ -253,17 +257,17 @@ public class ConditionalProcessor : AudioWriter
 {
     public bool IsEnabled { get; set; } = true;
     public float Threshold { get; set; } = 0.1f;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (!IsEnabled) return;
-        
+
         // 计算缓冲区能量
         float energy = 0f;
         for (int i = 0; i < buffer.Length; i++)
             energy += buffer[i] * buffer[i];
         energy /= buffer.Length;
-        
+
         // 仅在超过阈值时处理
         if (energy > Threshold)
         {
@@ -287,14 +291,14 @@ public class DynamicPipelineController : MonoBehaviour
     private RecordingHandle _handle;
     private VolumeGateFilter _gate;
     private AudioCapturer _capturer;
-    
+
     void Start()
     {
         _handle = EasyMicAPI.StartRecording("Microphone");
         _capturer = new AudioCapturer(10);
         EasyMicAPI.AddProcessor(_handle, _capturer);
     }
-    
+
     public void EnableNoiseGate()
     {
         if (_gate == null)
@@ -304,7 +308,7 @@ public class DynamicPipelineController : MonoBehaviour
             Debug.Log("噪音门已启用");
         }
     }
-    
+
     public void DisableNoiseGate()
     {
         if (_gate != null)
@@ -327,8 +331,8 @@ public class PipelineMonitor : AudioReader
     private int _processedFrames;
     private float _totalProcessingTime;
     private DateTime _lastFrameTime;
-    
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         var frameTime = DateTime.Now;
         if (_lastFrameTime != default)
@@ -336,11 +340,11 @@ public class PipelineMonitor : AudioReader
             var processingTime = (frameTime - _lastFrameTime).TotalMilliseconds;
             _totalProcessingTime += (float)processingTime;
         }
-        
+
         _processedFrames++;
         _lastFrameTime = frameTime;
     }
-    
+
     public float GetAverageProcessingTime()
     {
         return _processedFrames > 0 ? _totalProcessingTime / _processedFrames : 0f;
@@ -356,7 +360,7 @@ public class PipelineMonitor : AudioReader
 
 ```csharp
 // ❌ 错误 - 每帧都分配内存
-public override void OnAudioWrite(Span<float> buffer, AudioState state)
+public override void OnAudioWrite(Span<float> buffer, AudioContext state)
 {
     var tempBuffer = new float[buffer.Length]; // 分配！
     // ... 处理
@@ -365,7 +369,7 @@ public override void OnAudioWrite(Span<float> buffer, AudioState state)
 // ✅ 正确 - 重用缓冲区
 private float[] _reusableBuffer = new float[4096];
 
-public override void OnAudioWrite(Span<float> buffer, AudioState state)
+public override void OnAudioWrite(Span<float> buffer, AudioContext state)
 {
     if (_reusableBuffer.Length < buffer.Length)
         _reusableBuffer = new float[buffer.Length];
@@ -413,32 +417,32 @@ public class ProperProcessorManagement : MonoBehaviour
 {
     private RecordingHandle _handle;
     private readonly List<IAudioWorker> _processors = new List<IAudioWorker>();
-    
+
     void Start()
     {
         _handle = EasyMicAPI.StartRecording("Microphone");
-        
+
         // 保持引用以便正确释放
         var gate = new VolumeGateFilter();
         var capturer = new AudioCapturer(5);
-        
+
         _processors.Add(gate);
         _processors.Add(capturer);
-        
+
         EasyMicAPI.AddProcessor(_handle, gate);
         EasyMicAPI.AddProcessor(_handle, capturer);
     }
-    
+
     void OnDestroy()
     {
         // 先停止录音
         if (_handle.IsValid)
             EasyMicAPI.StopRecording(_handle);
-        
+
         // 释放所有处理器
         foreach (var processor in _processors)
             processor?.Dispose();
-            
+
         _processors.Clear();
     }
 }
@@ -453,8 +457,8 @@ public class ProperProcessorManagement : MonoBehaviour
 public class DangerousProcessor : AudioWriter
 {
     public float Gain { get; set; } // 主线程修改！
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // 音频线程读取 Gain 而主线程同时修改它！
         for (int i = 0; i < buffer.Length; i++)
@@ -466,14 +470,14 @@ public class DangerousProcessor : AudioWriter
 public class SafeProcessor : AudioWriter
 {
     private volatile float _gain = 1.0f;
-    
+
     public float Gain
     {
         get => _gain;
         set => _gain = value; // 原子写入
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         float currentGain = _gain; // 原子读取
         for (int i = 0; i < buffer.Length; i++)
@@ -482,14 +486,14 @@ public class SafeProcessor : AudioWriter
 }
 ```
 
-### 2. 忘记处理 AudioState 变化
+### 2. 忘记处理 AudioContext 变化
 
 ```csharp
 // ✅ 总是检查格式变化
 private int _lastSampleRate = -1;
 private int _lastChannelCount = -1;
 
-protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
 {
     // 格式改变时重新初始化
     if (state.SampleRate != _lastSampleRate || state.ChannelCount != _lastChannelCount)
@@ -498,7 +502,7 @@ protected override void OnAudioWrite(Span<float> buffer, AudioState state)
         _lastSampleRate = state.SampleRate;
         _lastChannelCount = state.ChannelCount;
     }
-    
+
     // 处理音频...
 }
 ```

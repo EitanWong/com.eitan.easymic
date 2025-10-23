@@ -60,7 +60,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             _vadService.OnSpeakingStateChanged += HandleVoiceActivityChanged;
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             base.Initialize(state);
             _inputSampleRate = Math.Max(1, state.SampleRate);
@@ -87,7 +87,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
         /// releases the buffered audio followed by the live audio once speech is detected.
         /// This method is optimized to avoid GC allocations.
         /// </summary>
-        protected override void OnAudioWrite(Span<float> audioBuffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> audioBuffer, AudioContext state)
         {
             if (IsDisposed)
             {

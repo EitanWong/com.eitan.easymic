@@ -14,12 +14,12 @@ namespace Eitan.EasyMic.Runtime
         private IAudioWorker[] _stagesSnap = Array.Empty<IAudioWorker>();
         private bool _isDisposed = false;
 
-        private AudioState _initializeState;
+        private AudioContext _initializeState;
         private bool _isInitialized;
 
         public int WorkerCount => System.Threading.Volatile.Read(ref _stagesSnap).Length;
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             if (_isDisposed)
             {
@@ -114,7 +114,7 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+        protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
         {
             if (!_isInitialized || _isDisposed)
             {

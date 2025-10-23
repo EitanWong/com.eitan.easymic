@@ -154,12 +154,12 @@ namespace Eitan.EasyMic.Runtime
         {
             get
             {
-                if (_clip != null && _clip.samples > 0)
-                {
-                    int frames = Volatile.Read(ref _positionFrames);
-                    float p = (float)frames / Mathf.Max(1, _clip.samples);
-                    return Mathf.Clamp01(p);
-                }
+                // if (_clipConvertedFrames > 0)
+                // {
+                //     int frames = Volatile.Read(ref _positionFrames);
+                //     float p = (float)frames / Mathf.Max(1, _clipConvertedFrames);
+                //     return Mathf.Clamp01(p);
+                // }
 
                 return _source != null ? _source.NormalizedProgress : 0f;
             }
@@ -197,6 +197,7 @@ namespace Eitan.EasyMic.Runtime
 
         public void Play()
         {
+            ResetTimeline(true, true); //force reset
             EnsureSourceReady();
             if (_source == null)
             {
@@ -218,7 +219,12 @@ namespace Eitan.EasyMic.Runtime
                 }
             }
 
-            _source.Play();
+            _source?.Play();
+            WakeFeeder();
+        }
+        public void Resume()
+        {
+            _source?.Play();
             WakeFeeder();
         }
 

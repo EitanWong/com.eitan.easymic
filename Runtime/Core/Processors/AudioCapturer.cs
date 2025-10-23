@@ -9,7 +9,7 @@ namespace Eitan.EasyMic.Runtime
         private readonly object _lock = new object();
         private readonly int _maxCaptureDuration;
 
-        private AudioState _audioState;
+        private AudioContext _AudioContext;
         private readonly int _targetSampleRate; // 0 => follow input rate
         private float[] _resampleWork; // reused buffer for resampled output
 
@@ -23,7 +23,7 @@ namespace Eitan.EasyMic.Runtime
             this._targetSampleRate = Math.Max(0, targetSampleRate);
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             // 使用采样率与通道数推导容量，避免依赖 state.Length 初始化值
             // Buffer capacity sized to the larger of input/output path to avoid overflow under rate conversion.
@@ -34,7 +34,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 _audioBuffer = new AudioBuffer(totalSamples);
             }
-            _audioState = state;
+            _AudioContext = state;
             _resampleWork = Array.Empty<float>();
             base.Initialize(state);
         }
@@ -174,8 +174,8 @@ namespace Eitan.EasyMic.Runtime
 
 
             // Determine the channel count of the resulting clip.
-            int resultChannels = _audioState.ChannelCount;
-            int resultSampleRate = _targetSampleRate > 0 ? _targetSampleRate : _audioState.SampleRate;
+            int resultChannels = _AudioContext.ChannelCount;
+            int resultSampleRate = _targetSampleRate > 0 ? _targetSampleRate : _AudioContext.SampleRate;
 
             // The length for AudioClip.Create is the number of samples *per channel*.
             int lengthSamplesPerChannel = samples.Length / resultChannels;

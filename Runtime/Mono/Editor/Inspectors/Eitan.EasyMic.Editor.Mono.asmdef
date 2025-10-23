@@ -1,0 +1,22 @@
+{
+    "name": "Eitan.EasyMic.Editor.Mono",
+    "rootNamespace": "Eitan.EasyMic.Runtime.Editor.Mono",
+    "references": [
+        "GUID:ffbca9e1633ba48bca018caa0d7f0a71",
+        "GUID:a84730b5b56004206b2dc853c0a4bca5",
+        "GUID:09b0e0e33ee104f6d91e5dac395721d7",
+        "GUID:07ab32fb435924c839dac3592be307df",
+        "UnityEngine.AndroidJNIModule"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
