@@ -1987,7 +1987,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             PublishProgress(feedback.Message);
         }
 
-        public void OnFeedback(UncompressFeedback feedback)
+        public void OnFeedback(DecompressFeedback feedback)
         {
             if (feedback == null)
             {

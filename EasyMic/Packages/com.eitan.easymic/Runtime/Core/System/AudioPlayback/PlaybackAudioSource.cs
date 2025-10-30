@@ -14,6 +14,7 @@ namespace Eitan.EasyMic.Runtime
         private const int ResamplerGuardFrames = 2;
         private const int EnqueueSpinBeforeSleep = 512;
         private const int EnqueueSleepMilliseconds = 1;
+        private const int EnqueueMaxCopySamples = 16384;
 
         public string name;
         private readonly AudioBuffer _queue;
@@ -168,6 +169,11 @@ namespace Eitan.EasyMic.Runtime
 
         public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, bool markEndOfStream = false)
         {
+            return Enqueue(interleaved, channels, sampleRate, tailFadeSamples: 0, markEndOfStream: markEndOfStream);
+        }
+
+        public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, int tailFadeSamples, bool markEndOfStream = false)
+        {
             if (interleaved.IsEmpty)
             {
                 if (markEndOfStream)
@@ -202,9 +208,11 @@ namespace Eitan.EasyMic.Runtime
             int srcSamples = srcFrames * channels;
             var src = interleaved.Slice(0, srcSamples);
 
+            int normalizedFadeSamples = NormalizeTailFadeSamples(tailFadeSamples, channels, srcSamples);
+
             return (channels == Channels && sampleRate == SampleRate)
-                ? WriteToQueue(src, markEndOfStream)
-                : ConvertAndEnqueue(src, channels, sampleRate, markEndOfStream);
+                ? WriteToQueue(src, markEndOfStream, normalizedFadeSamples)
+                : ConvertAndEnqueue(src, channels, sampleRate, markEndOfStream, normalizedFadeSamples);
         }
 
         public void SignalEndOfStream()
@@ -212,7 +220,7 @@ namespace Eitan.EasyMic.Runtime
             System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 1);
         }
 
-        private int WriteToQueue(ReadOnlySpan<float> samples, bool markEndOfStream)
+        private int WriteToQueue(ReadOnlySpan<float> samples, bool markEndOfStream, int tailFadeSamples = 0)
         {
             if (samples.IsEmpty)
             {
@@ -224,6 +232,90 @@ namespace Eitan.EasyMic.Runtime
             }
 
             int totalSamples = samples.Length;
+            if (tailFadeSamples <= 0)
+            {
+                return WriteToQueueDirect(samples, markEndOfStream, totalSamples);
+            }
+
+            int fadeSamples = Math.Min(tailFadeSamples, totalSamples);
+            if (fadeSamples <= 0)
+            {
+                return WriteToQueueDirect(samples, markEndOfStream, totalSamples);
+            }
+
+            int fadeStart = totalSamples - fadeSamples;
+            int written = 0;
+            var spinner = new System.Threading.SpinWait();
+            int stallIterations = 0;
+
+            while (written < totalSamples)
+            {
+                int writable = _queue.WritableCount;
+                if (writable <= 0)
+                {
+                    stallIterations++;
+                    if (stallIterations >= EnqueueSpinBeforeSleep)
+                    {
+                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
+                    }
+                    else
+                    {
+                        spinner.SpinOnce();
+                    }
+                    continue;
+                }
+
+                int remaining = totalSamples - written;
+                int chunkSamples = Math.Min(remaining, Math.Min(writable, AlignToFrameSamples(EnqueueMaxCopySamples)));
+                if (chunkSamples <= 0)
+                {
+                    stallIterations++;
+                    if (stallIterations >= EnqueueSpinBeforeSleep)
+                    {
+                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
+                    }
+                    else
+                    {
+                        spinner.SpinOnce();
+                    }
+                    continue;
+                }
+
+                EnsureConvertBufferCapacity(chunkSamples);
+                var scratch = new Span<float>(_convertBuffer, 0, chunkSamples);
+                samples.Slice(written, chunkSamples).CopyTo(scratch);
+                ApplyTailFade(scratch, written, fadeStart, totalSamples, fadeSamples);
+
+                int justWritten = _queue.Write(scratch.Slice(0, chunkSamples));
+                if (justWritten <= 0)
+                {
+                    stallIterations++;
+                    if (stallIterations >= EnqueueSpinBeforeSleep)
+                    {
+                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
+                    }
+                    else
+                    {
+                        spinner.SpinOnce();
+                    }
+                    continue;
+                }
+
+                written += justWritten;
+                stallIterations = 0;
+                spinner.Reset();
+            }
+
+            if (markEndOfStream)
+            {
+                SignalEndOfStream();
+            }
+
+            return written;
+        }
+
+        private int WriteToQueueDirect(ReadOnlySpan<float> samples, bool markEndOfStream, int totalSamples)
+        {
             int written = 0;
             var spinner = new System.Threading.SpinWait();
             int stallIterations = 0;
@@ -256,6 +348,52 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return written;
+        }
+
+        private static int NormalizeTailFadeSamples(int tailFadeSamples, int channels, int totalSamples)
+        {
+            if (tailFadeSamples <= 0)
+            {
+                return 0;
+            }
+
+            int aligned = tailFadeSamples - (tailFadeSamples % Math.Max(1, channels));
+            if (aligned <= 0)
+            {
+                return 0;
+            }
+
+            return Math.Min(aligned, totalSamples);
+        }
+
+        private void ApplyTailFade(Span<float> chunk, int globalOffset, int fadeStart, int totalSamples, int fadeSamples)
+        {
+            if (fadeSamples <= 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < chunk.Length; i++)
+            {
+                int sampleIndex = globalOffset + i;
+                if (sampleIndex < fadeStart)
+                {
+                    continue;
+                }
+
+                int fadeIndex = sampleIndex - fadeStart;
+                if (fadeIndex >= fadeSamples)
+                {
+                    fadeIndex = fadeSamples - 1;
+                }
+
+                float gain = 1f - ((fadeIndex + 1f) / fadeSamples);
+                if (gain < 0f)
+                {
+                    gain = 0f;
+                }
+                chunk[i] *= gain;
+            }
         }
 
         public void AnnounceLoopBoundary()
@@ -804,7 +942,7 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private int ConvertAndEnqueue(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate, bool markEndOfStream)
+        private int ConvertAndEnqueue(ReadOnlySpan<float> source, int srcChannels, int srcSampleRate, bool markEndOfStream, int tailFadeSamples)
         {
             int srcFrames = source.Length / srcChannels;
             if (srcFrames <= 0)
@@ -841,7 +979,23 @@ namespace Eitan.EasyMic.Runtime
                 ConvertWithResample(source, srcChannels, srcSampleRate, dest, targetFrames);
             }
 
-            return WriteToQueue(dest.Slice(0, targetSamples), markEndOfStream);
+            int destFadeSamples = 0;
+            if (tailFadeSamples > 0)
+            {
+                int fadeFrames = tailFadeSamples / Math.Max(1, srcChannels);
+                if (fadeFrames > 0)
+                {
+                    if (srcSampleRate != SampleRate)
+                    {
+                        fadeFrames = (int)Math.Ceiling(fadeFrames * (double)SampleRate / Math.Max(1, srcSampleRate));
+                    }
+
+                    destFadeSamples = fadeFrames * Channels;
+                    destFadeSamples = NormalizeTailFadeSamples(destFadeSamples, Channels, targetSamples);
+                }
+            }
+
+            return WriteToQueue(dest.Slice(0, targetSamples), markEndOfStream, destFadeSamples);
         }
 
         private void EnsureConvertBufferCapacity(int neededSamples)

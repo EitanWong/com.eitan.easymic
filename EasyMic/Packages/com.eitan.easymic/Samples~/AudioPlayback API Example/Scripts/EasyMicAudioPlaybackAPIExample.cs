@@ -501,34 +501,6 @@ namespace Eitan.EasyMic.Samples.Playback
             return Mathf.Max(1, Mathf.RoundToInt(ms * 0.001f * sampleRate));
         }
 
-        private static float[] CopyHeadWithFadeOut(float[] src, int channels, int sampleRate, float headMs, float fadeOutMs)
-        {
-            int headFrames = Mathf.Max(1, MsToSamples(headMs, sampleRate));
-            int totalFrames = src.Length / Mathf.Max(1, channels);
-            headFrames = Mathf.Clamp(headFrames, 1, totalFrames);
-            int headSamples = headFrames * channels;
-
-            var dst = new float[headSamples];
-            Array.Copy(src, 0, dst, 0, headSamples);
-
-            // Apply a tiny linear fade-out at the tail to avoid clicks
-            int fadeFrames = Mathf.Clamp(MsToSamples(fadeOutMs, sampleRate), 1, headFrames);
-            int fadeSamples = fadeFrames * channels;
-            for (int s = 0; s < fadeSamples; s++)
-            {
-                int idx = headSamples - 1 - s;
-                if (idx < 0)
-                {
-                    break;
-                }
-
-
-                float t = (float)s / fadeSamples; // 0..1
-                dst[idx] *= (1f - t);             // 1..0
-            }
-            return dst;
-        }
-
         private IEnumerator StreamClipsContinuously()
         {
             UpdateUIInteractable();
@@ -722,16 +694,56 @@ namespace Eitan.EasyMic.Samples.Playback
                 bool playFull = rng.NextDouble() < FULL_NOTE_PROB;
                 if (playFull)
                 {
-                    _streamHandle.Enqueue(full, full.Length, channels, sampleRate, false);
+                    const float MAX_FULL_SLICE_SECONDS = 0.25f;
+                    int sliceFrames = Mathf.Max(1, Mathf.RoundToInt(sampleRate * MAX_FULL_SLICE_SECONDS));
+                    int sliceSamples = Mathf.Clamp(sliceFrames * channels, channels, full.Length);
+                    int offsetSamples = 0;
+
+                    while (offsetSamples < full.Length)
+                    {
+                        int toSend = Mathf.Min(sliceSamples, full.Length - offsetSamples);
+                        _streamHandle.Enqueue(full, offsetSamples, toSend, channels, sampleRate, 0, false);
+                        offsetSamples += toSend;
+
+                        if (offsetSamples < full.Length)
+                        {
+                            while (_streamLoopActive && _streamHandle.IsValid && _streamHandle.BufferedSeconds > BUFFER_HIGH)
+                            {
+                                yield return null;
+                            }
+
+                            if (!_streamLoopActive)
+                            {
+                                yield break;
+                            }
+                        }
+                    }
                 }
                 else
                 {
-                    var chunk = CopyHeadWithFadeOut(full, channels, sampleRate, headSec * 1000f, 8f);
-                    _streamHandle.Enqueue(chunk, chunk.Length, channels, sampleRate, false);
+                    int headFrames = Mathf.Max(1, MsToSamples(headSec * 1000f, sampleRate));
+                    int totalFrames = full.Length / Mathf.Max(1, channels);
+                    headFrames = Mathf.Clamp(headFrames, 1, totalFrames);
+                    int headSamples = headFrames * channels;
+
+                    int fadeFrames = Mathf.Clamp(MsToSamples(8f, sampleRate), 1, headFrames);
+                    int fadeSamples = Mathf.Clamp(fadeFrames * channels, channels, headSamples);
+
+                    _streamHandle.Enqueue(full, 0, headSamples, channels, sampleRate, fadeSamples, false);
                 }
 
-                // Wait dynamically before scheduling the next onset
-                yield return new WaitForSeconds(restSec);
+                // Wait dynamically before scheduling the next onset without allocating GC objects
+                float remaining = restSec;
+                while (remaining > 0f && _streamLoopActive)
+                {
+                    remaining -= Time.deltaTime;
+                    yield return null;
+                }
+
+                if (!_streamLoopActive)
+                {
+                    yield break;
+                }
                 swingParity++;
                 onsetCounter++;
             }

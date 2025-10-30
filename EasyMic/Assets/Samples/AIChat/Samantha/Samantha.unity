@@ -323,8 +323,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 993695ef743ec4441934a1b579a0297e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  stripe: {fileID: 2130704790}
   loadingProgress: {fileID: 1744837150}
+  stripe: {fileID: 2130704790}
+  Speed: 1
+  loadingCompleteSound: {fileID: 8300000, guid: ea7d108a21332458d91ec85a12db1057, type: 3}
 --- !u!1 &683628246
 GameObject:
   m_ObjectHideFlags: 0
@@ -444,7 +446,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1276574526}
-  - component: {fileID: 1276574529}
+  - component: {fileID: 1276574531}
   - component: {fileID: 1276574528}
   - component: {fileID: 1276574527}
   - component: {fileID: 1276574530}
@@ -477,7 +479,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1276574525}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d51a32329c3b34a099be13d3a253b65b, type: 3}
   m_Name: 
@@ -527,21 +529,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   microphone: {fileID: 1276574527}
   speechSynthesizer: {fileID: 1276574530}
-  animator: {fileID: 1276574529}
---- !u!114 &1276574529
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1276574525}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 569a54ceb97ad42c982b13ec6faadc0e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  stripe: {fileID: 0}
-  Speed: 1
 --- !u!114 &1276574530
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -564,6 +551,20 @@ MonoBehaviour:
       speed: 1
       sampleRates: 44100
     _activePresetId: default
+--- !u!114 &1276574531
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1276574525}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 569a54ceb97ad42c982b13ec6faadc0e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  uIView: {fileID: 514372640}
+  chatController: {fileID: 1276574528}
 --- !u!1 &1303221418
 GameObject:
   m_ObjectHideFlags: 0

@@ -561,7 +561,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
         #region ISherpaFeedbackHandler Implementation
         public void OnFeedback(PrepareFeedback feedback) => _transcriptionText.text = feedback.Message;
         public void OnFeedback(DownloadFeedback feedback) => _transcriptionText.text = feedback.Message;
-        public void OnFeedback(UncompressFeedback feedback) => _transcriptionText.text = feedback.Message;
+        public void OnFeedback(DecompressFeedback feedback) => _transcriptionText.text = feedback.Message;
         public void OnFeedback(VerifyFeedback feedback) => _transcriptionText.text = feedback.Message;
         public void OnFeedback(CancelFeedback feedback) => _transcriptionText.text = feedback.Message;
         public void OnFeedback(CleanFeedback feedback) => _transcriptionText.text = feedback.Message;

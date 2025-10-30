@@ -1,28 +1,65 @@
-using Radishmouse;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public class SamanthaAnimator : AIChatAnimator
     {
-        [SerializeField] private UIMobiusStripe stripe;
-        [SerializeField] private float Speed = 1;
 
-        private const int HALF_DEGRESS = 180;
+        [SerializeField] private AIChatUIView uIView;
+        [SerializeField] private AIChatController chatController;
 
-        private void Update()
+
+        #region MonoBehaviour
+
+
+        private void Awake()
         {
-            if (!stripe) { return; }
-
-            // Rotate around X (degrees per second). Use a modest speed by default.
-            stripe.perspectiveEuler += Vector3.right * Speed * HALF_DEGRESS * Time.deltaTime;
-            if (stripe.perspectiveEuler.x > 180)
-            {
-                stripe.perspectiveEuler += Vector3.left * HALF_DEGRESS;
-            }
-            // At runtime we must explicitly request a rebuild after changing public fields.
-            stripe.RebuildNow();
+            RegisterEvents();
         }
+        private void OnDestroy()
+        {
+            UnregisterEvents();
+        }
+
+
+        #endregion
+
+        #region  EventHandler 
+        private void OnChatControllerLoadingHandler(float progress)
+        {
+            uIView.UpdateProgress(progress);
+        }
+        #endregion
+
+        #region PrivateMethods
+        private void RegisterEvents()
+        {
+            if (chatController)
+            {
+                chatController.OnLoadingCallback += OnChatControllerLoadingHandler;
+            }
+        }
+
+        private void UnregisterEvents()
+        {
+            if (chatController)
+            {
+                chatController.OnLoadingCallback -= OnChatControllerLoadingHandler;
+            }
+        }
+        #endregion
+        #region  PublicMethods
+
+        public void PlayingLoadingProgressAnim()
+        {
+
+        }
+
+        public void PlayLoadingCompleteAnim()
+        {
+
+        }
+        #endregion
 
     }
 }

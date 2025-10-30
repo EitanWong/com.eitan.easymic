@@ -270,7 +270,7 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
 
         public void OnFeedback(PrepareFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(DownloadFeedback feedback) => PublishProgress(feedback);
-        public void OnFeedback(UncompressFeedback feedback) => PublishProgress(feedback);
+        public void OnFeedback(DecompressFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(VerifyFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(CleanFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(LoadFeedback feedback) => PublishProgress(feedback);
@@ -447,14 +447,6 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
         }
     }
 
-    private void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            this.EnqueueSentence("测试一下语音识别");
-        }
-    }
-
     private void OnDestroy()
     {
         Stop();
@@ -529,7 +521,7 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
     }
     #endregion
 
-#region Playback Management
+    #region Playback Management
     PlaybackHandle Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.IPlaybackProvider.Acquire(int channels, int sampleRate)
     {
         if (_playbackManager == null)
@@ -615,10 +607,7 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
                 try
                 {
                     newHandle = AudioPlayback.CreateStream(
-                        preferredChannels: channels,
-                        preferredSampleRate: sampleRate,
-                        volume: 1f,
-                        autoDisposeOnComplete: false);
+                        volume: 1f);
                 }
                 catch (Exception ex)
                 {
@@ -728,7 +717,7 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
             }
         }
     }
-#endregion
+    #endregion
 
     #region Coroutines & Internal Logic
     private System.Collections.IEnumerator WaitForModelInitialization()
