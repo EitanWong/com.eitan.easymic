@@ -5,70 +5,68 @@ using UnityEngine;
 namespace Eitan.EasyMic.Runtime
 {
     /// <summary>
-    /// Unity MonoBehaviour wrapper for a PlaybackAudioSource.
-    /// Provides clip-backed playback with a dedicated feeder thread so audio keeps flowing
-    /// when the Unity player is unfocused or running in the background.
+    /// Pure C# playback controller that manages a <see cref="PlaybackAudioSource"/>.
+    /// Handles clip-backed playback (with background feeder thread) as well as
+    /// manual streaming enqueue without requiring a MonoBehaviour wrapper.
     /// </summary>
-    [AddComponentMenu("Audio/Playback Audio Source")]
-    public sealed class PlaybackAudioSourceBehaviour : MonoBehaviour
+    public sealed class PlaybackAudioSession : IDisposable
     {
         private const float QueueSeconds = 0.2f;
         private const double BufferHighWaterSeconds = 0.12;
         private const double BufferLowWaterSeconds = 0.03;
 
-        [Header("Clip Playback")]
-        [SerializeField] private AudioClip _clip;
-        [SerializeField] private bool _playOnAwake = true;
-        [SerializeField] private bool _loop = true;
-
-        [Header("Level")]
-        [Range(0f, 2f)]
-        [SerializeField] private float _volume = 1.0f;
-        [SerializeField] private bool _mute = false;
+        private readonly string _name;
 
         private PlaybackAudioSource _source;
+        private AudioClip _clip;
+        private bool _loop = true;
+        private float _volume = 1f;
+        private bool _mute;
+        private bool _solo;
+
         private float[] _clipCache;
         private int _clipChannels;
         private int _clipSampleRate;
         private int _clipTotalSamples;
+        private long _clipConvertedFrames;
         private int _positionFrames;
-
-        private bool _solo;
         private int _outputChannels;
         private int _outputSampleRate;
-        private long _clipConvertedFrames;
 
         private Thread _feedThread;
         private ManualResetEventSlim _stopSignal;
         private AutoResetEvent _wakeSignal;
 
+        private bool _disposed;
+
+        public PlaybackAudioSession(string name = null)
+        {
+            _name = string.IsNullOrEmpty(name) ? "PlaybackSession" : name;
+        }
+
         public PlaybackAudioSource Source => _source;
 
-        /// <summary>
-        /// 实时回采事件（仿 Unity OnAudioFilterRead）：在音频线程触发 但只读。
-        /// 提供当前此源对输出缓冲贡献的样本数据（输出通道布局）。
-        /// 参数：(data, channels, sampleRate)
-        /// </summary>
         public event Action<float[], int, int> OnAudioPlaybackRead;
+        public event Action<PlaybackAudioSession> OnPlaybackCompleted;
 
-        /// <summary>
-        /// Invoked when the underlying playback source drains all audio after an explicit end-of-stream signal.
-        /// Works for clip playback and manual streaming enqueues.
-        /// </summary>
-        public event Action<PlaybackAudioSourceBehaviour> OnPlaybackCompleted;
+        public AudioClip Clip => _clip;
 
-        public bool IsPlaying => _source != null && _source.IsPlaying;
         public bool Loop
         {
             get => _loop;
             set
             {
+                if (_loop == value)
+                {
+                    return;
+                }
+
                 _loop = value;
                 WakeFeeder();
             }
         }
 
-        public float BufferedSeconds => _source != null ? (float)_source.BufferedSeconds : 0f;
+        public bool IsPlaying => _source != null && _source.IsPlaying;
 
         public float Volume
         {
@@ -109,95 +107,36 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        public AudioClip Clip
+        public float BufferedSeconds => _source != null ? (float)_source.BufferedSeconds : 0f;
+        public float ProgressNormalized => _source != null ? _source.NormalizedProgress : 0f;
+
+        public void PlayClip(AudioClip clip, bool loop, bool autoPlay)
         {
-            get => _clip;
-            set
+            if (_disposed)
             {
-                if (_clip == value)
-                {
-                    return;
-                }
-
-                _clip = value;
-                if (isActiveAndEnabled)
-                {
-                    ConfigureClipPlayback(_playOnAwake);
-                }
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
             }
-        }
 
-        public bool PlayOnAwake
-        {
-            get => _playOnAwake;
-            set
-            {
-                _playOnAwake = value;
-                if (!isActiveAndEnabled || _source == null)
-                {
-                    return;
-                }
-
-                if (_playOnAwake)
-                {
-                    _source.Play();
-                    WakeFeeder();
-                }
-                else
-                {
-                    _source.Pause();
-                }
-            }
-        }
-
-        public float ProgressNormalized
-        {
-            get
-            {
-                // if (_clipConvertedFrames > 0)
-                // {
-                //     int frames = Volatile.Read(ref _positionFrames);
-                //     float p = (float)frames / Mathf.Max(1, _clipConvertedFrames);
-                //     return Mathf.Clamp01(p);
-                // }
-
-                return _source != null ? _source.NormalizedProgress : 0f;
-            }
-        }
-
-        private void OnEnable()
-        {
-            StartPlayback();
-            if (!_playOnAwake)
-            {
-                _source?.Pause();
-            }
-        }
-
-        private void OnDisable()
-        {
-            StopPlayback();
-        }
-
-        public void PlayClip(AudioClip clip, bool loop = true)
-        {
             _clip = clip;
             _loop = loop;
-            if (isActiveAndEnabled)
-            {
-                ConfigureClipPlayback(true);
-            }
-        }
 
-        public void Stop()
-        {
-            ResetTimeline(clearQueue: true, clearClip: false);
-            _source?.Pause();
+            if (_clip == null)
+            {
+                Stop(clearQueue: true, clearClip: true);
+                return;
+            }
+
+            ConfigureClipPlayback(autoPlay);
         }
 
         public void Play()
         {
-            ResetTimeline(true, true); //force reset
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
+            ResetTimeline(clearQueue: true, clearClip: false);
             EnsureSourceReady();
             if (_source == null)
             {
@@ -206,11 +145,7 @@ namespace Eitan.EasyMic.Runtime
 
             if (_clip != null)
             {
-                if (_clipCache == null || _clipCache.Length == 0)
-                {
-                    CacheClipData();
-                }
-
+                EnsureClipCached();
                 _clipConvertedFrames = EstimateClipConvertedFrames();
                 _source.TotalSourceFrames = _clipConvertedFrames > 0 ? _clipConvertedFrames : -1;
                 if (_clipCache != null && _clipCache.Length > 0 && _feedThread == null)
@@ -219,22 +154,49 @@ namespace Eitan.EasyMic.Runtime
                 }
             }
 
-            _source?.Play();
+            _source.Play();
             WakeFeeder();
         }
+
         public void Resume()
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
             _source?.Play();
             WakeFeeder();
         }
 
         public void Pause()
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
+            _source?.Pause();
+        }
+
+        public void Stop(bool clearQueue = true, bool clearClip = false)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            ResetTimeline(clearQueue, clearClip);
             _source?.Pause();
         }
 
         public void Enqueue(float[] samples, int count)
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
             if (samples == null)
             {
                 return;
@@ -256,6 +218,11 @@ namespace Eitan.EasyMic.Runtime
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
             if (samples == null || count <= 0 || channels <= 0 || sampleRate <= 0)
             {
                 if (markEndOfStream)
@@ -294,20 +261,75 @@ namespace Eitan.EasyMic.Runtime
 
         public void CompleteStream()
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PlaybackAudioSession));
+            }
+
             Loop = false;
             _source?.SignalEndOfStream();
             WakeFeeder();
         }
 
-        private void StartPlayback()
+        public void Dispose()
         {
-            ConfigureClipPlayback(_playOnAwake);
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            try
+            {
+                ResetTimeline(clearQueue: true, clearClip: true);
+            }
+            catch { }
+
+            try
+            {
+                ReleaseSource();
+            }
+            catch { }
         }
 
-        private void StopPlayback()
+        private void ConfigureClipPlayback(bool autoPlay)
         {
+            EnsureSourceReady();
+            if (_source == null)
+            {
+                return;
+            }
+
             ResetTimeline(clearQueue: true, clearClip: true);
-            ReleaseSource();
+            EnsureClipCached();
+
+            _clipConvertedFrames = EstimateClipConvertedFrames();
+            _source.TotalSourceFrames = _clipConvertedFrames > 0 ? _clipConvertedFrames : -1;
+
+            if (_clipCache != null && _clipCache.Length > 0)
+            {
+                StartFeeder();
+            }
+
+            if (autoPlay)
+            {
+                _source.Play();
+                WakeFeeder();
+            }
+            else
+            {
+                _source.Pause();
+            }
+        }
+
+        private void EnsureClipCached()
+        {
+            if (_clipCache != null && _clipCache.Length > 0)
+            {
+                return;
+            }
+
+            CacheClipData();
         }
 
         private void CacheClipData()
@@ -331,7 +353,6 @@ namespace Eitan.EasyMic.Runtime
 
                 if (_clip.loadState == AudioDataLoadState.Loading)
                 {
-                    // Wait briefly for asynchronous prepare without blocking frame for too long.
                     var spinner = new SpinWait();
                     int safety = 0;
                     while (_clip.loadState == AudioDataLoadState.Loading && safety < 100)
@@ -383,11 +404,16 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
+            if (_feedThread != null)
+            {
+                return;
+            }
+
             _stopSignal = new ManualResetEventSlim(false);
             _wakeSignal = new AutoResetEvent(false);
             _feedThread = new Thread(FeedLoop)
             {
-                Name = $"EasyMicPlaybackFeed-{name}",
+                Name = $"EasyMicPlaybackFeed-{_name}",
                 IsBackground = true,
                 Priority = System.Threading.ThreadPriority.Highest
             };
@@ -580,7 +606,7 @@ namespace Eitan.EasyMic.Runtime
             var mixer = sys.MasterMixer;
             _source = new PlaybackAudioSource(_outputChannels, _outputSampleRate, QueueSeconds, mixer)
             {
-                name = gameObject.name,
+                name = _name,
                 Volume = _volume,
                 Mute = _mute,
                 Solo = _solo
@@ -673,37 +699,8 @@ namespace Eitan.EasyMic.Runtime
 
         private void HandleSourcePlaybackCompleted(PlaybackAudioSource source)
         {
-            try { OnPlaybackCompleted?.Invoke(this); } catch { }
-        }
-
-        private void ConfigureClipPlayback(bool autoPlay)
-        {
-            EnsureSourceReady();
-            if (_source == null)
-            {
-                return;
-            }
-
-            ResetTimeline(clearQueue: true, clearClip: true);
-            CacheClipData();
-
-            _clipConvertedFrames = EstimateClipConvertedFrames();
-            _source.TotalSourceFrames = _clipConvertedFrames > 0 ? _clipConvertedFrames : -1;
-
-            if (_clipCache != null && _clipCache.Length > 0)
-            {
-                StartFeeder();
-            }
-
-            if (autoPlay)
-            {
-                _source.Play();
-                WakeFeeder();
-            }
-            else
-            {
-                _source.Pause();
-            }
+            try { OnPlaybackCompleted?.Invoke(this); }
+            catch { }
         }
 
         private static int SpeakerModeToChannels(AudioSpeakerMode mode)
@@ -727,3 +724,4 @@ namespace Eitan.EasyMic.Runtime
         }
     }
 }
+

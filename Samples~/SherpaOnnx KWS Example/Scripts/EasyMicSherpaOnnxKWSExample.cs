@@ -676,7 +676,7 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
             _keywordText.text = "Downloading model...";
         }
 
-        public void OnFeedback(UncompressFeedback feedback)
+        public void OnFeedback(DecompressFeedback feedback)
         {
             _keywordText.text = "Uncompressing model...";
         }
