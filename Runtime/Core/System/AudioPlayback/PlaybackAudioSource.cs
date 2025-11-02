@@ -7,7 +7,7 @@ namespace Eitan.EasyMic.Runtime
     /// A playback source that accepts interleaved float PCM samples and renders them
     /// to the AudioSystem via additive mixing. Supports per-source pipeline and volume.
     /// </summary>
-    public sealed class PlaybackAudioSource : IDisposable
+    public sealed class PlaybackAudioSource : IDisposable, IMixNode
     {
         private const float DenormalGuard = 1e-20f;
         private const int StarvationFadeFrames = 32;
@@ -63,9 +63,62 @@ namespace Eitan.EasyMic.Runtime
         private double[] _meterSumSqScratch;
         private float[] _lastOutputPerChannel;
 
-        public float Volume { get; set; } = 1.0f;
-        public bool Mute { get; set; } = false;
-        public bool Solo { get; set; } = false;
+        private float _volume = 1.0f;
+        private bool _mute;
+        private bool _solo;
+
+        private Action<IMixNode> _stateChanged;
+
+        public float Volume
+        {
+            get => _volume;
+            set
+            {
+                float clamped = value < 0f ? 0f : value;
+                if (MathF.Abs(_volume - clamped) <= 1e-5f)
+                {
+                    return;
+                }
+
+                _volume = clamped;
+                NotifyStateChanged();
+            }
+        }
+
+        public bool Mute
+        {
+            get => _mute;
+            set
+            {
+                if (_mute == value)
+                {
+                    return;
+                }
+
+                _mute = value;
+                NotifyStateChanged();
+            }
+        }
+
+        public bool Solo
+        {
+            get => _solo;
+            set
+            {
+                if (_solo == value)
+                {
+                    return;
+                }
+
+                _solo = value;
+                NotifyStateChanged();
+            }
+        }
+
+        private void NotifyStateChanged()
+        {
+            _stateChanged?.Invoke(this);
+        }
 
         public int Channels { get; }
         public int SampleRate { get; }
@@ -447,13 +500,14 @@ namespace Eitan.EasyMic.Runtime
         /// Renders and mixes this source into the provided destination buffer (additive).
         /// Must be called from the AudioSystem callback thread.
         /// </summary>
-        internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate)
+        internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
             TryDispatchLoopBoundary();
 
             int totalSamples = destination.Length;
             if (totalSamples == 0)
             {
+                UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
                 TryRaiseCompletionIfDrained();
                 TryDispatchLoopBoundary();
                 return;
@@ -473,12 +527,16 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (sysChannels == Channels && sysSampleRate == SampleRate)
                 {
-                    framesFromSource = RenderNativeRate(destination, callbackSlice, outChannels, totalFrames, mixToDestination);
+                    framesFromSource = RenderNativeRate(destination, callbackSlice, outChannels, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples);
                 }
                 else
                 {
-                    framesFromSource = RenderResampled(destination, callbackSlice, sysChannels, sysSampleRate, totalFrames, mixToDestination);
+                    framesFromSource = RenderResampled(destination, callbackSlice, sysChannels, sysSampleRate, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples);
                 }
+            }
+            else
+            {
+                UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
             }
 
             if (framesFromSource > totalFrames)
@@ -494,18 +552,24 @@ namespace Eitan.EasyMic.Runtime
             DispatchCallback(callbackSlice, sysChannels, sysSampleRate);
         }
 
-        private int RenderNativeRate(Span<float> destination, Span<float> callbackSlice, int outChannels, int totalFrames, bool mixToDestination)
+        private int RenderNativeRate(Span<float> destination, Span<float> callbackSlice, int outChannels, int totalFrames, bool mixToDestination, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
             if (totalFrames <= 0)
             {
+                UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
                 return 0;
             }
+
+            UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
 
             int totalSamples = totalFrames * outChannels;
             int processedSamples = 0;
             int framesFromSource = 0;
-            float volume = Volume;
-            bool applyVolume = MathF.Abs(volume - 1f) > 1e-5f;
+
+            float currentGain = gainEnvelope.Current;
+            float gainStep = gainEnvelope.Step;
+            int remaining = gainEnvelope.SamplesRemaining;
+            float gainTarget = gainEnvelope.Target;
 
             while (processedSamples < totalSamples)
             {
@@ -533,47 +597,51 @@ namespace Eitan.EasyMic.Runtime
                 var destSlice = destination.Slice(processedSamples, read);
                 var cbSlice = callbackSlice.Slice(processedSamples, read);
 
-                if (applyVolume)
+                for (int i = 0; i < read; i++)
                 {
-                    for (int i = 0; i < read; i++)
+                    float sample = processedSpan[i];
+                    sample += DenormalGuard;
+                    sample -= DenormalGuard;
+                    float scaled = sample * currentGain;
+                    if (mixToDestination)
                     {
-                        float sample = processedSpan[i] * volume;
-                        sample += DenormalGuard;
-                        sample -= DenormalGuard;
-                        if (mixToDestination)
-                        {
-                            destSlice[i] += sample;
-                        }
-                        cbSlice[i] = sample;
+                        destSlice[i] += scaled;
                     }
-                }
-                else
-                {
-                    for (int i = 0; i < read; i++)
+                    cbSlice[i] = scaled;
+
+                    if (remaining > 0)
                     {
-                        float sample = processedSpan[i];
-                        sample += DenormalGuard;
-                        sample -= DenormalGuard;
-                        if (mixToDestination)
+                        currentGain += gainStep;
+                        remaining--;
+                        if (remaining == 0)
                         {
-                            destSlice[i] += sample;
+                            currentGain = gainTarget;
                         }
-                        cbSlice[i] = sample;
                     }
                 }
 
                 processedSamples += read;
-                framesFromSource += read / Channels;
-                System.Threading.Interlocked.Add(ref _playedSourceFrames, read / Channels);
+                int framesAdvanced = read / Channels;
+                framesFromSource += framesAdvanced;
+                System.Threading.Interlocked.Add(ref _playedSourceFrames, framesAdvanced);
+            }
+
+            gainEnvelope.Current = currentGain;
+            gainEnvelope.SamplesRemaining = remaining;
+            if (remaining <= 0)
+            {
+                gainEnvelope.Step = 0f;
+                gainEnvelope.Current = gainEnvelope.Target;
             }
 
             return framesFromSource;
         }
 
-        private int RenderResampled(Span<float> destination, Span<float> callbackSlice, int sysChannels, int sysSampleRate, int totalFrames, bool mixToDestination)
+        private int RenderResampled(Span<float> destination, Span<float> callbackSlice, int sysChannels, int sysSampleRate, int totalFrames, bool mixToDestination, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
             if (totalFrames <= 0)
             {
+                UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
                 return 0;
             }
 
@@ -594,8 +662,12 @@ namespace Eitan.EasyMic.Runtime
                 _resFrames += missing;
             }
 
-            float volume = Volume;
-            bool applyVolume = MathF.Abs(volume - 1f) > 1e-5f;
+            UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
+
+            float currentGain = gainEnvelope.Current;
+            float gainStep = gainEnvelope.Step;
+            int remaining = gainEnvelope.SamplesRemaining;
+            float gainTarget = gainEnvelope.Target;
 
             int destIndex = 0;
             int cbIndex = 0;
@@ -618,17 +690,14 @@ namespace Eitan.EasyMic.Runtime
                         int idx0 = i0 * Channels + ch;
                         int idx1 = i1 * Channels + ch;
                         float sample = _resBuf[idx0] + (float)((_resBuf[idx1] - _resBuf[idx0]) * frac);
-                        if (applyVolume)
-                        {
-                            sample *= volume;
-                        }
                         sample += DenormalGuard;
                         sample -= DenormalGuard;
+                        float scaled = sample * currentGain;
                         if (mixToDestination)
                         {
-                            destination[destIndex + ch] += sample;
+                            destination[destIndex + ch] += scaled;
                         }
-                        callbackSlice[cbIndex + ch] = sample;
+                        callbackSlice[cbIndex + ch] = scaled;
                     }
                 }
                 else if (Channels == 1 && outChannels == 2)
@@ -636,19 +705,16 @@ namespace Eitan.EasyMic.Runtime
                     float s0 = _resBuf[i0];
                     float s1 = _resBuf[i1];
                     float sample = s0 + (float)((s1 - s0) * frac);
-                    if (applyVolume)
-                    {
-                        sample *= volume;
-                    }
                     sample += DenormalGuard;
                     sample -= DenormalGuard;
+                    float scaled = sample * currentGain;
                     if (mixToDestination)
                     {
-                        destination[destIndex] += sample;
-                        destination[destIndex + 1] += sample;
+                        destination[destIndex] += scaled;
+                        destination[destIndex + 1] += scaled;
                     }
-                    callbackSlice[cbIndex] = sample;
-                    callbackSlice[cbIndex + 1] = sample;
+                    callbackSlice[cbIndex] = scaled;
+                    callbackSlice[cbIndex + 1] = scaled;
                 }
                 else if (Channels == 2 && outChannels == 1)
                 {
@@ -657,17 +723,14 @@ namespace Eitan.EasyMic.Runtime
                     float l = _resBuf[base0] + (float)((_resBuf[base1] - _resBuf[base0]) * frac);
                     float r = _resBuf[base0 + 1] + (float)((_resBuf[base1 + 1] - _resBuf[base0 + 1]) * frac);
                     float sample = (l + r) * 0.5f;
-                    if (applyVolume)
-                    {
-                        sample *= volume;
-                    }
                     sample += DenormalGuard;
                     sample -= DenormalGuard;
+                    float scaled = sample * currentGain;
                     if (mixToDestination)
                     {
-                        destination[destIndex] += sample;
+                        destination[destIndex] += scaled;
                     }
-                    callbackSlice[cbIndex] = sample;
+                    callbackSlice[cbIndex] = scaled;
                 }
                 else
                 {
@@ -679,22 +742,29 @@ namespace Eitan.EasyMic.Runtime
                         acc += _resBuf[idx0] + (float)((_resBuf[idx1] - _resBuf[idx0]) * frac);
                     }
                     float sample = acc / Channels;
-                    if (applyVolume)
-                    {
-                        sample *= volume;
-                    }
                     sample += DenormalGuard;
                     sample -= DenormalGuard;
+                    float scaled = sample * currentGain;
                     if (mixToDestination)
                     {
                         for (int ch = 0; ch < outChannels; ch++)
                         {
-                            destination[destIndex + ch] += sample;
+                            destination[destIndex + ch] += scaled;
                         }
                     }
                     for (int ch = 0; ch < outChannels; ch++)
                     {
-                        callbackSlice[cbIndex + ch] = sample;
+                        callbackSlice[cbIndex + ch] = scaled;
+                    }
+                }
+
+                if (remaining > 0)
+                {
+                    currentGain += gainStep;
+                    remaining--;
+                    if (remaining == 0)
+                    {
+                        currentGain = gainTarget;
                     }
                 }
 
@@ -734,7 +804,50 @@ namespace Eitan.EasyMic.Runtime
 
             _phase = phase;
 
+            gainEnvelope.Current = currentGain;
+            gainEnvelope.SamplesRemaining = remaining;
+            if (remaining <= 0)
+            {
+                gainEnvelope.Step = 0f;
+                gainEnvelope.Current = gainEnvelope.Target;
+            }
+
             return framesFromSource;
+        }
+
+        private static void UpdateGainEnvelope(ref MixerGainEnvelope envelope, float targetGain, int rampSamples)
+        {
+            if (MathF.Abs(envelope.Target - targetGain) <= 1e-6f)
+            {
+                if (envelope.SamplesRemaining <= 0)
+                {
+                    envelope.Current = targetGain;
+                    envelope.Target = targetGain;
+                    envelope.Step = 0f;
+                }
+                return;
+            }
+
+            envelope.Target = targetGain;
+            if (rampSamples <= 0)
+            {
+                envelope.Current = targetGain;
+                envelope.Step = 0f;
+                envelope.SamplesRemaining = 0;
+                return;
+            }
+
+            float delta = targetGain - envelope.Current;
+            if (MathF.Abs(delta) <= 1e-6f)
+            {
+                envelope.Current = targetGain;
+                envelope.Step = 0f;
+                envelope.SamplesRemaining = 0;
+                return;
+            }
+
+            envelope.Step = delta / rampSamples;
+            envelope.SamplesRemaining = rampSamples;
         }
 
         private void FillResBuffer(int neededFrames)
@@ -1235,6 +1348,36 @@ namespace Eitan.EasyMic.Runtime
             var r = _meterRms;
             peak = p != null ? (float[])p.Clone() : Array.Empty<float>();
             rms = r != null ? (float[])r.Clone() : Array.Empty<float>();
+        }
+
+        string IMixNode.Name => name ?? string.Empty;
+
+        float IMixNode.Volume => _volume;
+
+        bool IMixNode.Mute => _mute;
+
+        bool IMixNode.Solo => _solo;
+
+        bool IMixNode.HasSoloInTree => _solo;
+
+        bool IMixNode.IsActive => _isPlaying && !_mute;
+
+        event Action<IMixNode> IMixNode.StateChanged
+        {
+            add => _stateChanged += value;
+            remove => _stateChanged -= value;
+        }
+
+        void IMixNode.RenderInto(
+            Span<float> destination,
+            int systemChannels,
+            int systemSampleRate,
+            ref MixerGainEnvelope envelope,
+            float targetGain,
+            int rampSamples,
+            Span<float> scratch)
+        {
+            RenderAdditive(destination, systemChannels, systemSampleRate, ref envelope, targetGain, rampSamples);
         }
     }
 }

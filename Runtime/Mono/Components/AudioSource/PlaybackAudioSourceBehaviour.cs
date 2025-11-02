@@ -257,7 +257,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             string nameForSession = gameObject != null ? gameObject.name : "Playback";
             _session = new PlaybackAudioSession(nameForSession);
             _session.OnAudioPlaybackRead += HandleSessionAudioPlaybackRead;
-            _session.OnPlaybackCompleted += HandleSessionPlaybackCompleted;
+            _session.OnBatchCompleted += HandleSessionPlaybackBatchCompleted;
         }
 
         private void DisposeSession()
@@ -268,7 +268,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
             try { _session.OnAudioPlaybackRead -= HandleSessionAudioPlaybackRead; } catch { }
-            try { _session.OnPlaybackCompleted -= HandleSessionPlaybackCompleted; } catch { }
+            try { _session.OnBatchCompleted -= HandleSessionPlaybackBatchCompleted; } catch { }
             try { _session.Dispose(); } catch { }
             _session = null;
         }
@@ -292,7 +292,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             catch { }
         }
 
-        private void HandleSessionPlaybackCompleted(PlaybackAudioSession session)
+        private void HandleSessionPlaybackBatchCompleted(PlaybackAudioSession session)
         {
             try { OnPlaybackCompleted?.Invoke(this); }
             catch { }
