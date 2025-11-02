@@ -30,6 +30,9 @@ namespace Radishmouse
         public float pathOffsetRadians = 0f;
 
         [Header("Perspective View")]
+        [Tooltip("Toggle 3D rotation + perspective projection. Off = flat 2D path.")]
+        public bool enablePerspective = true;
+
         [Tooltip("Euler rotation (degrees) applied before perspective projection.")]
         public Vector3 perspectiveEuler = new Vector3(0f, 0f, 0f);
 
@@ -51,6 +54,8 @@ namespace Radishmouse
         private readonly List<Vector2> _points = new List<Vector2>(512);
         private Snapshot _last;
 
+
+        public UILineRenderer LineRenderer => _line;
         private struct Snapshot
         {
             public int loops, samplesPerLoop;
@@ -59,6 +64,7 @@ namespace Radishmouse
             public float pathOffset;
             public Vector3 perspectiveEuler;
             public float perspectiveFactor;
+            public bool perspectiveEnabled;
             public Vector2 rectSize, sizeScale, sizePadding;
             public bool shrink;
             public float lineThickness;
@@ -74,6 +80,7 @@ namespace Radishmouse
                        Mathf.Approximately(pathOffset, other.pathOffset) &&
                        ApproximatelyVector3(perspectiveEuler, other.perspectiveEuler) &&
                        Mathf.Approximately(perspectiveFactor, other.perspectiveFactor) &&
+                       perspectiveEnabled == other.perspectiveEnabled &&
                        rectSize == other.rectSize &&
                        sizeScale == other.sizeScale &&
                        sizePadding == other.sizePadding &&
@@ -180,8 +187,8 @@ namespace Radishmouse
             }
 
             var rect = _rt.rect;
-            Vector3 euler = perspectiveEuler;
-            float perspectiveFactor = Mathf.Clamp(perspectiveDistanceFactor, 1f, 8f);
+            Vector3 euler = enablePerspective ? perspectiveEuler : Vector3.zero;
+            float perspectiveFactor = enablePerspective ? Mathf.Clamp(perspectiveDistanceFactor, 1f, 8f) : 1f;
 
             var snap = new Snapshot
             {
@@ -192,6 +199,7 @@ namespace Radishmouse
                 pathOffset = pathOffsetRadians,
                 perspectiveEuler = euler,
                 perspectiveFactor = perspectiveFactor,
+                perspectiveEnabled = enablePerspective,
                 rectSize = rect.size,
                 sizeScale = sizeScale,
                 sizePadding = sizePadding,
@@ -210,8 +218,8 @@ namespace Radishmouse
 
             ComputeRadii(snap, out float rx, out float ry);
             int controlsPerLoop = ResolveControlPointsPerLoop(snap);
-            Quaternion perspectiveRotation = Quaternion.Euler(euler);
-            GenerateControlPoints(_points, snap.loops, controlsPerLoop, snap.phase, snap.pathOffset, rx, ry, snap.orientation, perspectiveRotation, perspectiveFactor);
+            Quaternion perspectiveRotation = enablePerspective ? Quaternion.Euler(euler) : Quaternion.identity;
+            GenerateControlPoints(_points, snap.loops, controlsPerLoop, snap.phase, snap.pathOffset, rx, ry, snap.orientation, perspectiveRotation, perspectiveFactor, snap.perspectiveEnabled);
 
             _line.pointsInPivotSpace = true;
             _line.closeLoop = true;
@@ -244,7 +252,7 @@ namespace Radishmouse
             }
         }
 
-        private static void GenerateControlPoints(List<Vector2> buffer, int loopCount, int perLoop, float phase, float pathOffset, float rx, float ry, Orientation orientation, Quaternion planeRotation, float perspectiveFactor)
+        private static void GenerateControlPoints(List<Vector2> buffer, int loopCount, int perLoop, float phase, float pathOffset, float rx, float ry, Orientation orientation, Quaternion planeRotation, float perspectiveFactor, bool perspectiveEnabled)
         {
             buffer.Clear();
             loopCount = Mathf.Max(1, loopCount);
@@ -312,16 +320,22 @@ namespace Radishmouse
                     z = wrapAmplitude * Mathf.Cos(fastArg) * Mathf.Sin(slowArg);
                 }
 
-                Vector3 rotated = planeRotation * new Vector3(x, y, z);
-
-                float denom = perspectiveDistance - rotated.z;
-                if (denom < 1e-3f)
+                if (perspectiveEnabled)
                 {
-                    denom = 1e-3f;
+                    Vector3 rotated = planeRotation * new Vector3(x, y, z);
+                    float denom = perspectiveDistance - rotated.z;
+                    if (denom < 1e-3f)
+                    {
+                        denom = 1e-3f;
+                    }
+                    float perspectiveScale = perspectiveDistance / denom;
+                    buffer.Add(new Vector2(rotated.x * perspectiveScale, rotated.y * perspectiveScale));
                 }
-
-                float perspectiveScale = perspectiveDistance / denom;
-                buffer.Add(new Vector2(rotated.x * perspectiveScale, rotated.y * perspectiveScale));
+                else
+                {
+                    // Flat 2D output: no 3D rotation, no perspective foreshortening.
+                    buffer.Add(new Vector2(x, y));
+                }
             }
         }
     }

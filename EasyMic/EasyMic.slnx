@@ -1,0 +1,27 @@
+﻿<Solution>
+  <Project Path="Eitan.SherpaOnnxUnity.Runtime.Native.csproj" />
+  <Project Path="UnityEngine.TestRunner.csproj" />
+  <Project Path="UnityEngine.UI.csproj" />
+  <Project Path="Eitan.EasyMic.Samples.SherpaOnnx.KWS.csproj" />
+  <Project Path="Eitan.EasyMic.csproj" />
+  <Project Path="Eitan.SherpaOnnxUnity.Runtime.Utilities.Pinyin.csproj" />
+  <Project Path="Eitan.EasyMic.Mono.csproj" />
+  <Project Path="Eitan.SherpaOnnxUnity.csproj" />
+  <Project Path="Eitan.EasyMic.Samples.SherpaOnnx.ASR.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.csproj" />
+  <Project Path="Eitan.EasyMic.Apm.csproj" />
+  <Project Path="Eitan.EasyMic.Samples.Recording.csproj" />
+  <Project Path="Eitan.EasyMic.SherpaOnnxUnity.csproj" />
+  <Project Path="Eitan.EasyMic.Samples.Playback.csproj" />
+  <Project Path="Eitan.EasyMic.Samples.AudioPlaybackAPI.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.csproj" />
+  <Project Path="UnityEditor.TestRunner.csproj" />
+  <Project Path="UnityEditor.UI.csproj" />
+  <Project Path="Unity.VisualStudio.Editor.csproj" />
+  <Project Path="Eitan.SherpaOnnxUnity.Editor.csproj" />
+  <Project Path="Eitan.EasyMic.Editor.csproj" />
+  <Project Path="Utilities.BuildPipeline.Editor.csproj" />
+  <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
+  <Project Path="Eitan.EasyMic.Tests.csproj" />
+</Solution>

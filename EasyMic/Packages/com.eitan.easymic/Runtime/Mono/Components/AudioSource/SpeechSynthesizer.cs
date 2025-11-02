@@ -69,11 +69,6 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
         }
     }
 
-    internal interface IPlaybackProvider
-    {
-        PlaybackHandle Acquire(int channels, int sampleRate);
-    }
-
     internal class SynthesisJob
     {
         public bool IsDone { get; private set; }
@@ -84,7 +79,7 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
         private readonly SpeechSynthesizerConfiguration _config;
         private readonly Action<string> _onStart;
         private readonly Action<string> _onFinish;
-        private readonly IPlaybackProvider _playbackProvider;
+        private readonly PlaybackHandle _playbackHandle;
 
         public SynthesisJob(
             string sentence,
@@ -92,14 +87,14 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
             SpeechSynthesizerConfiguration config,
             Action<string> onStart,
             Action<string> onFinish,
-            IPlaybackProvider playbackProvider)
+            PlaybackHandle playbackHandle)
         {
             _originalSentence = sentence;
             _speechSynthesis = speechSynthesis;
             _config = config;
             _onStart = onStart;
             _onFinish = onFinish;
-            _playbackProvider = playbackProvider;
+            _playbackHandle = playbackHandle;
         }
 
         public async Task RunAsync(Func<bool> isCancelled)
@@ -116,7 +111,7 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
             int sampleRate = Math.Max(8000, _config.SampleRates);
             int channels = 1;
 
-            var playback = _playbackProvider != null ? _playbackProvider.Acquire(channels, sampleRate) : default;
+            var playback = _playbackHandle;
             if (!playback.IsValid)
             {
                 Debug.LogError("[SpeechSynthesizer] Failed to obtain playback handle for TTS streaming.");
@@ -388,7 +383,7 @@ public sealed class SpeechSynthesizerConfiguration
 #endregion
 
 
-public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.IPlaybackProvider
+public class SpeechSynthesizer : MonoBehaviour
 {
     #region Public Properties & Events
     [Header("Initialization")]
@@ -424,7 +419,12 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
     // Helper Modules
     private Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.ModelInitializationHandler _progressHandler;
     private CancellationTokenSource _ttsCts;
-    private SharedPlaybackManager _playbackManager;
+    private string _logPrefix;
+    private readonly object _playbackLock = new object();
+    private PlaybackHandle _playbackHandle;
+    private bool _playbackHandleInitialized;
+
+    private string LogPrefix => !string.IsNullOrEmpty(_logPrefix) ? _logPrefix : "[SpeechSynthesizer] ";
     #endregion
 
     #region Unity Lifecycle
@@ -432,7 +432,8 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
     {
         _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
         _progressHandler = new Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.ModelInitializationHandler();
-        _playbackManager = new SharedPlaybackManager(this);
+        _logPrefix = $"[SpeechSynthesizer:{name}] ";
+        EnsurePlaybackStream();
         _progressHandler.OnProgress += (msg, progress) => OnLoadingProgressFeedback?.Invoke(msg, progress);
         _progressHandler.OnFailed += feedback => OnLoadingFailedFeedback?.Invoke(feedback);
         _progressHandler.OnSuccess += feedback => OnLoadingSuccessedFeedback?.Invoke(feedback);
@@ -455,7 +456,7 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
             StopCoroutine(_ttsPumpCoroutine);
             _ttsPumpCoroutine = null;
         }
-        _playbackManager?.Shutdown(true);
+        DisposePlaybackStream();
         _speechSynthesis?.Dispose();
         _speechSynthesis = null;
     }
@@ -496,7 +497,8 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
         _ttsCts = null;
 
         _sentenceQueue.Clear();
-        _playbackManager?.StopActive();
+        StopPlayback();
+        CompletePlaybackStream();
         _ttsInProgress = false;
         OnTTSStateChanged?.Invoke(false);
     }
@@ -522,199 +524,115 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
     #endregion
 
     #region Playback Management
-    PlaybackHandle Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.IPlaybackProvider.Acquire(int channels, int sampleRate)
+    private PlaybackHandle EnsurePlaybackStream()
     {
-        if (_playbackManager == null)
+        lock (_playbackLock)
         {
-            _playbackManager = new SharedPlaybackManager(this);
+            if (_playbackHandleInitialized && _playbackHandle.IsValid)
+            {
+                return _playbackHandle;
+            }
+
+            try
+            {
+                _playbackHandle = AudioPlayback.CreateStream(volume: 1f);
+                _playbackHandleInitialized = _playbackHandle.IsValid;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"{LogPrefix}Failed to create playback stream: {ex}");
+                _playbackHandle = default;
+                _playbackHandleInitialized = false;
+            }
+
+            return _playbackHandle;
         }
-        return _playbackManager.Acquire(channels, sampleRate);
     }
 
-    private sealed class SharedPlaybackManager
+    private PlaybackHandle GetPlaybackHandleSnapshot()
     {
-        private readonly string _logPrefix;
-        private readonly object _lock = new object();
-
-        private PlaybackHandle _handle;
-        private bool _initialized;
-        private int _channels = -1;
-        private int _sampleRate = -1;
-
-        public SharedPlaybackManager(SpeechSynthesizer owner)
+        lock (_playbackLock)
         {
-            _logPrefix = owner != null ? $"[SpeechSynthesizer:{owner.name}] " : "[SpeechSynthesizer] ";
+            return _playbackHandle;
+        }
+    }
+
+    private void StopPlayback()
+    {
+        var handle = GetPlaybackHandleSnapshot();
+        if (!handle.IsValid)
+        {
+            return;
         }
 
-        public PlaybackHandle Acquire(int channels, int sampleRate)
+        try
         {
-            if (channels <= 0 || sampleRate <= 0)
-            {
-                Debug.LogWarning($"{_logPrefix}Invalid playback format requested.");
-                return default;
-            }
+            handle.Stop();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Failed to stop playback: {ex.Message}");
+        }
+    }
 
-            PlaybackHandle oldHandle = default;
-            bool disposeOld = false;
-            bool needsCreation = false;
-
-            lock (_lock)
-            {
-                bool hasValid = _initialized && _handle.IsValid;
-                bool matchesFormat = hasValid && _channels == channels && _sampleRate == sampleRate;
-                if (matchesFormat)
-                {
-                    return _handle;
-                }
-
-                if (hasValid)
-                {
-                    oldHandle = _handle;
-                    disposeOld = true;
-                }
-
-                _handle = default;
-                _initialized = false;
-                _channels = -1;
-                _sampleRate = -1;
-                needsCreation = true;
-            }
-
-            if (disposeOld && oldHandle.IsValid)
-            {
-                try
-                {
-                    oldHandle.CompleteStream();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"{_logPrefix}Failed to finalize previous playback stream: {ex.Message}");
-                }
-
-                try
-                {
-                    oldHandle.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"{_logPrefix}Failed to dispose previous playback stream: {ex.Message}");
-                }
-            }
-
-            PlaybackHandle newHandle = default;
-            if (needsCreation)
-            {
-                try
-                {
-                    newHandle = AudioPlayback.CreateStream(
-                        volume: 1f);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"{_logPrefix}Failed to create playback stream: {ex}");
-                }
-            }
-
-            lock (_lock)
-            {
-                if (_initialized && _handle.IsValid)
-                {
-                    if (newHandle.IsValid)
-                    {
-                        try
-                        {
-                            newHandle.Dispose();
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.LogWarning($"{_logPrefix}Failed to dispose redundant playback stream: {ex.Message}");
-                        }
-                    }
-
-                    return _handle;
-                }
-
-                if (newHandle.IsValid)
-                {
-                    _handle = newHandle;
-                    _initialized = true;
-                    _channels = channels;
-                    _sampleRate = sampleRate;
-                    return _handle;
-                }
-
-                _handle = default;
-                _initialized = false;
-                _channels = -1;
-                _sampleRate = -1;
-                return default;
-            }
+    private void CompletePlaybackStream()
+    {
+        var handle = GetPlaybackHandleSnapshot();
+        if (!handle.IsValid)
+        {
+            return;
         }
 
-        public void StopActive()
+        try
         {
-            PlaybackHandle handleSnapshot = default;
-            lock (_lock)
-            {
-                if (!_initialized || !_handle.IsValid)
-                {
-                    return;
-                }
+            handle.CompleteStream();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Failed to finalize playback stream: {ex.Message}");
+        }
+    }
 
-                handleSnapshot = _handle;
-            }
-
-            try
-            {
-                handleSnapshot.Stop();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"{_logPrefix}Failed to stop playback: {ex.Message}");
-            }
+    private void DisposePlaybackStream()
+    {
+        PlaybackHandle handle;
+        lock (_playbackLock)
+        {
+            handle = _playbackHandle;
+            _playbackHandle = default;
+            _playbackHandleInitialized = false;
         }
 
-        public void Shutdown(bool completeStream)
+        if (!handle.IsValid)
         {
-            PlaybackHandle handleSnapshot = default;
-            lock (_lock)
-            {
-                if (_initialized && _handle.IsValid)
-                {
-                    handleSnapshot = _handle;
-                }
+            return;
+        }
 
-                _handle = default;
-                _initialized = false;
-                _channels = -1;
-                _sampleRate = -1;
-            }
+        try
+        {
+            handle.Stop();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Failed to stop playback stream during dispose: {ex.Message}");
+        }
 
-            if (!handleSnapshot.IsValid)
-            {
-                return;
-            }
+        try
+        {
+            handle.CompleteStream();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Failed to finalize playback stream during dispose: {ex.Message}");
+        }
 
-            if (completeStream)
-            {
-                try
-                {
-                    handleSnapshot.CompleteStream();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"{_logPrefix}Failed to finalize playback during shutdown: {ex.Message}");
-                }
-            }
-
-            try
-            {
-                handleSnapshot.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"{_logPrefix}Failed to dispose playback during shutdown: {ex.Message}");
-            }
+        try
+        {
+            handle.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Failed to dispose playback stream: {ex.Message}");
         }
     }
     #endregion
@@ -748,6 +666,15 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
 
             if (_sentenceQueue.TryDequeue(out string sentence))
             {
+                var playbackHandle = EnsurePlaybackStream();
+                if (!playbackHandle.IsValid)
+                {
+                    Debug.LogError($"{LogPrefix}Failed to obtain playback stream; retrying.");
+                    _sentenceQueue.Enqueue(sentence);
+                    yield return null;
+                    continue;
+                }
+
                 _ttsInProgress = true;
                 _ttsCancelRequested = false;
                 OnTTSStateChanged?.Invoke(true);
@@ -763,7 +690,7 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
                     {
                         OnSentenceFinished?.Invoke(finishedSentence);
                     },
-                    this
+                    playbackHandle
                 );
 
                 // Kick off async job and wait until completion inside the coroutine loop
@@ -775,6 +702,11 @@ public class SpeechSynthesizer : MonoBehaviour, Eitan.EasyMic.Runtime.Components
 
                 _ttsInProgress = false;
                 OnTTSStateChanged?.Invoke(false);
+
+                if (_sentenceQueue.IsEmpty)
+                {
+                    CompletePlaybackStream();
+                }
             }
         }
     }

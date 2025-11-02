@@ -26,7 +26,7 @@ namespace Eitan.EasyMic.Runtime
         }
 
 
-        public static PlaybackHandle PlayClip(AudioClip clip, bool loop = false, float volume = 1f)
+        public static PlaybackHandle PlayClip(AudioClip clip, bool loop = false, float volume = 1f, bool autoDisposeOnComplete = true)
         {
             if (clip == null)
             {
@@ -35,7 +35,17 @@ namespace Eitan.EasyMic.Runtime
             var handle = CreatePlayback(volume, loop, out var session);
             session.Volume = volume;
             session.PlayClip(clip, loop, autoPlay: true);
-            //TODO: add auto dispose when playback complete by default.
+
+            if (autoDisposeOnComplete)
+            {
+                void AutoDispose(PlaybackAudioSession source)
+                {
+                    source.OnBatchCompleted -= AutoDispose;
+                    handle.Dispose();
+                }
+
+                session.OnBatchCompleted += AutoDispose;
+            }
             return handle;
         }
 
@@ -142,7 +152,7 @@ namespace Eitan.EasyMic.Runtime
 
             if (TryGet(id, out var session))
             {
-                session.OnPlaybackCompleted += (source) =>
+                session.OnBatchCompleted += (source) =>
                 {
                     callback?.Invoke();
                 };

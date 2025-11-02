@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Eitan.EasyMic.Runtime.Mono;
-using UnityEditorInternal;
+using Eitan.EasyMic.Runtime.Mono.ASR;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -11,7 +10,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #region SerializeFields
         [SerializeField] private VoiceMicrophone microphone;
         [SerializeField] private SpeechSynthesizer speechSynthesizer;
+
+        [SerializeField] private float micStartupDelay = 1f;
         #endregion
+
 
         #region Event
         public Action<float> OnLoadingCallback; //float: progress, bool: loading result (success or not)
@@ -20,6 +22,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #region PrivateFields
 
         private Dictionary<string, float> _serviceLoadingRecord;
+        private bool _initialized;
         #endregion
         #region Constant
         private const string SERVICE_ASR_KEY = "SERVICE_ASR";
@@ -87,7 +90,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnMicrophoneLoadingProgressFeedbackHandler(string message, float progress)
         {
-            UnityEngine.Debug.Log($"<color=green><b>message</b></color>: {message} <color=cyan><b>progress: <i>{progress}</i></b></color>");
+            // UnityEngine.Debug.Log($"<color=green><b>message</b></color>: {message} <color=cyan><b>progress: <i>{progress}</i></b></color>");
             UpdateServiceLoading(SERVICE_ASR_KEY, progress);
         }
         private void OnASRTranscriptionStreamingHandler(string content)
@@ -107,12 +110,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnSpeakingChangedHandler(bool isSpeaking)
         {
         }
+
         private void OnMicrophoneInitializedHandler(bool state)
         {
-            if (!microphone.MicrophoneOpts.recordOnAwake)
-            {
-                microphone.StartRecording();
-            }
         }
 
         #endregion
@@ -120,7 +120,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnSpeechSynthesizerProgressFeedbackHandler(string message, float progress)
         {
-            UnityEngine.Debug.Log($"<color=green><b>message</b></color>: {message} <color=cyan><b>progress: <i>{progress}</i></b></color>");
+            // UnityEngine.Debug.Log($"<color=green><b>message</b></color>: {message} <color=cyan><b>progress: <i>{progress}</i></b></color>");
             UpdateServiceLoading(SERVICE_TTS_KEY, progress);
         }
         #endregion
@@ -141,6 +141,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             float overallProgress = total / _serviceLoadingRecord.Count;
 
             OnLoadingCallback?.Invoke(overallProgress);
+            if (!_initialized && overallProgress >= 1f)
+            {
+                _initialized = true;
+
+                StartCoroutine(WaitToInvoke(() =>
+                {
+                    if (!microphone.MicrophoneOpts.recordOnAwake)
+                    {
+                        microphone.StartRecording();
+                    }
+                }, micStartupDelay));
+
+            }
+        }
+
+        private System.Collections.IEnumerator WaitToInvoke(Action callback, float wait)
+        {
+            yield return new WaitForSeconds(wait);
+            callback?.Invoke();
         }
         #endregion
     }
