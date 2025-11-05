@@ -175,18 +175,22 @@ namespace Eitan.EasyMic.Runtime
         /// <returns></returns> <summary>
         public bool IsDeviceRecording(MicDevice device)
         {
-            if (_activeRecordings == null || _activeRecordings.Count <= 0)
+            if (_activeRecordings == null || _activeRecordings.Count == 0)
             {
                 return false;
             }
-            for (int i = 0; i < _activeRecordings.Count; i++)
-            {
-                if (_activeRecordings[i].IsSameDevice(device))
-                {
-                    return true;
-                }
 
+            lock (_operateLock)
+            {
+                foreach (var session in _activeRecordings.Values)
+                {
+                    if (session.IsSameDevice(device))
+                    {
+                        return true;
+                    }
+                }
             }
+
             return false;
         }
 

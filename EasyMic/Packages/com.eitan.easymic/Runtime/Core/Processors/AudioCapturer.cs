@@ -12,6 +12,7 @@ namespace Eitan.EasyMic.Runtime
         private AudioContext _AudioContext;
         private readonly int _targetSampleRate; // 0 => follow input rate
         private float[] _resampleWork; // reused buffer for resampled output
+        private volatile bool _hasCapturedData;
 
         public AudioCapturer(int maxDuration)
             : this(maxDuration, 0) { }
@@ -36,6 +37,7 @@ namespace Eitan.EasyMic.Runtime
             }
             _AudioContext = state;
             _resampleWork = Array.Empty<float>();
+            _hasCapturedData = false;
             base.Initialize(state);
         }
 
@@ -49,19 +51,13 @@ namespace Eitan.EasyMic.Runtime
 
             if (audiobuffer.IsEmpty)
             {
-                lock (_lock)
-                {
-                    _audioBuffer?.TryWriteExact(audiobuffer);
-                }
+                TryWriteSamples(audiobuffer);
                 return;
             }
 
             if (srcSR == dstSR)
             {
-                lock (_lock)
-                {
-                    _audioBuffer?.TryWriteExact(audiobuffer);
-                }
+                TryWriteSamples(audiobuffer);
                 return;
             }
 
@@ -105,10 +101,7 @@ namespace Eitan.EasyMic.Runtime
                     _resampleWork[outBase + of * ch] = (float)(s0 + (s1 - s0) * t);
                 }
             }
-            lock (_lock)
-            {
-                _audioBuffer?.TryWriteExact(new ReadOnlySpan<float>(_resampleWork, 0, outSamples));
-            }
+            TryWriteSamples(new ReadOnlySpan<float>(_resampleWork, 0, outSamples));
         }
 
         /// <summary>
@@ -119,33 +112,35 @@ namespace Eitan.EasyMic.Runtime
         /// <returns>An array of audio samples. The channel count depends on the 'downmix' parameter. 一个音频样本数组。声道数取决于 'downmix' 参数。</returns>
         public float[] GetCapturedAudioSamples()
         {
-            if (!IsInitialized)
-            {
-
-                return null;
-            }
-
-            // Create a buffer and read the captured audio data.
-
             AudioBuffer buffer;
             lock (_lock)
             {
                 buffer = _audioBuffer;
             }
 
-            if (buffer == null)
+            if ((!IsInitialized && !_hasCapturedData) || buffer == null)
             {
+                return null;
+            }
+
+            int readable = buffer.ReadableCount;
+            if (readable <= 0)
+            {
+                if (!IsInitialized)
+                {
+                    _hasCapturedData = false;
+                }
                 return Array.Empty<float>();
             }
 
-            var samples = new float[buffer.ReadableCount];
+            var samples = new float[readable];
             if (samples.Length == 0)
             {
                 return samples;
             }
 
-
             buffer.Read(samples);
+            _hasCapturedData = buffer.ReadableCount > 0;
 
 
             return samples;
@@ -159,9 +154,8 @@ namespace Eitan.EasyMic.Runtime
         /// <returns>A new AudioClip, or null if no audio was captured. 一个新的 AudioClip，如果未捕获任何音频，则为 null。</returns>
         public AudioClip GetCapturedAudioClip()
         {
-            if (!IsInitialized)
+            if (!IsInitialized && !_hasCapturedData)
             {
-
                 return null;
             }
 
@@ -223,9 +217,26 @@ namespace Eitan.EasyMic.Runtime
                     var temp = new float[readable];
                     _audioBuffer.Read(temp);
                     newBuffer.TryWriteExact(new ReadOnlySpan<float>(temp));
+                    _hasCapturedData = true;
                 }
 
                 _audioBuffer = newBuffer;
+            }
+        }
+
+        private void TryWriteSamples(ReadOnlySpan<float> samples)
+        {
+            lock (_lock)
+            {
+                if (_audioBuffer == null)
+                {
+                    return;
+                }
+
+                if (_audioBuffer.TryWriteExact(samples) && samples.Length > 0)
+                {
+                    _hasCapturedData = true;
+                }
             }
         }
 

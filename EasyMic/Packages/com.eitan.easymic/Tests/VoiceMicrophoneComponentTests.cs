@@ -1,77 +1,80 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System.Collections.Generic;
 using Eitan.EasyMic.Runtime.Mono;
+using Eitan.EasyMic.Runtime.Mono.ASR;
 using Eitan.EasyMic.Runtime.SherpaOnnxUnity;
 using NUnit.Framework;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Tests
 {
-    public class TextAccumulatorTests
+    public class RecognitionBufferTests
     {
         [Test]
         public void DeltaExtractionHandlesSamePrefixShrinkAndDiverge()
         {
-            var accumulator = new TextAccumulator(null, _ => { });
+            var buffer = new RecognitionBuffer(
+                null,
+                _ => { });
 
-            string deltaSame = accumulator.DebugExtractDelta("hello");
+            string deltaSame = buffer.DebugExtractDelta("hello");
             Assert.AreEqual("hello", deltaSame);
 
-            string deltaNoChange = accumulator.DebugExtractDelta("hello");
+            string deltaNoChange = buffer.DebugExtractDelta("hello");
             Assert.AreEqual(string.Empty, deltaNoChange);
 
-            string deltaPrefix = accumulator.DebugExtractDelta("hello world");
+            string deltaPrefix = buffer.DebugExtractDelta("hello world");
             Assert.AreEqual(" world", deltaPrefix);
 
-            string deltaShrink = accumulator.DebugExtractDelta("hel");
+            string deltaShrink = buffer.DebugExtractDelta("hel");
             Assert.AreEqual(string.Empty, deltaShrink);
 
-            string deltaDiverge = accumulator.DebugExtractDelta("hazel");
+            string deltaDiverge = buffer.DebugExtractDelta("hazel");
             Assert.AreEqual("hazel", deltaDiverge);
+        }
+
+        [Test]
+        public void HeuristicTurnDetectorHonoursPunctuation()
+        {
+            var settings = new TurnDetectionSettings
+            {
+                MinDelaySeconds = 0f,
+                MaxDelaySeconds = 0.5f
+            };
+
+            var detector = new HeuristicTurnDetector(settings);
+            var context = new TurnDetectionContext("Hello world.", 1, true);
+            Assert.That(detector.EvaluateDelay(in context), Is.EqualTo(0.5f).Within(0.001f));
+
+            var quickContext = new TurnDetectionContext("Hello", 1, false);
+            Assert.That(detector.EvaluateDelay(in quickContext), Is.EqualTo(0f).Within(0.001f));
         }
     }
 
-    public class SpeechStateMachineTests
+    public class VoiceActivityMonitorTests
     {
         [Test]
-        public void ExitsSpeakingAfterSilenceThreshold()
+        public void VoiceActivityTransitionsTriggerEvents()
         {
-            var stateMachine = new SpeechStateMachine(0.16f, 1.5f, 0.3f, 0.1f);
-            bool utteranceEnded = false;
-            stateMachine.UtteranceEnded += () => utteranceEnded = true;
+            var monitor = new VoiceActivityMonitor();
+            bool changed = false;
+            monitor.VoiceActivityChanged += active => changed = active;
 
-            stateMachine.SetVoiceActivity(true);
-            stateMachine.Update(0.1f);
-            stateMachine.Update(0.1f);
+            monitor.SetVoiceActivity(true);
+            Assert.IsTrue(monitor.IsVoiceActive);
+            Assert.IsTrue(changed);
 
-            Assert.IsTrue(stateMachine.IsSpeaking);
-
-            stateMachine.SetVoiceActivity(false);
-            stateMachine.Update(0.1f);
-            Assert.IsFalse(utteranceEnded);
-
-            stateMachine.Update(0.1f);
-            Assert.IsTrue(utteranceEnded);
-            Assert.IsFalse(stateMachine.IsSpeaking);
+            monitor.SetVoiceActivity(false);
+            Assert.IsFalse(monitor.IsVoiceActive);
         }
 
         [Test]
-        public void SilenceHoldDelaysUtteranceEnd()
+        public void ResetClearsVoiceActivity()
         {
-            var stateMachine = new SpeechStateMachine(0.16f, 1.5f, 0.3f, 0.1f);
-            int utteranceCount = 0;
-            stateMachine.UtteranceEnded += () => utteranceCount++;
-
-            stateMachine.SetVoiceActivity(true);
-            stateMachine.Update(0.2f);
-            stateMachine.SetVoiceActivity(false);
-            stateMachine.ExtendSilenceHold(1.0f);
-
-            stateMachine.Update(0.5f);
-            Assert.AreEqual(0, utteranceCount);
-
-            stateMachine.Update(0.6f);
-            Assert.AreEqual(1, utteranceCount);
+            var monitor = new VoiceActivityMonitor();
+            monitor.SetVoiceActivity(true);
+            monitor.Reset();
+            Assert.IsFalse(monitor.IsVoiceActive);
         }
     }
 

@@ -67,7 +67,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// Attempts to create a keyword spotting service.
         /// </summary>
         public ServiceCreationResult<KeywordSpotting> CreateKeywordSpotting(
-            KeywordSettings settings,
+            KeywordOptions settings,
             string fallbackModelId)
         {
             if (!settings.IsEnabled)

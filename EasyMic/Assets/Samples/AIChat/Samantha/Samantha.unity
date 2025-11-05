@@ -488,8 +488,8 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    Channel: 2
-    SampleRate: 16000
+    Channel: 1
+    SampleRate: 48000
   _audioProcessingOptions:
     EnableAEC: 1
     EnableANS: 1
@@ -499,7 +499,12 @@ MonoBehaviour:
     - Id: default
       DisplayName: Default
       RecognitionMode: 0
-      KeywordSettings:
+      StreamingModelId: sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+      OfflineModelId: sherpa-onnx-zipformer-zh-en-2023-11-22
+      VadModelId: silero-vad-v5
+      EnablePunctuation: 1
+      PunctuationModelId: sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
+      KeywordOptions:
         Enabled: 0
         ModelId: sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01
         CustomKeywords: []
@@ -509,11 +514,9 @@ MonoBehaviour:
         ContinuousConversationTimeoutSeconds: 8
         UseTriggerSound: 0
         TriggerSoundClip: {fileID: 0}
-      StreamingModelId: sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
-      OfflineModelId: sherpa-onnx-zipformer-zh-en-2023-11-22
-      VadModelId: silero-vad-v5
-      EnablePunctuation: 1
-      PunctuationModelId: sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
+      TurnDetectionOptions:
+        MinDelaySeconds: 0
+        MaxDelaySeconds: 0.7
     _activePresetId: default
 --- !u!114 &1276574528
 MonoBehaviour:

@@ -20,8 +20,8 @@
   <Project Path="UnityEditor.UI.csproj" />
   <Project Path="Unity.VisualStudio.Editor.csproj" />
   <Project Path="Eitan.SherpaOnnxUnity.Editor.csproj" />
-  <Project Path="Eitan.EasyMic.Editor.csproj" />
   <Project Path="Utilities.BuildPipeline.Editor.csproj" />
+  <Project Path="Eitan.EasyMic.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
   <Project Path="Eitan.EasyMic.Tests.csproj" />
 </Solution>
