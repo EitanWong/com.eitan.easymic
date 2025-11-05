@@ -9,7 +9,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
     /// </summary>
     public sealed class KeywordGate
     {
-        private KeywordSettings _settings;
+        private KeywordOptions _settings;
         private readonly float _minConversationTimeoutSeconds;
         private readonly float _speechHoldExtensionSeconds;
         private readonly Action<float> _extendSilenceHold;
@@ -17,14 +17,14 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private bool _isActive;
         private bool _pendingFlush;
         private bool _hasEmittedDuringActivation;
-        private float _silenceTimer;
+        private readonly SilenceTimer _silenceTimer = new SilenceTimer();
         private string _activeKeyword = string.Empty;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="KeywordGate"/> class.
         /// </summary>
         public KeywordGate(
-            KeywordSettings settings,
+            KeywordOptions settings,
             float minConversationTimeoutSeconds,
             float speechHoldExtensionSeconds,
             Action<float> extendSilenceHold)
@@ -72,13 +72,13 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             if (isSpeaking || hasVoiceActivity)
             {
-                _silenceTimer = 0f;
+                _silenceTimer.Reset();
                 return;
             }
 
-            _silenceTimer += Mathf.Max(0f, deltaTime);
+            _silenceTimer.Update(Mathf.Max(0f, deltaTime));
             float timeout = Mathf.Max(_minConversationTimeoutSeconds, Mathf.Max(0f, _settings.ContinuousConversationTimeoutSeconds));
-            if (_silenceTimer >= timeout)
+            if (_silenceTimer.Elapsed >= timeout)
             {
                 Deactivate();
             }
@@ -87,7 +87,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Applies new keyword settings, resetting the gate if keyword spotting is disabled.
         /// </summary>
-        public void ApplySettings(KeywordSettings settings)
+        public void ApplySettings(KeywordOptions settings)
         {
             _settings = settings;
             if (!RequiresKeyword)
@@ -107,7 +107,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
 
             _isActive = true;
-            _silenceTimer = 0f;
+            _silenceTimer.Reset();
             _pendingFlush = false;
             _hasEmittedDuringActivation = false;
             _activeKeyword = string.IsNullOrWhiteSpace(keyword) ? _activeKeyword : keyword;
@@ -141,7 +141,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _isActive = false;
             _activeKeyword = string.Empty;
-            _silenceTimer = 0f;
+            _silenceTimer.Reset();
             _hasEmittedDuringActivation = false;
             _pendingFlush |= shouldFlush;
 
@@ -164,7 +164,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             if (_settings.ContinuousConversation)
             {
-                _silenceTimer = 0f;
+                _silenceTimer.Reset();
                 return;
             }
 
@@ -224,7 +224,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _isActive = false;
             _activeKeyword = string.Empty;
-            _silenceTimer = 0f;
+            _silenceTimer.Reset();
             _hasEmittedDuringActivation = false;
             _pendingFlush = shouldFlush;
 

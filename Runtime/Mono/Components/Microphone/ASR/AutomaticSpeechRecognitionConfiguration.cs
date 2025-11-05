@@ -4,10 +4,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.Scripting.APIUpdating;
-using Eitan.SherpaOnnxUnity.Runtime;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
 {
+    #region Nested Types
+
     /// <summary>
     /// Describes the recognition pipeline mode used by <see cref="VoiceMicrophone"/>.
     /// </summary>
@@ -17,63 +18,6 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         Streaming,
         OfflineWithVad,
         Hybrid
-    }
-
-    /// <summary>
-    /// Serialized keyword spotting configuration shared by the microphone and keyword gate.
-    /// </summary>
-    [Serializable]
-    [MovedFrom(true, "Eitan.EasyMic.Runtime.Mono", null, "VoiceMicrophone/KeywordSettings")]
-    public struct KeywordSettings
-    {
-        public bool Enabled;
-        public string ModelId;
-        public KeywordSpotting.KeywordRegistration[] CustomKeywords;
-        public float KeywordsScore;
-        public float KeywordsThreshold;
-        public bool ContinuousConversation;
-        public float ContinuousConversationTimeoutSeconds;
-        public bool UseTriggerSound;
-        public AudioClip TriggerSoundClip;
-
-        /// <summary>
-        /// Determines whether keyword spotting should be considered active.
-        /// </summary>
-        public bool IsEnabled => Enabled && !string.IsNullOrWhiteSpace(ModelId);
-
-        /// <summary>
-        /// Creates a deep copy of the current keyword settings.
-        /// </summary>
-        public KeywordSettings Clone()
-        {
-            return new KeywordSettings
-            {
-                Enabled = Enabled,
-                ModelId = ModelId,
-                CustomKeywords = CustomKeywords != null
-                    ? (KeywordSpotting.KeywordRegistration[])CustomKeywords.Clone()
-                    : null,
-                KeywordsScore = KeywordsScore,
-                KeywordsThreshold = KeywordsThreshold,
-                ContinuousConversation = ContinuousConversation,
-                ContinuousConversationTimeoutSeconds = ContinuousConversationTimeoutSeconds,
-                UseTriggerSound = UseTriggerSound,
-                TriggerSoundClip = TriggerSoundClip
-            };
-        }
-
-        /// <summary>
-        /// Provides default keyword spotting settings compatible with Sherpa-ONNX models.
-        /// </summary>
-        public static KeywordSettings Default => new KeywordSettings
-        {
-            Enabled = false,
-            ModelId = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01",
-            KeywordsScore = 2.0f,
-            KeywordsThreshold = 0.25f,
-            ContinuousConversation = false,
-            ContinuousConversationTimeoutSeconds = 8f
-        };
     }
 
     /// <summary>
@@ -95,12 +39,13 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             public string Id;
             public string DisplayName;
             public RecognitionMode RecognitionMode;
-            public KeywordSettings KeywordSettings;
             public string StreamingModelId;
             public string OfflineModelId;
             public string VadModelId;
             public bool EnablePunctuation;
             public string PunctuationModelId;
+            public KeywordOptions KeywordOptions;
+            public TurnDetectionOptions TurnDetectionOptions;
 
             /// <summary>
             /// Creates a deep copy of the preset to keep serialized data immutable.
@@ -112,12 +57,13 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                     Id = Id,
                     DisplayName = DisplayName,
                     RecognitionMode = RecognitionMode,
-                    KeywordSettings = KeywordSettings.Clone(),
+                    KeywordOptions = KeywordOptions.Clone(),
                     StreamingModelId = StreamingModelId,
                     OfflineModelId = OfflineModelId,
                     VadModelId = VadModelId,
                     EnablePunctuation = EnablePunctuation,
-                    PunctuationModelId = PunctuationModelId
+                    PunctuationModelId = PunctuationModelId,
+                    TurnDetectionOptions = TurnDetectionOptions
                 };
             }
 
@@ -126,24 +72,27 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             /// </summary>
             public static ASRPreset Create(
                 RecognitionMode recognitionMode,
-                KeywordSettings keywordSettings,
+                KeywordOptions keywordSettings,
                 string streamingModelId,
                 string offlineModelId,
                 string vadModelId,
                 bool enablePunctuation,
-                string punctuationModelId)
+                string punctuationModelId,
+                TurnDetectionOptions? turnDetection = null)
             {
+                var detection = (turnDetection ?? TurnDetectionOptions.Default).EnsureValid();
                 return new ASRPreset
                 {
                     Id = DefaultPresetId,
                     DisplayName = "Default",
                     RecognitionMode = recognitionMode,
-                    KeywordSettings = keywordSettings,
+                    KeywordOptions = keywordSettings,
                     StreamingModelId = streamingModelId,
                     OfflineModelId = offlineModelId,
                     VadModelId = vadModelId,
                     EnablePunctuation = enablePunctuation,
-                    PunctuationModelId = punctuationModelId
+                    PunctuationModelId = punctuationModelId,
+                    TurnDetectionOptions = detection
                 };
             }
 
@@ -152,13 +101,16 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             /// </summary>
             public static ASRPreset Default => Create(
                 RecognitionMode.Streaming,
-                KeywordSettings.Default,
+                KeywordOptions.Default,
                 "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20",
                 "sherpa-onnx-zipformer-zh-en-2023-11-22",
                 "silero-vad-v5",
                 true,
-                "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8");
+                "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
+                TurnDetectionOptions.Default);
         }
+
+        #endregion
 
         [SerializeField, FormerlySerializedAs("Presets")]
         private ASRPreset[] _presets = { ASRPreset.Default };
@@ -188,7 +140,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Gets the keyword configuration declared by the active preset.
         /// </summary>
-        public KeywordSettings ActiveKeywordSettings => GetActivePresetInternal(false).KeywordSettings;
+        public KeywordOptions ActiveKeywordOptions => GetActivePresetInternal(false).KeywordOptions;
+
+        /// <summary>
+        /// Gets the turn detection settings declared by the active preset.
+        /// </summary>
+        public TurnDetectionOptions ActiveTurnDetectionOptions => GetActivePresetInternal(false).TurnDetectionOptions.EnsureValid();
 
         /// <summary>
         /// Gets the streaming model identifier from the active preset.

@@ -2,6 +2,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 {
 
     using System;
+    using System.IO;
     using System.Linq;
     using UnityEngine;
 #if EASYMIC_APM_INTEGRATION
@@ -10,8 +11,7 @@ namespace Eitan.EasyMic.Runtime.Mono
     using System.Collections;
 #endif
 
-
-    [AddComponentMenu("Input/Easy Microphone")]
+    [AddComponentMenu("Audio/Input/Easy Microphone")]
     public class EasyMicrophone : MonoBehaviour
     {
 
@@ -27,9 +27,8 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         #region  Internal Fields
 
-        #region  Constant
-        private int MAX_RECORDING_DURATION = 30;
-        #endregion
+        [SerializeField, Range(5, 300)]
+        private int _maxRecordingDurationSeconds = 30;
 
         #region  Private  Fields
 
@@ -37,6 +36,8 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         private RecordingHandle _recordingHandle;
         private AudioCapturer _capturer;
+        private AudioClip _latestRecordingClip;
+        private string _latestRecordingPath;
 
 
         #endregion
@@ -58,7 +59,25 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
         }
 
-        public bool IsRecording => EasyMicAPI.IsDeviceRecording(_deviceOptions.Device);
+        public bool IsRecording
+        {
+            get
+            {
+                if (!_recordingHandle.IsValid)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    return EasyMicAPI.IsHandleAlive(_recordingHandle);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
 
         public MicrophoneOptions MicrophoneOpts => _microphoneOptions;
         public DeviceOptions DeviceOpts => _deviceOptions;
@@ -101,30 +120,37 @@ namespace Eitan.EasyMic.Runtime.Mono
         [Serializable]
         public struct DeviceOptions
         {
-            public MicDevice Device;
+            public string DeviceName;
             public Channel Channel;
             public SampleRate SampleRate;
 
+            public DeviceOptions(string deviceName, Channel channel, SampleRate sampleRate)
+            {
+                DeviceName = deviceName;
+                Channel = channel;
+                SampleRate = sampleRate;
+            }
+
             public DeviceOptions(MicDevice device, Channel channel, SampleRate sampleRate)
             {
-                this.Device = device;
-                this.Channel = channel;
-                this.SampleRate = sampleRate;
+                DeviceName = device.Name;
+                Channel = channel;
+                SampleRate = sampleRate;
             }
+
+            public bool HasDeviceName => !string.IsNullOrEmpty(DeviceName);
 
             public static DeviceOptions Default
             {
                 get
                 {
                     var defaultDevice = EasyMicAPI.Default;
-                    if (defaultDevice.HasValidId)
-                    {
-                        return new DeviceOptions(defaultDevice, defaultDevice.GetPreferredChannel(), defaultDevice.GetPreferredSampleRate());
-                    }
-                    else
+                    if (!defaultDevice.HasValidId)
                     {
                         throw new EasyMicDeviceNotFoundException("No default microphone devices found !");
                     }
+
+                    return new DeviceOptions(defaultDevice.Name, defaultDevice.GetPreferredChannel(), defaultDevice.GetPreferredSampleRate());
                 }
             }
 
@@ -194,6 +220,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
         }
+
         private void Update()
         {
             if (!_recordingHandle.IsValid)
@@ -282,6 +309,25 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
         /// <summary>
+        /// Applies new device options and optionally restarts the recording session.
+        /// </summary>
+        public void ApplyDeviceOptions(DeviceOptions options, bool restartRecording = true)
+        {
+            bool shouldRestart = restartRecording && IsRecording;
+            if (shouldRestart)
+            {
+                StopRecording();
+            }
+
+            _deviceOptions = options;
+
+            if (shouldRestart)
+            {
+                StartRecording();
+            }
+        }
+
+        /// <summary>
         /// Starts capturing audio and streaming it through the configured pipeline.
         /// </summary>
         public void StartRecording()
@@ -301,7 +347,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
             if (IsRecording)
             {
-                UnityEngine.Debug.LogWarning($"The device: {_deviceOptions.Device}. is recording, please stop it first.");
+                UnityEngine.Debug.LogWarning("A recording session is already active. Stop it before starting a new one.");
                 return false;
             }
             if (EasyMicAPI.IsDeviceRecording(device))
@@ -309,15 +355,15 @@ namespace Eitan.EasyMic.Runtime.Mono
                 UnityEngine.Debug.LogWarning($"The device: {device}. is recording, please stop it first.");
                 return false;
             }
-            _deviceOptions.Device = device;
-            if (sampleRateOverride != null && sampleRateOverride.HasValue)
-            {
-                _deviceOptions.SampleRate = sampleRateOverride.Value;
-            }
-            if (channelOverride != null && channelOverride.HasValue)
-            {
-                _deviceOptions.Channel = channelOverride.Value;
-            }
+            var channelToUse = channelOverride.HasValue
+                ? channelOverride.Value
+                : device.GetPreferredChannel(_deviceOptions.Channel);
+
+            var sampleRateToUse = sampleRateOverride.HasValue
+                ? sampleRateOverride.Value
+                : device.GetPreferredSampleRate(_deviceOptions.SampleRate);
+
+            _deviceOptions = new DeviceOptions(device.Name, channelToUse, sampleRateToUse);
 
             InternalStartRecordingHandler();
 
@@ -367,13 +413,13 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
             var defaultDevice = EasyMicAPI.Default;
-            if (!_deviceOptions.Device.HasValidId || !devices.Any(d => d.Name == _deviceOptions.Device.Name))
+            if (!_deviceOptions.HasDeviceName || !devices.Any(d => string.Equals(d.Name, _deviceOptions.DeviceName, StringComparison.Ordinal)))
             {
-                _deviceOptions.Device = defaultDevice;
-                if (_deviceOptions.Device.HasValidId)
+                _deviceOptions.DeviceName = defaultDevice.Name;
+                if (defaultDevice.HasValidId)
                 {
-                    _deviceOptions.Channel = _deviceOptions.Device.GetPreferredChannel();
-                    _deviceOptions.SampleRate = _deviceOptions.Device.GetPreferredSampleRate();
+                    _deviceOptions.Channel = defaultDevice.GetPreferredChannel();
+                    _deviceOptions.SampleRate = defaultDevice.GetPreferredSampleRate();
                 }
             }
         }
@@ -386,6 +432,12 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
             return _capturer.GetCapturedAudioClip();
         }
+
+        public AudioClip LatestRecordingClip => _latestRecordingClip;
+
+        public bool HasRecordedClip => _latestRecordingClip != null;
+
+        public string LastSavedPath => _latestRecordingPath;
         #endregion
 
         #region Private Methods
@@ -400,15 +452,26 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
         private void InternalStartRecordingHandler()
         {
-            var device = _deviceOptions.Device;
-
-            if (!device.HasValidId)
+            EasyMicAPI.Refresh();
+            if (!TryResolveCurrentDevice(out var device))
             {
                 SelectDefaultDevice();
-                if (!device.HasValidId)
+                EasyMicAPI.Refresh();
+                if (!TryResolveCurrentDevice(out device))
                 {
-                    throw new EasyMicDeviceNotFoundException("No microphone device available.");
+                    device = EasyMicAPI.Default;
+                    if (!device.HasValidId)
+                    {
+                        throw new EasyMicDeviceNotFoundException("No microphone device available.");
+                    }
                 }
+            }
+
+            if (device.HasValidId)
+            {
+                _deviceOptions.DeviceName = device.Name;
+                _deviceOptions.Channel = device.GetPreferredChannel(_deviceOptions.Channel);
+                _deviceOptions.SampleRate = device.GetPreferredSampleRate(_deviceOptions.SampleRate);
             }
 
             if (_pipelineBlueprint == null)
@@ -417,7 +480,9 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return;
             }
 
-            _recordingHandle = EasyMicAPI.StartRecording(_deviceOptions.Device, _deviceOptions.SampleRate, _deviceOptions.Channel);
+            var deviceName = string.IsNullOrEmpty(_deviceOptions.DeviceName) ? null : _deviceOptions.DeviceName;
+
+            _recordingHandle = EasyMicAPI.StartRecording(deviceName, _deviceOptions.SampleRate, _deviceOptions.Channel);
             EasyMicAPI.AddProcessor(_recordingHandle, _pipelineBlueprint);
             OnRecordingStateChanged?.Invoke(true);
             OnStartRecording(_recordingHandle);
@@ -431,16 +496,17 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
             EasyMicAPI.StopRecording(_recordingHandle);
+            CacheLatestRecording();
             OnStopRecording(_recordingHandle);
             _recordingHandle = default;
             OnRecordingStateChanged?.Invoke(false);
         }
 
-        private void InternalDevicesChangedHandler(MicDevicesChangedEventArgs _)
+        private void InternalDevicesChangedHandler(MicDevicesChangedEventArgs args)
         {
             var wasRecording = IsRecording;
 
-            var currentStillPresent = _deviceOptions.Device.HasValidId && EasyMicAPI.Devices.Any(d => d.Name == _deviceOptions.Device.Name);
+            var currentStillPresent = TryResolveCurrentDevice(out _);
 
             if (!currentStillPresent && IsRecording)
             {
@@ -449,14 +515,47 @@ namespace Eitan.EasyMic.Runtime.Mono
             if (_microphoneOptions.autoFallback)
             {
                 SelectDefaultDevice();
+                EasyMicAPI.Refresh();
 
-                if (_deviceOptions.Device.HasValidId && ((wasRecording && !IsRecording)))
+                if (TryResolveCurrentDevice(out var fallbackDevice) && fallbackDevice.HasValidId)
+                {
+                    _deviceOptions.DeviceName = fallbackDevice.Name;
+                    _deviceOptions.Channel = fallbackDevice.GetPreferredChannel(_deviceOptions.Channel);
+                    _deviceOptions.SampleRate = fallbackDevice.GetPreferredSampleRate(_deviceOptions.SampleRate);
+                }
+
+                if (wasRecording && !IsRecording)
                 {
                     StartRecording();
                 }
 
-                OnDevicesChanged(_);
+                OnDevicesChanged(args);
             }
+        }
+
+        private bool TryResolveCurrentDevice(out MicDevice device)
+        {
+            var devices = EasyMicAPI.Devices;
+            if (devices == null || devices.Length == 0)
+            {
+                device = default;
+                return false;
+            }
+
+            if (!_deviceOptions.HasDeviceName)
+            {
+                device = devices.FirstOrDefault(d => string.IsNullOrEmpty(d.Name));
+                return device.HasValidId;
+            }
+
+            device = devices.FirstOrDefault(d => string.Equals(d.Name, _deviceOptions.DeviceName, StringComparison.Ordinal));
+            if (device.HasValidId)
+            {
+                return true;
+            }
+
+            device = devices.FirstOrDefault(d => string.Equals(d.Name, _deviceOptions.DeviceName, StringComparison.OrdinalIgnoreCase));
+            return device.HasValidId;
         }
 
         private void InternalBuildAudioPipelineBlueprint()
@@ -484,56 +583,151 @@ namespace Eitan.EasyMic.Runtime.Mono
                 pipeline.AddWorker(downmixer);
                 OnAudioPiplineBuild(pipeline);
 
-                // if (_capturer == null) {
-                //     _capturer = new AudioCapturer();
-                // }
                 if (_capturer == null)
                 {
-                    _capturer = new AudioCapturer(MAX_RECORDING_DURATION);
+                    _capturer = new AudioCapturer(Mathf.Max(5, _maxRecordingDurationSeconds));
                 }
                 pipeline.AddWorker(_capturer);
 
-                // if (_config.VolumeDbThreshold < 0f)
-                // {
-                //     pipeline.AddWorker(new VolumeGateFilter { ThresholdDb = _config.VolumeDbThreshold });
-                // }
-
-                // var acousticDetector = new AcousticEndpointDetector();
-                // acousticDetector.OnSpeechStateChanged = OnAcousticSpeechStateChanged;
-                // acousticDetector.OnEndpointDetected = OnAcousticEndpointDetected;
-                // pipeline.AddWorker(acousticDetector);
-                // _acousticEndpointDetector = acousticDetector;
-
-                // if (_requiresOffline && _vadService != null)
-                // {
-                //     var vadFilter = new SherpaVoiceFilter(_vadService);
-                //     vadFilter.OnVoiceActivityChanged += HandleVoiceActivity;
-                //     pipeline.AddWorker(vadFilter);
-                // }
-
-                // if (_keywordService != null)
-                // {
-                //     var kws = new SherpaKeywordDetector(_keywordService);
-                //     kws.OnKeywordDetected += HandleWakeWord;
-                //     pipeline.AddWorker(kws);
-                // }
-
-                // if (_streamingService != null)
-                // {
-                //     var online = new SherpaRealtimeSpeechRecognizer(_streamingService);
-                //     online.OnRecognitionResult += HandleStreamingRecognition;
-                //     pipeline.AddWorker(online);
-                // }
-
-                // if (_offlineService != null)
-                // {
-                //     var offline = new SherpaOfflineSpeechRecognizer(_offlineService);
-                //     offline.OnRecognitionResult += HandleOfflineRecognition;
-                //     pipeline.AddWorker(offline);
-                // }
-
                 return pipeline;
             });
+        }
+
+        private void CacheLatestRecording()
+        {
+            if (_capturer == null)
+            {
+                ReplaceLatestRecording(null);
+                return;
+            }
+
+
+            var clip = _capturer.GetCapturedAudioClip();
+            if (clip == null)
+            {
+                ReplaceLatestRecording(null);
+                return;
+            }
+
+            clip.name = $"{name}_Recording_{DateTime.Now:yyyyMMdd_HHmmss}";
+            ReplaceLatestRecording(clip);
+        }
+
+        private void ReplaceLatestRecording(AudioClip clip)
+        {
+            if (_latestRecordingClip != null && _latestRecordingClip != clip)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(_latestRecordingClip);
+                }
+                else
+                {
+                    DestroyImmediate(_latestRecordingClip);
+                }
+            }
+
+            _latestRecordingClip = clip;
+        }
+
+        public bool TrySaveLatestRecording(string destinationPath, bool overwrite = true)
+        {
+            if (!HasRecordedClip)
+            {
+                UnityEngine.Debug.LogWarning("EasyMicrophone: No recorded audio available to save.");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(destinationPath))
+            {
+                UnityEngine.Debug.LogWarning("EasyMicrophone: Destination path is empty.");
+                return false;
+            }
+
+            var finalPath = EnsureWavExtension(destinationPath);
+
+            try
+            {
+                var directory = Path.GetDirectoryName(finalPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                if (!overwrite && File.Exists(finalPath))
+                {
+                    UnityEngine.Debug.LogWarning($"EasyMicrophone: Target file already exists and overwrite is disabled. Path: {finalPath}");
+                    return false;
+                }
+
+                WriteClipToWav(_latestRecordingClip, finalPath);
+                _latestRecordingPath = finalPath;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError($"EasyMicrophone: Failed to save recording. {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string EnsureWavExtension(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            var extension = Path.GetExtension(path);
+            return string.IsNullOrEmpty(extension) || !extension.Equals(".wav", StringComparison.OrdinalIgnoreCase)
+                ? path + ".wav"
+                : path;
+        }
+
+        private static void WriteClipToWav(AudioClip clip, string path)
+        {
+            const int headerSize = 44;
+            var channels = Mathf.Max(1, clip.channels);
+            var sampleRate = Mathf.Max(8000, clip.frequency);
+            var samplesPerChannel = Mathf.Max(1, clip.samples);
+
+            var totalSamples = samplesPerChannel * channels;
+
+            var samples = new float[totalSamples];
+            clip.GetData(samples, 0);
+
+            using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            fileStream.Seek(headerSize, SeekOrigin.Begin);
+
+            var bytes = new byte[2];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                var clamped = Mathf.Clamp(samples[i], -1f, 1f);
+                short value = (short)Mathf.RoundToInt(clamped * short.MaxValue);
+                bytes[0] = (byte)(value & 0xFF);
+                bytes[1] = (byte)((value >> 8) & 0xFF);
+                fileStream.Write(bytes);
+            }
+
+            int byteRate = sampleRate * channels * sizeof(short);
+            int dataSize = totalSamples * sizeof(short);
+            int fileSize = dataSize + headerSize - 8;
+
+            fileStream.Seek(0, SeekOrigin.Begin);
+            using var writer = new BinaryWriter(fileStream, System.Text.Encoding.UTF8, leaveOpen: true);
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"));
+            writer.Write(fileSize);
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"));
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)channels);
+            writer.Write(sampleRate);
+            writer.Write(byteRate);
+            writer.Write((short)(channels * sizeof(short)));
+            writer.Write((short)16);
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("data"));
+            writer.Write(dataSize);
         }
 
         #endregion
