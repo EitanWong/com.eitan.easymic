@@ -234,7 +234,7 @@ Adds an audio processor (created from the blueprint) to a session at runtime. If
 **Example:**
 
 ```csharp
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 ```
 

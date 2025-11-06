@@ -64,7 +64,7 @@ public class FirstRecording : MonoBehaviour
         }
 
         // 2) Start with a simple pipeline via blueprints
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _recordingHandle = EasyMicAPI.StartRecording(
             devices[0].Name,
             SampleRate.Hz48000,

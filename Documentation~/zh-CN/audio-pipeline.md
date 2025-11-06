@@ -295,7 +295,7 @@ public class DynamicPipelineController : MonoBehaviour
     void Start()
     {
         _handle = EasyMicAPI.StartRecording("Microphone");
-        _capturer = new AudioCapturer(10);
+        _capturer = new AudioCapturer();
         EasyMicAPI.AddProcessor(_handle, _capturer);
     }
 
@@ -399,7 +399,7 @@ for (int frame = 0; frame < frameCount; frame++)
 var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),  key: "downmix");
 var bpa = new AudioWorkerBlueprint(() => new GainProcessor(),   key: "gain");
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
 EasyMicAPI.AddProcessor(handle, bpg);   // 1. 先移除噪音
 EasyMicAPI.AddProcessor(handle, bpd);   // 2. 转换为单声道
 EasyMicAPI.AddProcessor(handle, bpa);   // 3. 调整音量
@@ -424,7 +424,7 @@ public class ProperProcessorManagement : MonoBehaviour
 
         // 保持引用以便正确释放
         var gate = new VolumeGateFilter();
-        var capturer = new AudioCapturer(5);
+        var capturer = new AudioCapturer();
 
         _processors.Add(gate);
         _processors.Add(capturer);

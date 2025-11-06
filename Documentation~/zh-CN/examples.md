@@ -44,7 +44,7 @@ public class SimpleVoiceRecorder : MonoBehaviour
         if (_recordingHandle.IsValid)
         {
             // 通过蓝图添加捕获器保存音频
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer((int)maxDuration), key: "capture");
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
             EasyMicAPI.AddProcessor(_recordingHandle, _bpCapture);
 
             var info = EasyMicAPI.GetRecordingInfo(_recordingHandle);
@@ -117,7 +117,7 @@ public class HiFiRecorder : MonoBehaviour
 
         if (_handle.IsValid)
         {
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture");
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
             EasyMicAPI.AddProcessor(_handle, _bpCapture);
 
             Debug.Log($"🎼 高质量录音：{bestDevice.Name} @ 48kHz 立体声");
@@ -520,7 +520,7 @@ public class VoiceChatManager : MonoBehaviourPunPV, IPunObservable
                 ReleaseTime = 0.1f
             };
 
-            _capturer = new AudioCapturer(1); // 1秒缓冲
+            _capturer = new AudioCapturer(); // 预览缓存自动管理
             _transmitter = new VoiceTransmitter(this);
 
             EasyMicAPI.AddProcessor(_handle, _noiseGate);
@@ -831,7 +831,7 @@ public class AndroidVoiceNotes : MonoBehaviour
                 ReleaseTime = 0.3f
             };
 
-            _capturer = new AudioCapturer(300); // 最多5分钟
+            _capturer = new AudioCapturer(); // 预览缓存自动管理
 
             EasyMicAPI.AddProcessor(_handle, _noiseGate);
             EasyMicAPI.AddProcessor(_handle, _capturer);

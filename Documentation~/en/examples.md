@@ -46,7 +46,7 @@ public class SimpleVoiceRecorder : MonoBehaviour
         if (_recordingHandle.IsValid)
         {
             // Add capturer via blueprint to save audio
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer((int)maxDuration), key: "capture");
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
             EasyMicAPI.AddProcessor(_recordingHandle, _bpCapture);
 
             var info = EasyMicAPI.GetRecordingInfo(_recordingHandle);
@@ -119,7 +119,7 @@ public class HiFiRecorder : MonoBehaviour
 
         if (_handle.IsValid)
         {
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture");
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
             EasyMicAPI.AddProcessor(_handle, _bpCapture);
 
             Debug.Log($"🎼 High-quality recording: {bestDevice.Name} @ 48kHz Stereo");
@@ -522,7 +522,7 @@ public class VoiceChatManager : MonoBehaviourPunPV, IPunObservable
                 ReleaseTime = 0.1f
             };
 
-            _capturer = new AudioCapturer(1); // 1 second buffer
+            _capturer = new AudioCapturer(); // Preview cache auto-managed
             _transmitter = new VoiceTransmitter(this);
 
             EasyMicAPI.AddProcessor(_handle, _noiseGate);
@@ -833,7 +833,7 @@ public class AndroidVoiceNotes : MonoBehaviour
                 ReleaseTime = 0.3f
             };
 
-            _capturer = new AudioCapturer(300); // 5 minutes max
+            _capturer = new AudioCapturer(); // Preview cache auto-managed
 
             EasyMicAPI.AddProcessor(_handle, _noiseGate);
             EasyMicAPI.AddProcessor(_handle, _capturer);

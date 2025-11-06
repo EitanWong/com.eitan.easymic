@@ -42,7 +42,6 @@ namespace Eitan.EasyMic.Samples.Recording
         private AudioSource _audioSource;
         private AudioClip _audioClip;
         private bool _wasAudioSourcePlaying;
-        private const int MaxCaptureDurationSeconds = 30;
 
         private bool IsRecording
         {
@@ -62,7 +61,7 @@ namespace Eitan.EasyMic.Samples.Recording
         {
             _audioSource = GetComponent<AudioSource>();
 
-            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(MaxCaptureDurationSeconds), "capture");
+            _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), "capture");
             _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), "downmix");
 
             _recordButton.onClick.AddListener(OnRecordButtonPressed);

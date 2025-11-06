@@ -20,15 +20,18 @@ namespace Eitan.EasyMic.Runtime.Mono
         private MicrophoneOptions _microphoneOptions = MicrophoneOptions.Default;
 
         [SerializeField] private DeviceOptions _deviceOptions = DeviceOptions.Default;
-#if  EASYMIC_APM_INTEGRATION       
+#if  EASYMIC_APM_INTEGRATION
         [SerializeField] private AudioProcessingOptions _audioProcessingOptions = AudioProcessingOptions.Default;
 #endif
         #endregion
 
         #region  Internal Fields
 
-        [SerializeField, Range(5, 300)]
-        private int _maxRecordingDurationSeconds = 30;
+        // Optional: directory to save streaming recordings. If empty, defaults to Application.persistentDataPath + "/EasyMicRecordings"
+        [SerializeField] private string _recordingDirectory = string.Empty;
+
+        // Segment rollover size to avoid 4GB RIFF WAV limits (bytes). Default ~2GB safety margin.
+        [SerializeField] private long _segmentSizeBytes = 2L * 1024 * 1024 * 1024 - (8L * 1024);
 
         #region  Private  Fields
 
@@ -38,6 +41,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         private AudioCapturer _capturer;
         private AudioClip _latestRecordingClip;
         private string _latestRecordingPath;
+        private StreamingWavWriter _streamingWriter;
 
 
         #endregion
@@ -94,7 +98,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         #endregion
 
 
-        #region Structure 
+        #region Structure
 
         [Serializable]
         public struct MicrophoneOptions
@@ -249,6 +253,8 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
             catch { }
             EasyMicAPI.StopAllRecordings();
+            _streamingWriter?.Dispose();
+            _streamingWriter = null;
         }
 
 
@@ -480,13 +486,26 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return;
             }
 
+            // Prepare streaming writer (lazy-open on first samples)
+            if (string.IsNullOrEmpty(_recordingDirectory))
+            {
+                _recordingDirectory = System.IO.Path.Combine(Application.persistentDataPath, "EasyMicRecordings");
+            }
+            try { if (!System.IO.Directory.Exists(_recordingDirectory)) { System.IO.Directory.CreateDirectory(_recordingDirectory); } } catch { }
+            string fileBase = $"{name}_Recording_{DateTime.Now:yyyyMMdd_HHmmss}";
+            _streamingWriter = new StreamingWavWriter(_recordingDirectory, fileBase, _segmentSizeBytes);
+
             var deviceName = string.IsNullOrEmpty(_deviceOptions.DeviceName) ? null : _deviceOptions.DeviceName;
 
             _recordingHandle = EasyMicAPI.StartRecording(deviceName, _deviceOptions.SampleRate, _deviceOptions.Channel);
             EasyMicAPI.AddProcessor(_recordingHandle, _pipelineBlueprint);
+            // Route captured audio to streaming sink
+            if (_capturer != null)
+            {
+                _capturer.SetSink(_streamingWriter);
+            }
             OnRecordingStateChanged?.Invoke(true);
             OnStartRecording(_recordingHandle);
-
         }
         private void InternalStopRecordingHandler()
         {
@@ -496,6 +515,9 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
             EasyMicAPI.StopRecording(_recordingHandle);
+            // finalize streaming file(s)
+            _streamingWriter?.Dispose();
+            _streamingWriter = null;
             CacheLatestRecording();
             OnStopRecording(_recordingHandle);
             _recordingHandle = default;
@@ -585,12 +607,148 @@ namespace Eitan.EasyMic.Runtime.Mono
 
                 if (_capturer == null)
                 {
-                    _capturer = new AudioCapturer(Mathf.Max(5, _maxRecordingDurationSeconds));
+                    _capturer = new AudioCapturer();
                 }
                 pipeline.AddWorker(_capturer);
 
                 return pipeline;
             });
+        }
+
+        /// <summary>
+        /// Streaming 16-bit PCM WAV writer with safe segment rollover to avoid 4GB RIFF limits.
+        /// Thread-affinity: methods may be called from the audio thread.
+        /// </summary>
+        private sealed class StreamingWavWriter : IAudioSink, IDisposable
+        {
+            private readonly string _directory;
+            private readonly string _fileBase;
+            private readonly long _segmentLimit;
+
+            private System.IO.FileStream _fs;
+            private string _currentPath;
+            private int _segmentIndex = -1;
+
+            private int _sampleRate;
+            private int _channels;
+            private long _dataBytesWritten;
+
+            private byte[] _scratch; // reused conversion buffer
+
+            public string CurrentPath => _currentPath;
+
+            public StreamingWavWriter(string directory, string fileBase, long segmentLimit)
+            {
+                _directory = directory;
+                _fileBase = fileBase;
+                _segmentLimit = Math.Max(128 * 1024, segmentLimit);
+            }
+
+            public void OnSamples(ReadOnlySpan<float> samples, int sampleRate, int channels)
+            {
+                if (samples.IsEmpty)
+                {
+                    return;
+                }
+
+
+                if (_fs == null)
+                {
+                    _sampleRate = Math.Max(8000, sampleRate);
+                    _channels = Math.Max(1, channels);
+                    OpenNextSegment();
+                }
+
+                // Bytes needed for this block
+                int needed = samples.Length * sizeof(short);
+                if (_scratch == null || _scratch.Length < needed)
+                {
+                    _scratch = new byte[needed];
+                }
+
+                // Convert float [-1,1] -> int16 little-endian in-place into _scratch
+                int outIdx = 0;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    float f = samples[i];
+                    if (f > 1f)
+                    {
+                        f = 1f;
+                    }
+                    else if (f < -1f)
+                    {
+                        f = -1f;
+                    }
+
+
+                    short v = (short)Mathf.RoundToInt(f * short.MaxValue);
+                    _scratch[outIdx++] = (byte)(v & 0xFF);
+                    _scratch[outIdx++] = (byte)((v >> 8) & 0xFF);
+                }
+
+                // Rollover if this write would exceed segment limit (account for header size)
+                const int HeaderSize = 44;
+                if (_dataBytesWritten + needed + HeaderSize > _segmentLimit)
+                {
+                    CloseCurrentSegment();
+                    OpenNextSegment();
+                }
+
+                _fs.Write(_scratch, 0, needed);
+                _dataBytesWritten += needed;
+            }
+
+            private void OpenNextSegment()
+            {
+                _segmentIndex++;
+                _currentPath = System.IO.Path.Combine(_directory, _fileBase + $"_part{_segmentIndex:000}.wav");
+                _fs = new System.IO.FileStream(_currentPath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.Read, 1 << 20, System.IO.FileOptions.SequentialScan);
+                WriteWavHeader(_fs, _sampleRate, _channels, 0); // placeholder sizes
+                _dataBytesWritten = 0;
+            }
+
+            private static void WriteWavHeader(System.IO.FileStream fs, int sampleRate, int channels, int dataBytes)
+            {
+                int byteRate = sampleRate * channels * sizeof(short);
+                int blockAlign = channels * sizeof(short);
+                int riffSize = 36 + dataBytes;
+
+                using var bw = new System.IO.BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: true);
+                bw.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
+                bw.Write(riffSize);
+                bw.Write(System.Text.Encoding.ASCII.GetBytes("WAVE"));
+                bw.Write(System.Text.Encoding.ASCII.GetBytes("fmt "));
+                bw.Write(16);
+                bw.Write((short)1);
+                bw.Write((short)channels);
+                bw.Write(sampleRate);
+                bw.Write(byteRate);
+                bw.Write((short)blockAlign);
+                bw.Write((short)16);
+                bw.Write(System.Text.Encoding.ASCII.GetBytes("data"));
+                bw.Write(dataBytes);
+            }
+
+            private void CloseCurrentSegment()
+            {
+                if (_fs == null)
+                {
+                    return;
+                }
+                // Patch sizes into the header
+
+                long totalBytes = _dataBytesWritten;
+                _fs.Seek(0, System.IO.SeekOrigin.Begin);
+                WriteWavHeader(_fs, _sampleRate, _channels, (int)Math.Min(int.MaxValue, totalBytes));
+                _fs.Flush(true);
+                _fs.Dispose();
+                _fs = null;
+            }
+
+            public void Dispose()
+            {
+                CloseCurrentSegment();
+            }
         }
 
         private void CacheLatestRecording()

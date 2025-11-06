@@ -202,7 +202,7 @@ public class AudioDebugger : MonoBehaviour
         EasyMicAPI.AddProcessor(_handle, _monitor);
 
         // Add capturer
-        _capturer = new AudioCapturer(5);
+        _capturer = new AudioCapturer();
         EasyMicAPI.AddProcessor(_handle, _capturer);
 
         // Check volume levels
@@ -249,11 +249,8 @@ public class VolumeMonitor : AudioReader
 #### 1. Buffer Underrun
 
 ```csharp
-// ❌ Too small buffer
-var capturer = new AudioCapturer(1); // Only 1 second
-
-// ✅ Adequate buffer size
-var capturer = new AudioCapturer(10); // 10 seconds headroom
+// ✅ Preview cache is auto-managed – just use the default capturer.
+var capturer = new AudioCapturer();
 ```
 
 #### 2. Processing Too Heavy
@@ -347,7 +344,7 @@ var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
 
 ```csharp
 // ❌ Poor processing order
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
 var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
 EasyMicAPI.AddProcessor(handle, bpc);      // Captures early

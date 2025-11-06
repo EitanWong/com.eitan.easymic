@@ -199,7 +199,7 @@ public class AudioDebugger : MonoBehaviour
         EasyMicAPI.AddProcessor(_handle, _monitor);
 
         // 添加捕获器
-        _capturer = new AudioCapturer(5);
+        _capturer = new AudioCapturer();
         EasyMicAPI.AddProcessor(_handle, _capturer);
 
         // 检查音量等级
@@ -246,11 +246,8 @@ public class VolumeMonitor : AudioReader
 #### 1. 缓冲区不足
 
 ```csharp
-// ❌ 缓冲区太小
-var capturer = new AudioCapturer(1); // 只有1秒
-
-// ✅ 足够的缓冲区大小
-var capturer = new AudioCapturer(10); // 10秒余量
+// ✅ 预览缓存由系统自动调优，只需使用默认构造即可。
+var capturer = new AudioCapturer();
 ```
 
 #### 2. 处理过重
@@ -344,7 +341,7 @@ var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
 
 ```csharp
 // ❌ 处理顺序差
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
 var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
 EasyMicAPI.AddProcessor(handle, bpc);      // 早期捕获

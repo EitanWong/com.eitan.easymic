@@ -216,7 +216,7 @@ public class RecordingManager : MonoBehaviour
             .WithQuality(SampleRate.Hz48000, Channel.Stereo)
             .AddProcessor(new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30f }, key: "gate"))
             .AddProcessor(new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix"))
-            .AddProcessor(new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture"))
+            .AddProcessor(new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture"))
             .Build();
     }
 }

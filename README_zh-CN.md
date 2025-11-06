@@ -92,7 +92,7 @@ public class SimpleRecorder : MonoBehaviour
         var devs = EasyMicAPI.Devices;
         if (devs.Length == 0) return;
 
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _handle = EasyMicAPI.StartRecording(devs[0].Name, SampleRate.Hz48000, devs[0].GetDeviceChannel(), new[]{ _bpCapture });
         Invoke(nameof(StopRecording), 5f);
     }
@@ -128,7 +128,7 @@ public class AdvancedAudioPipeline : MonoBehaviour
 
         _bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -35 }, key: "gate");
         _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 
         _handle = EasyMicAPI.StartRecording(d[0].Name, SampleRate.Hz44100, d[0].GetDeviceChannel(),
             new[]{ _bpGate, _bpDownmix, _bpCapture });

@@ -51,7 +51,7 @@ var devices = EasyMicAPI.Devices;
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 
 // Add processors via blueprints
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpCapture);
 
 // Stop recording
@@ -96,7 +96,7 @@ The heart of EasyMic's processing system. Manages an ordered chain of audio proc
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpGate);
 EasyMicAPI.AddProcessor(handle, bpDownmix);
 EasyMicAPI.AddProcessor(handle, bpCapture);

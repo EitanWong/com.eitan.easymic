@@ -51,7 +51,7 @@ var devices = EasyMicAPI.Devices;
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 
 // 通过“蓝图”添加处理器
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpCapture);
 
 // 停止录音
@@ -96,7 +96,7 @@ EasyMic 处理系统的核心。管理音频处理器的有序链：
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpGate);
 EasyMicAPI.AddProcessor(handle, bpDownmix);
 EasyMicAPI.AddProcessor(handle, bpCapture);

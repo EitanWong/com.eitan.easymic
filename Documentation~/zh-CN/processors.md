@@ -55,7 +55,7 @@ public class VolumeAnalyzer : AudioReader
 
 ```csharp
 // 创建“蓝图”并加入流水线
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 
 // 稍后通过蓝图获取实例并取回音频
