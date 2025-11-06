@@ -6,22 +6,27 @@ using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.Editor
 {
-
     [CustomEditor(typeof(EasyMicrophone))]
     public class EasyMicrophoneInspector : UnityEditor.Editor
     {
-
         private EasyMicrophone _mic;
 
         private SerializedProperty _microphoneOptionsProp;
         private SerializedProperty _deviceOptionsProp;
-        private SerializedProperty _maxDurationProp;
 #if EASYMIC_APM_INTEGRATION
         private SerializedProperty _audioProcessingOptionsProp;
 #endif
 
-        private AudioClip _cachedClip;
-        private UnityEditor.Editor _clipPreviewEditor;
+        // === Preview state ===
+        private PreviewPlayer _player = new PreviewPlayer();
+        private bool _loopPreview;
+        private bool _isScrubbing;
+
+        // === Waveform cache ===
+        private Texture2D _waveformTex;
+        private AudioClip _waveformFor;
+        private int _waveformWidth;
+        private const int WaveformHeight = 72;
 
         private void OnEnable()
         {
@@ -29,18 +34,21 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             _microphoneOptionsProp = serializedObject.FindProperty("_microphoneOptions");
             _deviceOptionsProp = serializedObject.FindProperty("_deviceOptions");
-            _maxDurationProp = serializedObject.FindProperty("_maxRecordingDurationSeconds");
 #if EASYMIC_APM_INTEGRATION
             _audioProcessingOptionsProp = serializedObject.FindProperty("_audioProcessingOptions");
 #endif
 
             SubscribeToRuntimeEvents();
+            EditorApplication.update -= EditorUpdate;
+            EditorApplication.update += EditorUpdate;
         }
 
         private void OnDisable()
         {
             UnsubscribeFromRuntimeEvents();
-            DisposeClipPreview();
+            EditorApplication.update -= EditorUpdate;
+            _player?.Dispose();
+            _player = null;
         }
 
         [MenuItem("GameObject/Audio/Input/Easy Microphone", false, -1)]
@@ -69,7 +77,6 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             else
             {
                 var mic = _mic;
-                RefreshClipPreview(mic);
 
                 DrawStatusSection(mic);
                 EditorGUILayout.Space(Styles.SectionSpacing);
@@ -109,10 +116,6 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 using (new EditorGUI.DisabledScope(true))
                 {
                     EditorGUILayout.IntField("Available Devices", mic.AvailableDevices.Length);
-                    if (_maxDurationProp != null)
-                    {
-                        EditorGUILayout.IntField("Max Recording Duration (s)", _maxDurationProp.intValue);
-                    }
                 }
             }
         }
@@ -133,10 +136,6 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     EditorGUILayout.PropertyField(_deviceOptionsProp);
                 }
 
-                if (_maxDurationProp != null)
-                {
-                    EditorGUILayout.PropertyField(_maxDurationProp, new GUIContent("Recording Duration (s)"));
-                }
 #if EASYMIC_APM_INTEGRATION
                 EditorGUILayout.Space(Styles.HeaderBodySpacing);
                 EditorGUILayout.LabelField("Audio Processing", Styles.SectionHeader);
@@ -184,9 +183,14 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Recording Result", Styles.SectionHeader);
+                EditorGUILayout.LabelField("Recording Preview", Styles.SectionHeader);
 
                 var clip = mic.LatestRecordingClip;
+                if (clip != null)
+                {
+                    clip.LoadAudioData();
+                }
+
 
                 if (clip == null)
                 {
@@ -194,125 +198,81 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     return;
                 }
 
-                using (new EditorGUI.DisabledScope(true))
+                // Ensure player is ready
+                _player.Ensure(clip);
+                _player.SetLoop(_loopPreview);
+
+                // Waveform + playhead
+                var waveformRect = GUILayoutUtility.GetRect(10, 10000, WaveformHeight, WaveformHeight, GUILayout.ExpandWidth(true));
+
+                // Mouse seek (drag anywhere, whether playing or not)
+                var e = Event.current;
+                if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && waveformRect.Contains(e.mousePosition))
                 {
-                    EditorGUILayout.ObjectField("Audio Clip", clip, typeof(AudioClip), false);
+                    float tSeek = Mathf.InverseLerp(waveformRect.xMin, waveformRect.xMax, e.mousePosition.x);
+                    int frameSeek = Mathf.Clamp(Mathf.RoundToInt(tSeek * clip.samples), 0, Mathf.Max(0, clip.samples - 1));
+                    _player.SeekSamples(frameSeek);
+                    _isScrubbing = true;
+                    Repaint();
+                    e.Use();
+                }
+                else if (e.type == EventType.MouseUp)
+                {
+                    _isScrubbing = false;
                 }
 
-                EditorGUILayout.LabelField("Length", $"{clip.length:F2} s", Styles.MutedLabel);
-                EditorGUILayout.LabelField("Sample Rate", $"{clip.frequency} Hz", Styles.MutedLabel);
-                EditorGUILayout.LabelField("Channels", clip.channels.ToString(), Styles.MutedLabel);
+                EnsureWaveformTexture(clip, (int)waveformRect.width);
+                if (_waveformTex != null)
+                {
+                    // background + waveform
+                    EditorGUI.DrawRect(waveformRect, EditorGUIUtility.isProSkin ? new Color(0f, 0f, 0f, 0.25f) : new Color(0f, 0f, 0f, 0.1f));
+                    GUI.DrawTexture(waveformRect, _waveformTex, ScaleMode.StretchToFill);
+                    // playhead
+                    int currentFrame = _player.CurrentSamples;
+                    float t = Mathf.InverseLerp(0f, clip.samples, currentFrame);
+                    float x = Mathf.Lerp(waveformRect.xMin, waveformRect.xMax, t);
+                    var playhead = new Rect(x - 1f, waveformRect.yMin, 2f, waveformRect.height);
+                    EditorGUI.DrawRect(playhead, EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.85f) : new Color(0f, 0f, 0f, 0.95f));
+                }
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    GUILayout.FlexibleSpace();
+                    // Icon-only Play/Pause
+                    var playIcon = _player.IsPlaying
+                        ? EditorGUIUtility.IconContent("PauseButton", "Pause")
+                        : EditorGUIUtility.IconContent("PlayButton", "Play");
 
-                    if (GUILayout.Button("Save As...", Styles.SecondaryButton))
+                    if (GUILayout.Button(playIcon, Styles.IconButton))
                     {
-                        SaveClipToDisk(mic, clip);
+                        _player.PlayPause();
                     }
+
+                    // Icon-only Loop (smaller, styled)
+                    var loopIcon = _loopPreview
+                        ? EditorGUIUtility.IconContent("preAudioLoopOn", "Loop")
+                        : EditorGUIUtility.IconContent("preAudioLoopOff", "Loop");
+
+                    bool newLoop = GUILayout.Toggle(_loopPreview, loopIcon, Styles.IconToggle);
+                    if (newLoop != _loopPreview)
+                    {
+                        _loopPreview = newLoop;
+                        _player.SetLoop(_loopPreview);
+                    }
+
+                    GUILayout.FlexibleSpace();
                 }
+
+                // Lightweight metadata
+                EditorGUILayout.LabelField("Length", $"{clip.length:F2} s", Styles.MutedLabel);
+                EditorGUILayout.LabelField("Sample Rate", $"{clip.frequency} Hz", Styles.MutedLabel);
+                EditorGUILayout.LabelField("Channels", clip.channels.ToString(), Styles.MutedLabel);
             }
         }
 
-        private void SaveClipToDisk(EasyMicrophone mic, AudioClip clip)
-        {
-            string directory = mic.LastSavedPath;
-            if (string.IsNullOrEmpty(directory))
-            {
-                directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "EasyMic");
-            }
-            else
-            {
-                directory = Path.GetDirectoryName(directory);
-            }
-
-            string defaultName = clip != null && !string.IsNullOrEmpty(clip.name) ? clip.name : $"Recording_{DateTime.Now:yyyyMMdd_HHmmss}";
-            string path = EditorUtility.SaveFilePanel("Save Recording", directory, defaultName, "wav");
-
-            if (string.IsNullOrEmpty(path))
-            {
-                return;
-            }
-
-            if (mic.TrySaveLatestRecording(path))
-            {
-                EditorUtility.DisplayDialog("EasyMic", "Recording saved successfully.", "OK");
-                if (path.StartsWith(Application.dataPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    AssetDatabase.Refresh();
-                }
-            }
-            else
-            {
-                EditorUtility.DisplayDialog("EasyMic", "Failed to save the recording. See the console for details.", "OK");
-            }
-        }
-
-        public override bool HasPreviewGUI()
-        {
-            return Application.isPlaying && _cachedClip != null && _clipPreviewEditor != null;
-        }
-
-        public override GUIContent GetPreviewTitle()
-        {
-            return new GUIContent("Recording Preview");
-        }
-
-        public override void OnPreviewGUI(Rect r, GUIStyle background)
-        {
-            if (!Application.isPlaying)
-            {
-                return;
-            }
-
-            RefreshClipPreview(_mic);
-
-            if (_clipPreviewEditor != null && _cachedClip != null)
-            {
-                _clipPreviewEditor.OnPreviewGUI(r, background);
-            }
-        }
-
-        public override void OnPreviewSettings()
-        {
-            if (_clipPreviewEditor != null && _cachedClip != null)
-            {
-                _clipPreviewEditor.OnPreviewSettings();
-            }
-        }
-
-        private void RefreshClipPreview(EasyMicrophone mic)
-        {
-            if (mic == null)
-            {
-                return;
-            }
-
-            var latestClip = mic.LatestRecordingClip;
-            if (latestClip == _cachedClip)
-            {
-                return;
-            }
-
-            DisposeClipPreview();
-
-            _cachedClip = latestClip;
-            if (_cachedClip != null)
-            {
-                _clipPreviewEditor = UnityEditor.Editor.CreateEditor(_cachedClip);
-            }
-        }
-
-        private void DisposeClipPreview()
-        {
-            _cachedClip = null;
-            if (_clipPreviewEditor != null)
-            {
-                DestroyImmediate(_clipPreviewEditor);
-                _clipPreviewEditor = null;
-            }
-        }
+        public override bool HasPreviewGUI() => false; // All preview UI is in the inspector.
+        public override GUIContent GetPreviewTitle() => new GUIContent("Recording Preview");
+        public override void OnPreviewGUI(Rect r, GUIStyle background) { }
+        public override void OnPreviewSettings() { }
 
         private void SubscribeToRuntimeEvents()
         {
@@ -320,6 +280,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             {
                 return;
             }
+
 
             _mic.OnRecordingStateChanged -= HandleRecordingStateChanged;
             _mic.OnRecordingStateChanged += HandleRecordingStateChanged;
@@ -335,19 +296,156 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 return;
             }
 
+
             _mic.OnRecordingStateChanged -= HandleRecordingStateChanged;
             _mic.OnMicrophoneInitialized -= HandleMicrophoneInitialized;
         }
 
         private void HandleRecordingStateChanged(bool _)
         {
-            RefreshClipPreview(_mic);
             Repaint();
         }
 
         private void HandleMicrophoneInitialized(bool _)
         {
             Repaint();
+        }
+
+        private void EditorUpdate()
+        {
+            if ((_player != null && _player.IsPlaying) || _isScrubbing)
+            {
+                Repaint();
+            }
+        }
+
+        private void EnsureWaveformTexture(AudioClip clip, int targetWidth)
+        {
+            targetWidth = Mathf.Clamp(targetWidth, 64, 4096);
+            if (_waveformTex != null && _waveformFor == clip && _waveformWidth == targetWidth)
+            {
+                return;
+            }
+
+
+            _waveformFor = clip;
+            _waveformWidth = targetWidth;
+
+            if (_waveformTex != null)
+            {
+                DestroyImmediate(_waveformTex);
+                _waveformTex = null;
+            }
+
+            if (clip == null || clip.samples <= 0)
+            {
+                return;
+            }
+
+
+            _waveformTex = BuildWaveformTexture(clip, targetWidth, WaveformHeight);
+        }
+
+        private static Texture2D BuildWaveformTexture(AudioClip clip, int width, int height)
+        {
+            if (clip == null || width <= 0 || height <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                if (clip.loadState != AudioDataLoadState.Loaded)
+                {
+                    clip.LoadAudioData();
+                }
+            }
+            catch
+            {
+                // Ignore load failures: we'll fallback to an empty waveform.
+            }
+
+            var tex = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            int channels = Mathf.Max(1, clip.channels);
+            int totalFrames = Mathf.Max(1, clip.samples);
+            int totalColumns = Mathf.Max(1, width);
+            var peaks = new float[totalColumns];
+
+            int chunkFrames = Mathf.Clamp(Mathf.Max(clip.frequency / 4, 1024), 2048, 16384);
+            float[] reusable = chunkFrames > 0 ? new float[chunkFrames * channels] : Array.Empty<float>();
+
+            for (int frameOffset = 0; frameOffset < totalFrames; frameOffset += chunkFrames)
+            {
+                int framesToRead = Mathf.Min(chunkFrames, totalFrames - frameOffset);
+                if (framesToRead <= 0)
+                {
+                    break;
+                }
+
+                float[] buffer = framesToRead == chunkFrames ? reusable : new float[framesToRead * channels];
+                try
+                {
+                    clip.GetData(buffer, frameOffset);
+                }
+                catch
+                {
+                    break; // Access failed (e.g., streaming clip). Abort gracefully.
+                }
+
+                for (int frame = 0; frame < framesToRead; frame++)
+                {
+                    int sampleIndex = frame * channels;
+                    float sum = 0f;
+                    for (int c = 0; c < channels; c++)
+                    {
+                        sum += Mathf.Abs(buffer[sampleIndex + c]);
+                    }
+                    float value = sum / channels;
+                    int column = (int)((long)(frameOffset + frame) * totalColumns / totalFrames);
+                    if (column >= totalColumns)
+                    {
+                        column = totalColumns - 1;
+                    }
+                    if (value > peaks[column])
+                    {
+                        peaks[column] = value;
+                    }
+                }
+            }
+
+            Color bg = EditorGUIUtility.isProSkin ? new Color(0.15f, 0.15f, 0.15f, 1f) : new Color(0.9f, 0.9f, 0.9f, 1f);
+            Color fg = EditorGUIUtility.isProSkin ? new Color(0.3f, 0.9f, 0.6f, 1f) : new Color(0.1f, 0.5f, 0.3f, 1f);
+
+            var pixels = new Color[width * height];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = bg;
+            }
+
+
+            int half = height / 2;
+            for (int x = 0; x < width; x++)
+            {
+                float max = Mathf.Clamp01(peaks[x]);
+                int yExtent = Mathf.Clamp(Mathf.RoundToInt(max * (height - 2) * 0.5f), 1, half);
+                for (int y = half - yExtent; y <= half + yExtent; y++)
+                {
+                    int pi = y * width + x;
+                    if (pi >= 0 && pi < pixels.Length)
+                    {
+                        pixels[pi] = fg;
+                    }
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply(false);
+            return tex;
         }
 
         private static void DrawStatusBadge(string label, bool active)
@@ -358,6 +456,124 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             GUI.backgroundColor = previousColor;
         }
 
+        private sealed class PreviewPlayer : IDisposable
+        {
+            private GameObject _go;
+            private AudioSource _source;
+            private int _lastKnownSamples;
+
+            public bool IsPlaying => _source != null && _source.isPlaying;
+
+            public void Ensure(AudioClip clip)
+            {
+                if (_source == null)
+                {
+                    _go = new GameObject("EasyMic_Preview_AudioSource");
+                    _go.hideFlags = HideFlags.HideAndDontSave; // hidden, unsaved, and cleaned up manually
+                    _source = _go.AddComponent<AudioSource>();
+                    _source.spatialBlend = 0f;     // 2D
+                    _source.playOnAwake = false;
+                    _source.loop = false;
+
+                    // Ensure there is at least one AudioListener so playback is audible
+                    if (UnityEngine.Object.FindObjectsOfType<AudioListener>().Length == 0)
+                    {
+                        _go.AddComponent<AudioListener>();
+                    }
+                }
+
+                if (_source.clip != clip)
+                {
+                    _source.clip = clip;
+                    _lastKnownSamples = 0;
+                }
+            }
+
+            public void SetLoop(bool loop)
+            {
+                if (_source != null)
+                {
+                    _source.loop = loop;
+                }
+
+            }
+
+            public void PlayPause()
+            {
+                if (_source == null || _source.clip == null)
+                {
+                    return;
+                }
+
+
+                if (_source.isPlaying)
+                {
+                    _source.Pause();
+                    return;
+                }
+
+                var clip = _source.clip;
+                // Make sure audio data is available before trying to play
+                try
+                {
+                    if (clip.loadState != AudioDataLoadState.Loaded)
+                    {
+                        clip.LoadAudioData();
+                    }
+
+                }
+                catch { /* Fallback silently if API not available in older versions */ }
+
+                // If playhead is at or beyond the last sample, restart from 0
+                if (_source.timeSamples >= Mathf.Max(0, clip.samples - 1))
+                {
+                    _source.timeSamples = 0;
+                }
+
+
+                _source.Play();
+            }
+
+            public void SeekSamples(int samples)
+            {
+                if (_source == null || _source.clip == null)
+                {
+                    return;
+                }
+
+
+                samples = Mathf.Clamp(samples, 0, Mathf.Max(0, _source.clip.samples - 1));
+                _source.timeSamples = samples; // precise sample seek
+                _lastKnownSamples = samples;
+            }
+
+            public int CurrentSamples
+            {
+                get
+                {
+                    if (_source == null || _source.clip == null)
+                    {
+                        return _lastKnownSamples;
+                    }
+
+
+                    _lastKnownSamples = Mathf.Clamp(_source.timeSamples, 0, Mathf.Max(0, _source.clip.samples - 1));
+                    return _lastKnownSamples;
+                }
+            }
+
+            public void Dispose()
+            {
+                if (_go != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(_go);
+                    _go = null;
+                    _source = null;
+                    _lastKnownSamples = 0;
+                }
+            }
+        }
+
         private static class Styles
         {
             private static GUIStyle _section;
@@ -366,6 +582,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             private static GUIStyle _mutedLabel;
             private static GUIStyle _secondaryButton;
             private static GUIStyle _primaryButton;
+            private static GUIStyle _iconButton;
+            private static GUIStyle _iconToggle;
 
             public static GUIStyle Section
             {
@@ -472,6 +690,42 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     }
 
                     return _primaryButton;
+                }
+            }
+
+            public static GUIStyle IconButton
+            {
+                get
+                {
+                    if (_iconButton == null)
+                    {
+                        _iconButton = new GUIStyle(EditorStyles.miniButton)
+                        {
+                            fixedWidth = 26,
+                            fixedHeight = 26,
+                            padding = new RectOffset(2, 2, 2, 2),
+                            alignment = TextAnchor.MiddleCenter
+                        };
+                    }
+                    return _iconButton;
+                }
+            }
+
+            public static GUIStyle IconToggle
+            {
+                get
+                {
+                    if (_iconToggle == null)
+                    {
+                        _iconToggle = new GUIStyle(EditorStyles.miniButton)
+                        {
+                            fixedWidth = 24,
+                            fixedHeight = 24,
+                            padding = new RectOffset(2, 2, 2, 2),
+                            alignment = TextAnchor.MiddleCenter
+                        };
+                    }
+                    return _iconToggle;
                 }
             }
 

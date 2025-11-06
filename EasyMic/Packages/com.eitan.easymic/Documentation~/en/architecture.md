@@ -59,7 +59,7 @@ AudioWorkerBlueprint is a lightweight factory with a stable key. A blueprint is 
 Example:
 
 ```csharp
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30 }, key: "gate");
 
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz48000, new[]{ bpGate, bpCapture });

@@ -114,7 +114,6 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
         private readonly string _defaultAsrModelName = "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
         private const int SAMPLERATE = 16000;
         private const int CHANNEL = 1;
-        private const int MAX_CAPTURE_DURATION_SECONDS = 30;
         #endregion
 
         private enum AppState { NotLoaded, Loading, Ready, Recording }
@@ -447,7 +446,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
                 EasyMicAPI.AddProcessor(_handle, _bpLoopback);
             }
 
-            _bpCapture ??= new AudioWorkerBlueprint(() => new AudioCapturer(MAX_CAPTURE_DURATION_SECONDS), key: "capture");
+            _bpCapture ??= new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
             EasyMicAPI.AddProcessor(_handle, _bpCapture);
         }
 

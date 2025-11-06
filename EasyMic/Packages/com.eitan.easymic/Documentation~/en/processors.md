@@ -55,7 +55,7 @@ Captures incoming audio data into a buffer or saves it to a file.
 
 ```csharp
 // Create blueprint and add to pipeline
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 
 // Later, get the concrete instance and captured audio

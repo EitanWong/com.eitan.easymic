@@ -228,7 +228,7 @@ public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blu
 **示例：**
 
 ```csharp
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(recordingHandle, bpCapture);
 ```
 

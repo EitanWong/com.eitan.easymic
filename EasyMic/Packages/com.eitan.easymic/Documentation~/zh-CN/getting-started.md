@@ -64,7 +64,7 @@ public class FirstRecording : MonoBehaviour
         }
 
         // 2) 使用“蓝图”构建简单流水线
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _recordingHandle = EasyMicAPI.StartRecording(
             devices[0].Name,
             SampleRate.Hz48000,

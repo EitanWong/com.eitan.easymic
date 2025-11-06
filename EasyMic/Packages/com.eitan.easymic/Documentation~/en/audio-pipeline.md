@@ -306,7 +306,7 @@ public class DynamicPipelineController : MonoBehaviour
     void Start()
     {
         _handle = EasyMicAPI.StartRecording("Microphone");
-        _capturer = new AudioCapturer(10);
+        _capturer = new AudioCapturer();
         EasyMicAPI.AddProcessor(_handle, _capturer);
     }
 
@@ -410,7 +410,7 @@ Order processors by their impact and dependencies:
 var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),  key: "downmix");
 var bpa = new AudioWorkerBlueprint(() => new GainProcessor(),   key: "gain");
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(5),  key: "capture");
+var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
 EasyMicAPI.AddProcessor(handle, bpg);   // 1. Remove noise first
 EasyMicAPI.AddProcessor(handle, bpd);   // 2. Convert to mono
 EasyMicAPI.AddProcessor(handle, bpa);   // 3. Adjust levels
@@ -435,7 +435,7 @@ public class ProperProcessorManagement : MonoBehaviour
 
         // Keep references for proper disposal
         var gate = new VolumeGateFilter();
-        var capturer = new AudioCapturer(5);
+        var capturer = new AudioCapturer();
 
         _processors.Add(gate);
         _processors.Add(capturer);
