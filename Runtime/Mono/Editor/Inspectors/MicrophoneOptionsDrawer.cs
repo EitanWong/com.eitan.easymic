@@ -1,10 +1,11 @@
 #if UNITY_EDITOR
+using Eitan.EasyMic.Runtime.Mono;
 using UnityEditor;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.Editor
 {
-    [CustomPropertyDrawer(typeof(EasyMicrophone.MicrophoneOptions))]
+    [CustomPropertyDrawer(typeof(MicrophoneOptions))]
     internal sealed class MicrophoneOptionsDrawer : PropertyDrawer
     {
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
