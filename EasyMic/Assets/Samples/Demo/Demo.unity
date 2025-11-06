@@ -246,7 +246,6 @@ MonoBehaviour:
     EnableAEC: 1
     EnableANS: 1
     EnableAGC: 1
-  _maxRecordingDurationSeconds: 30
 --- !u!4 &1715545461
 Transform:
   m_ObjectHideFlags: 0

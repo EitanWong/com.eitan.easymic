@@ -5,11 +5,9 @@ using UnityEngine;
 
 namespace Eitan.EasyMic.Editor.Inspectors
 {
-    [CustomPropertyDrawer(typeof(EasyMicrophone.AudioProcessingOptions))]
+    [CustomPropertyDrawer(typeof(AudioProcessingOptions))]
     internal sealed class AudioProcessingOptionsDrawer : PropertyDrawer
     {
-        private static float ToggleHeight => EditorGUIUtility.singleLineHeight + 8f;
-
         private static readonly (string property, GUIContent content)[] ToggleMap =
         {
             (
@@ -33,24 +31,36 @@ namespace Eitan.EasyMic.Editor.Inspectors
         {
             EditorGUI.BeginProperty(position, label, property);
 
-            position.height = ToggleHeight;
-            var fieldRect = EditorGUI.PrefixLabel(position, label, Styles.TitleLabel);
-
             int previousIndent = EditorGUI.indentLevel;
             EditorGUI.indentLevel = 0;
 
-            float spacing = 10f;
-            float width = (fieldRect.width - spacing * (ToggleMap.Length - 1)) / ToggleMap.Length;
-            Rect toggleRect = new Rect(fieldRect.x, fieldRect.y, width, ToggleHeight);
+            float headerHeight = EditorGUIUtility.singleLineHeight;
+            var headerRect = new Rect(position.x, position.y, position.width, headerHeight);
+            EditorGUI.LabelField(headerRect, label, Styles.TitleLabel);
+
+            Rect frameRect = new Rect(
+                position.x,
+                headerRect.yMax + Styles.FrameSpacing,
+                position.width,
+                Styles.FrameHeight);
+
+            Styles.DrawFrame(frameRect);
+
+            Rect buttonsRect = new Rect(
+                frameRect.x + Styles.FramePadding,
+                frameRect.y + Styles.FramePadding,
+                frameRect.width - Styles.FramePadding * 2f,
+                Styles.ButtonHeight);
+
+            float totalSpacing = Styles.ButtonSpacing * (ToggleMap.Length - 1);
+            float buttonWidth = Mathf.Max(Styles.MinButtonWidth, (buttonsRect.width - totalSpacing) / ToggleMap.Length);
+            Rect buttonRect = new Rect(buttonsRect.x, buttonsRect.y, buttonWidth, Styles.ButtonHeight);
 
             for (int i = 0; i < ToggleMap.Length; i++)
             {
-                if (i > 0)
-                {
-                    toggleRect.x += width + spacing;
-                }
-
-                DrawToggle(toggleRect, property.FindPropertyRelative(ToggleMap[i].property), ToggleMap[i].content);
+                SerializedProperty flagProperty = property.FindPropertyRelative(ToggleMap[i].property);
+                DrawToggleButton(buttonRect, flagProperty, ToggleMap[i].content);
+                buttonRect.x += buttonWidth + Styles.ButtonSpacing;
             }
 
             EditorGUI.indentLevel = previousIndent;
@@ -59,10 +69,11 @@ namespace Eitan.EasyMic.Editor.Inspectors
 
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
-            return ToggleHeight;
+            float headerHeight = EditorGUIUtility.singleLineHeight;
+            return headerHeight + Styles.FrameSpacing + Styles.FrameHeight;
         }
 
-        private static void DrawToggle(Rect rect, SerializedProperty flagProperty, GUIContent content)
+        private static void DrawToggleButton(Rect rect, SerializedProperty flagProperty, GUIContent content)
         {
             if (flagProperty == null)
             {
@@ -73,112 +84,108 @@ namespace Eitan.EasyMic.Editor.Inspectors
             bool hovered = rect.Contains(Event.current.mousePosition);
 
             Color background = current
-                ? (hovered ? Styles.ActiveBackgroundHover : Styles.ActiveBackground)
-                : (hovered ? Styles.InactiveBackgroundHover : Styles.InactiveBackground);
-            Color border = current ? Styles.ActiveBorder : Styles.InactiveBorder;
+                ? (hovered ? Styles.ButtonOnHover : Styles.ButtonOn)
+                : (hovered ? Styles.ButtonOffHover : Styles.ButtonOff);
 
             EditorGUI.DrawRect(rect, background);
-            Styles.DrawBorder(rect, border);
+            Styles.DrawBorder(rect, Styles.ButtonBorder);
 
-            Rect titleRect = new Rect(rect.x + 12f, rect.y + 4f, rect.width - 24f, EditorGUIUtility.singleLineHeight);
-            EditorGUI.LabelField(titleRect, content.text, current ? Styles.ToggleTitleActive : Styles.ToggleTitleInactive);
+            Rect indicatorRect = new Rect(
+                rect.x + Styles.IndicatorPadding,
+                rect.y + rect.height * 0.5f - Styles.IndicatorSize * 0.5f,
+                Styles.IndicatorSize,
+                Styles.IndicatorSize);
 
-            Rect stateRect = new Rect(titleRect.x + titleRect.width * .5f, titleRect.y, titleRect.width * .5f, EditorGUIUtility.singleLineHeight - 2f);
-            EditorGUI.LabelField(stateRect,
-                current ? Styles.StateOnContent : Styles.StateOffContent,
-                current ? Styles.StateOnLabel : Styles.StateOffLabel);
+            DrawIndicator(indicatorRect, current);
+
+            Rect labelRect = new Rect(
+                indicatorRect.xMax + Styles.LabelSpacing,
+                rect.y,
+                rect.width - (indicatorRect.width + Styles.IndicatorPadding + Styles.LabelSpacing * 2f),
+                rect.height);
+            GUI.Label(labelRect, new GUIContent(content.text, content.tooltip), Styles.ToggleLabel);
 
             EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
-            if (GUI.Button(rect, Styles.TooltipContent(content.tooltip), GUIStyle.none))
+            if (GUI.Button(rect, GUIContent.none, GUIStyle.none))
             {
                 flagProperty.boolValue = !current;
             }
         }
 
+        private static void DrawIndicator(Rect rect, bool enabled)
+        {
+            Color fill = enabled ? Styles.IndicatorOn : Styles.IndicatorOff;
+            Color border = enabled ? Styles.IndicatorOnBorder : Styles.IndicatorOffBorder;
+            EditorGUI.DrawRect(rect, fill);
+            Styles.DrawBorder(rect, border);
+        }
+
         private static class Styles
         {
             public static readonly GUIStyle TitleLabel;
-            public static readonly GUIStyle ToggleTitleActive;
-            public static readonly GUIStyle ToggleTitleInactive;
-            public static readonly GUIStyle StateOnLabel;
-            public static readonly GUIStyle StateOffLabel;
+            public static readonly GUIStyle ToggleLabel;
 
-            public static readonly GUIContent StateOnContent = new GUIContent("STATE · ON");
-            public static readonly GUIContent StateOffContent = new GUIContent("STATE · OFF");
+            public static readonly Color FrameBackground;
+            public static readonly Color FrameBorder;
+            public static readonly Color ButtonOn;
+            public static readonly Color ButtonOnHover;
+            public static readonly Color ButtonOff;
+            public static readonly Color ButtonOffHover;
+            public static readonly Color ButtonBorder;
+            public static readonly Color IndicatorOn;
+            public static readonly Color IndicatorOff;
+            public static readonly Color IndicatorOnBorder;
+            public static readonly Color IndicatorOffBorder;
 
-            public static readonly Color ActiveBackground;
-            public static readonly Color ActiveBackgroundHover;
-            public static readonly Color ActiveBorder;
-            public static readonly Color InactiveBackground;
-            public static readonly Color InactiveBackgroundHover;
-            public static readonly Color InactiveBorder;
-
-            private static readonly GUIContent TooltipProxy = new GUIContent(string.Empty);
+            public static float FramePadding => 8f;
+            public static float FrameSpacing => 6f;
+            public static float ButtonSpacing => 6f;
+            public static float ButtonHeight => EditorGUIUtility.singleLineHeight + 6f;
+            public static float FrameHeight => ButtonHeight + FramePadding * 2f;
+            public static float MinButtonWidth => 64f;
+            public static float IndicatorSize => 8f;
+            public static float IndicatorPadding => 8f;
+            public static float LabelSpacing => 6f;
 
             static Styles()
             {
                 bool proSkin = EditorGUIUtility.isProSkin;
 
-                ActiveBackground = proSkin
-                    ? new Color(0.20f, 0.40f, 0.82f, 1f)
-                    : new Color(0.18f, 0.48f, 0.86f, 1f);
-                ActiveBackgroundHover = proSkin
-                    ? new Color(0.24f, 0.48f, 0.90f, 1f)
-                    : new Color(0.24f, 0.56f, 0.94f, 1f);
-                ActiveBorder = proSkin
-                    ? new Color(0.36f, 0.62f, 1f, 1f)
-                    : new Color(0.28f, 0.54f, 0.95f, 1f);
+                FrameBackground = proSkin ? new Color(0.12f, 0.12f, 0.12f, 1f) : new Color(0.94f, 0.94f, 0.94f, 1f);
+                FrameBorder = proSkin ? new Color(0.28f, 0.28f, 0.28f, 1f) : new Color(0.78f, 0.78f, 0.78f, 1f);
 
-                InactiveBackground = proSkin
-                    ? new Color(0.16f, 0.16f, 0.16f, 1f)
-                    : new Color(0.88f, 0.88f, 0.88f, 1f);
-                InactiveBackgroundHover = proSkin
-                    ? new Color(0.21f, 0.21f, 0.21f, 1f)
-                    : new Color(0.93f, 0.93f, 0.93f, 1f);
-                InactiveBorder = proSkin
-                    ? new Color(0.32f, 0.32f, 0.32f, 1f)
-                    : new Color(0.66f, 0.66f, 0.66f, 1f);
+                ButtonOn = proSkin ? new Color(0.20f, 0.45f, 0.32f, 1f) : new Color(0.28f, 0.62f, 0.38f, 1f);
+                ButtonOnHover = proSkin ? new Color(0.24f, 0.52f, 0.38f, 1f) : new Color(0.32f, 0.68f, 0.44f, 1f);
+                ButtonOff = proSkin ? new Color(0.18f, 0.18f, 0.18f, 1f) : new Color(0.89f, 0.89f, 0.89f, 1f);
+                ButtonOffHover = proSkin ? new Color(0.22f, 0.22f, 0.22f, 1f) : new Color(0.94f, 0.94f, 0.94f, 1f);
+                ButtonBorder = proSkin ? new Color(0.32f, 0.32f, 0.32f, 1f) : new Color(0.76f, 0.76f, 0.76f, 1f);
+
+                IndicatorOn = proSkin ? new Color(0.18f, 0.86f, 0.45f, 1f) : new Color(0.10f, 0.65f, 0.24f, 1f);
+                IndicatorOff = proSkin ? new Color(0.35f, 0.35f, 0.35f, 1f) : new Color(0.78f, 0.78f, 0.78f, 1f);
+                IndicatorOnBorder = proSkin ? new Color(0.24f, 0.95f, 0.55f, 1f) : new Color(0.28f, 0.82f, 0.38f, 1f);
+                IndicatorOffBorder = proSkin ? new Color(0.22f, 0.22f, 0.22f, 1f) : new Color(0.66f, 0.66f, 0.66f, 1f);
 
                 TitleLabel = new GUIStyle(EditorStyles.boldLabel)
                 {
-                    alignment = TextAnchor.UpperLeft,
+                    alignment = TextAnchor.MiddleLeft,
                     fontSize = 12
                 };
 
-                ToggleTitleActive = new GUIStyle(EditorStyles.boldLabel)
+                ToggleLabel = new GUIStyle(EditorStyles.miniBoldLabel)
                 {
-                    alignment = TextAnchor.MiddleLeft,
-                    fontSize = 12,
-                    normal = { textColor = Color.white }
-                };
-
-                ToggleTitleInactive = new GUIStyle(EditorStyles.boldLabel)
-                {
-                    alignment = TextAnchor.MiddleLeft,
-                    fontSize = 12,
-                    normal = { textColor = proSkin ? new Color(0.75f, 0.75f, 0.75f, 1f) : new Color(0.25f, 0.25f, 0.25f, 1f) }
-                };
-
-                StateOnLabel = new GUIStyle(EditorStyles.miniBoldLabel)
-                {
-                    alignment = TextAnchor.UpperLeft,
-                    fontSize = 10,
-                    normal = { textColor = new Color(0.88f, 1f, 0.93f, 1f) }
-                };
-
-                StateOffLabel = new GUIStyle(EditorStyles.miniLabel)
-                {
-                    alignment = TextAnchor.UpperLeft,
-                    fontSize = 10,
-                    normal = { textColor = proSkin ? new Color(0.65f, 0.65f, 0.65f, 1f) : new Color(0.38f, 0.38f, 0.38f, 1f) }
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 11,
+                    normal =
+                    {
+                        textColor = proSkin ? new Color(0.92f, 0.92f, 0.92f, 1f) : new Color(0.14f, 0.14f, 0.14f, 1f)
+                    }
                 };
             }
 
-            public static GUIContent TooltipContent(string tooltip)
+            public static void DrawFrame(Rect rect)
             {
-                TooltipProxy.text = string.Empty;
-                TooltipProxy.tooltip = tooltip;
-                return TooltipProxy;
+                EditorGUI.DrawRect(rect, FrameBackground);
+                DrawBorder(rect, FrameBorder);
             }
 
             public static void DrawBorder(Rect rect, Color color)

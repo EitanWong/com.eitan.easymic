@@ -488,12 +488,14 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
+    DeviceName: MacBook Pro Microphone
     Channel: 1
     SampleRate: 48000
   _audioProcessingOptions:
     EnableAEC: 1
     EnableANS: 1
     EnableAGC: 1
+  _maxRecordingDurationSeconds: 30
   _asrConfig:
     _presets:
     - Id: default
