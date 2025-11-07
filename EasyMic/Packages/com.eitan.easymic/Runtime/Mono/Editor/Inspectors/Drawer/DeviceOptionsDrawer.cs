@@ -207,9 +207,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             Rect summaryRect = new Rect(
                 buttonRect.xMax + 12f,
-                buttonRect.y,
+                buttonRect.y - 6f,
                 contentRect.width - (buttonRect.width + 12f),
-                Styles.ButtonHeight);
+                Styles.ButtonHeight + 12f);
             if (summaryRect.width > 0f)
             {
                 GUI.Label(summaryRect, FormatSummary(options), Styles.SummaryLabel);
@@ -334,7 +334,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 };
 
                 UseDefaultContent = MakeLabeledContent("Refresh", "Use Default Device", "Revert to the system default microphone device", "Use Default Device");
-                DeviceLabelContent = MakeLabel("Input Device", "AudioSource Icon");
+                DeviceLabelContent = MakeLabel("Input Device", "Microphone Icon");
                 SignalPathLabelContent = MakeLabel("Signal Path", "Animation.Record");
                 ChannelLabelContent = MakeLabel("Channel", "SceneViewOrtho");
                 SampleRateLabelContent = MakeLabel("Sample Rate", "Profiler.Audio");

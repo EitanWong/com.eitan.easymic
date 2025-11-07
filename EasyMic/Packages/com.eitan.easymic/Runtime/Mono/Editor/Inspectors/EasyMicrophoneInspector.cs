@@ -153,7 +153,6 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
 #if EASYMIC_APM_INTEGRATION
                 EditorGUILayout.Space(Styles.HeaderBodySpacing);
-                EditorGUILayout.LabelField("Audio Processing", Styles.SectionHeader);
                 if (_audioProcessingOptionsProp != null)
                 {
                     EditorGUILayout.PropertyField(_audioProcessingOptionsProp);
@@ -1246,7 +1245,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             public static GUIContent WaveformHintContent => _waveformHintContent ??= new GUIContent("Scroll to zoom · Alt+Drag to pan · Click to scrub");
             public static GUIContent InitializeContent => _initializeContent ??= MakeLabeledIcon("Refresh", "Initialize", "Initialize the Easy Microphone component", "Initialize");
-            public static GUIContent StartRecordingContent => _startRecordingContent ??= MakeLabeledIcon("Record", "Start", "Begin recording", "Start");
+            public static GUIContent StartRecordingContent => _startRecordingContent ??= MakeLabeledIcon("Animation.Record", "Start", "Begin recording", "Start");
             public static GUIContent StopRecordingContent => _stopRecordingContent ??= MakeLabeledIcon("PauseButton", "Stop", "Stop recording", "Stop");
             public static GUIContent SaveRecordingContent => _saveRecordingContent ??= MakeLabeledIcon("SaveActive", "Save", "Export the last recording to disk", "Save");
 
