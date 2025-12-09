@@ -6,6 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Samples/EasyMic/0.1.2-exp.1/SherpaONNXUnity ASR Example/EasyMicSherpaONNXASRExample.unity
+    path: Assets/Samples/EasyMic/~0.1.2-exp.2-old/SherpaONNXUnity ASR Example/EasyMicSherpaONNXASRExample.unity
     guid: 34b05bf0afa384f7cbf5c291ad2d407f
   m_configObjects: {}
