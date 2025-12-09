@@ -12,25 +12,49 @@ using UnityEngine;
 namespace Eitan.EasyMic.Runtime.Mono.ASR
 {
     /// <summary>
-    /// Coordinates Sherpa-ONNX services and exposes microphone-driven transcription events.
+    /// Voice Microphone Component - Coordinates Sherpa-ONNX services and provides microphone-driven transcription events.
+    /// 语音麦克风组件 - 协调 Sherpa-ONNX 服务并提供麦克风驱动的转录事件。
     /// </summary>
     [AddComponentMenu("Audio/Input/Voice Microphone")]
     public class VoiceMicrophone : EasyMicrophone, ISherpaFeedbackHandler
     {
-        private const SampleRate DEFAULT_SAMPLERATE = SampleRate.Hz16000;
+        #region Constants & Enums
 
-        private static readonly StreamingRecognitionStrategy StreamingStrategy = new StreamingRecognitionStrategy();
-        private static readonly OfflineWithVadRecognitionStrategy OfflineStrategy = new OfflineWithVadRecognitionStrategy();
-        private static readonly HybridRecognitionStrategy HybridStrategy = new HybridRecognitionStrategy();
+        private const SampleRate DEFAULT_SAMPLE_RATE = SampleRate.Hz16000;
+        private const string LOG_PREFIX = "[VoiceMicrophone]";
+
+        /// <summary>
+        /// Component lifecycle state. / 组件生命周期状态。
+        /// </summary>
+        private enum LifecycleState
+        {
+            Uninitialized,
+            Initializing,
+            Ready,
+            Disposing,
+            Disposed
+        }
+
+        #endregion
+
+        #region Static Strategies
+
+        private static readonly StreamingRecognitionStrategy StreamingStrategy = new();
+        private static readonly OfflineWithVadRecognitionStrategy OfflineStrategy = new();
+        private static readonly HybridRecognitionStrategy HybridStrategy = new();
+
+        #endregion
 
         #region Serialized Fields
 
+        [Header("ASR Configuration / ASR 配置")]
         [SerializeField]
+        [Tooltip("Automatic Speech Recognition Configuration / 自动语音识别配置")]
         private AutomaticSpeechRecognitionConfiguration _asrConfig;
 
         #endregion
 
-        #region Services
+        #region Service References
 
         private SpeechRecognition _streamingService;
         private SpeechRecognition _offlineService;
@@ -38,101 +62,86 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private KeywordSpotting _keywordService;
         private Punctuation _punctService;
 
+        #endregion
+
+        #region Service Wrappers
+
         private SherpaVoiceFilter _voiceFilter;
         private SherpaRealtimeSpeechRecognizer _realtimeRecognizer;
         private SherpaOfflineSpeechRecognizer _offlineRecognizer;
         private SherpaKeywordDetector _keywordDetector;
 
+        #endregion
+
+        #region Infrastructure
 
         private SherpaONNXFeedbackReporter _feedbackReporter;
         private SherpaServiceFactory _serviceFactory;
+        private ModelProgressAggregator _progressAggregator;
 
         #endregion
 
-        #region State
+        #region State Management
 
         private VoiceActivityMonitor _voiceActivity;
         private KeywordGate _keywordGate;
         private RecognitionBuffer _recognitionBuffer;
         private TurnDetector _turnDetector;
         private SilenceTurnRecognizer _silenceRecognizer;
-        private AutomaticSpeechRecognitionConfiguration.ASRPreset _initializingPreset;
-        private TurnDetectionOptions _turnDetectionSettings;
-        private ModelProgressAggregator _progressAggregator;
         private IRecognitionStrategy _recognitionStrategy;
         private CancellationTokenSource _recognitionLifetimeCts;
 
+        private AutomaticSpeechRecognitionConfiguration.ASRPreset _initializingPreset;
+        private TurnDetectionOptions _turnDetectionSettings;
         private string _pendingStreamingResult = string.Empty;
         private int _expectedModelLoads;
         private int _completedModelLoads;
 
+        // Pending device options to apply on initialization / 待在初始化时应用的设备选项
+        private DeviceOptions? _pendingDeviceOptions;
+        private bool _pendingRestartRecording;
+
+        // Unified state management / 统一状态管理
+        private readonly object _stateLock = new();
+        private volatile LifecycleState _lifecycleState = LifecycleState.Uninitialized;
 
         #endregion
 
         #region Properties
 
-        /// <summary>
-        /// Gets the active ASR configuration (clone created on first access).
-        /// </summary>
         public AutomaticSpeechRecognitionConfiguration AsrConfig
         {
             get => _asrConfig ??= AutomaticSpeechRecognitionConfiguration.CreateDefault();
             private set => _asrConfig = value;
         }
 
-        /// <summary>
-        /// Gets whether the speech state machine currently considers the user to be speaking.
-        /// </summary>
         public bool IsSpeaking => IsVoiceActivity;
-
-        /// <summary>
-        /// Gets whether voice activity is currently detected.
-        /// </summary>
         public bool IsVoiceActivity => _voiceActivity?.IsVoiceActive ?? false;
+        public bool RequiresStreaming => CurrentStrategy.RequiresStreaming;
+        public bool RequiresOffline => CurrentStrategy.RequiresOffline;
+        public bool RequiresVad => CurrentStrategy.RequiresVoiceActivity;
 
-        /// <summary>
-        /// Gets a value indicating whether the current strategy requires streaming recognition.
-        /// </summary>
-        public bool RequiresStreaming => SelectStrategy(AsrConfig.RecognitionMode).RequiresStreaming;
-
-        /// <summary>
-        /// Gets a value indicating whether the current strategy requires offline recognition.
-        /// </summary>
-        public bool RequiresOffline => SelectStrategy(AsrConfig.RecognitionMode).RequiresOffline;
-
-        /// <summary>
-        /// Gets a value indicating whether the current strategy requires voice activity detection.
-        /// </summary>
-        public bool RequiresVad => SelectStrategy(AsrConfig.RecognitionMode).RequiresVoiceActivity;
-
-        /// <summary>
-        /// Gets a value indicating whether punctuation services are enabled for the active preset.
-        /// </summary>
         public bool RequiresPunctuation =>
-            AsrConfig.EnablePunctuation &&
-            !string.IsNullOrWhiteSpace(AsrConfig.PunctuationModelId);
+            AsrConfig.EnablePunctuation && !string.IsNullOrWhiteSpace(AsrConfig.PunctuationModelId);
 
-        /// <summary>
-        /// Gets a value indicating whether keyword spotting is enabled.
-        /// </summary>
         public bool RequiresKeywordSpotting => AsrConfig.ActiveKeywordOptions.IsEnabled;
 
-        /// <summary>
-        /// Gets the presets supported by the current configuration.
-        /// </summary>
         public IReadOnlyList<AutomaticSpeechRecognitionConfiguration.ASRPreset> SupportedPresets =>
             AsrConfig.SupportedPresets;
 
-        /// <summary>
-        /// Gets the identifier of the active preset.
-        /// </summary>
         public string ActivePresetId => AsrConfig.ActivePresetId;
 
-        /// <summary>
-        /// Gets a copy of the active preset.
-        /// </summary>
         public AutomaticSpeechRecognitionConfiguration.ASRPreset ActivePresetConfiguration =>
             AsrConfig.GetActivePreset();
+
+        public bool AreModelsLoaded => Initialized && _completedModelLoads >= _expectedModelLoads;
+        public bool AreModelsDisposed => _lifecycleState == LifecycleState.Disposed;
+        public bool IsInitializing => _lifecycleState == LifecycleState.Initializing;
+
+        public bool IsOperational => Initialized && _lifecycleState == LifecycleState.Ready;
+
+        private IRecognitionStrategy CurrentStrategy =>
+            _recognitionStrategy ?? SelectStrategy(AsrConfig.RecognitionMode);
 
         #endregion
 
@@ -146,33 +155,55 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public event Action<string, float> OnLoadingProgressFeedback;
         public event Action<FailedFeedback> OnLoadingFailedFeedback;
         public event Action<SuccessFeedback> OnLoadingSucceededFeedback;
+        public event Action OnModelsDisposed;
+        public event Action OnModelsReloaded;
+
         #endregion
 
         #region Unity Lifecycle
 
         protected override void OnInitialization()
         {
-            EnsureInfrastructure();
-            InitializeServices(preserveRecordingState: false);
+            if (!TryTransitionState(LifecycleState.Uninitialized, LifecycleState.Initializing) &&
+                !TryTransitionState(LifecycleState.Disposed, LifecycleState.Initializing))
+            {
+                LogWarning("Cannot initialize: invalid state.");
+                return;
+            }
+
+            try
+            {
+                EnsureInfrastructure();
+                InitializeServices(preserveRecordingState: false);
+
+                // Apply pending device options if any / 应用待处理的设备选项（如果有）
+                ApplyPendingDeviceOptions();
+            }
+            catch (Exception ex)
+            {
+                LogError($"Initialization failed: {ex.Message}");
+                SetState(LifecycleState.Disposed);
+            }
         }
 
         protected override void OnAudioPiplineBuild(AudioPipeline pipeline)
         {
-            if (pipeline == null)
+            if (!IsReady("build audio pipeline") || pipeline == null)
             {
                 return;
             }
 
-            var configurator = new AudioPipelineConfigurator(pipeline);
-            configurator.ConfigureKeywordDetector(_keywordDetector, HandleKeywordDetected);
-            configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
-            configurator.ConfigureVoiceFilter(_voiceFilter, HandleVoiceActivityFromFilter);
-            configurator.ConfigureOfflineRecognizer(_offlineRecognizer, HandleOfflineRecognition);
+            ConfigureAudioPipeline(pipeline);
             OnAudioPipelineReady(pipeline);
         }
 
         protected override void OnMicrophoneUpdate()
         {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             float deltaTime = Time.deltaTime;
             _keywordGate?.Update(deltaTime, IsSpeaking, IsVoiceActivity);
             _silenceRecognizer?.Update(deltaTime, _recognitionBuffer);
@@ -180,133 +211,279 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         protected override void OnMicrophoneDispose()
         {
-            DisposeServices();
+            DisposeAllResources();
         }
 
         #endregion
 
-        #region Configuration
+        #region Public API - Model Lifecycle
 
         /// <summary>
-        /// Applies a new configuration and rebuilds services.
+        /// Disposes all loaded ASR models and services.
+        /// 销毁所有已加载的 ASR 模型和服务。
         /// </summary>
-        public void ApplyConfiguration(AutomaticSpeechRecognitionConfiguration configuration)
+        public bool DisposeModels()
+        {
+            if (!TryTransitionState(LifecycleState.Ready, LifecycleState.Disposing))
+            {
+                LogWarning(_lifecycleState == LifecycleState.Disposed
+                    ? "Models already disposed."
+                    : "Cannot dispose: invalid state.");
+                return false;
+            }
+
+            try
+            {
+                LogInfo("Disposing all ASR models...");
+                EnsureRecordingStopped();
+                DisposeServicesCore();
+                SetState(LifecycleState.Disposed);
+                InvokeEvent(OnModelsDisposed);
+                LogInfo("All ASR models disposed successfully.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error during model disposal: {ex.Message}");
+                SetState(LifecycleState.Disposed);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reloads all ASR models.
+        /// 重新加载所有 ASR 模型。
+        /// </summary>
+        public bool ReloadModels(bool startRecording = false)
+        {
+            var currentState = _lifecycleState;
+            if (currentState == LifecycleState.Initializing || currentState == LifecycleState.Disposing)
+            {
+                LogWarning($"Cannot reload: {currentState} in progress.");
+                return false;
+            }
+
+            if (!TryTransitionState(currentState, LifecycleState.Initializing))
+            {
+                return false;
+            }
+
+            try
+            {
+                LogInfo("Reloading ASR models...");
+
+                if (currentState != LifecycleState.Disposed)
+                {
+                    DisposeServicesCore();
+                }
+
+                InitializeServices(preserveRecordingState: false);
+                InvokeEvent(OnModelsReloaded);
+
+                if (startRecording && Initialized)
+                {
+                    TryStartRecording();
+                }
+
+                LogInfo("ASR models reloaded successfully.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to reload models: {ex.Message}");
+                SetState(LifecycleState.Disposed);
+                return false;
+            }
+        }
+
+        public bool CanDisposeModels() => _lifecycleState == LifecycleState.Ready;
+
+        #endregion
+
+        #region Public API - Configuration
+
+        /// <summary>
+        /// Applies a new configuration.
+        /// Can be called at any stable state (configuration will be used when ready).
+        /// 应用新的配置。可以在任何稳定状态下调用（配置将在准备就绪时使用）。
+        /// </summary>
+        public bool ApplyConfiguration(AutomaticSpeechRecognitionConfiguration configuration)
         {
             if (configuration == null)
             {
-                return;
+                LogWarning("Cannot apply null configuration.");
+                return false;
             }
 
-            AsrConfig = configuration.Clone();
-            if (Initialized)
+            if (!IsStable("apply configuration"))
             {
-                InitializeServices();
+                return false;
+            }
+
+            try
+            {
+                var state = _lifecycleState;
+                AsrConfig = configuration.Clone();
+                LogInfo($"Configuration applied (state: {state}).");
+
+                // Only reinitialize services if in Ready state / 仅在 Ready 状态下重新初始化服务
+                if (state == LifecycleState.Ready && Initialized)
+                {
+                    InitializeServices();
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to apply configuration: {ex.Message}");
+                return false;
             }
         }
 
         /// <summary>
         /// Attempts to activate a preset by identifier.
+        /// 尝试通过标识符激活预设。
         /// </summary>
         public bool TrySetActivePreset(string presetId)
         {
-            if (!AsrConfig.TrySelectPreset(presetId))
+            if (string.IsNullOrWhiteSpace(presetId))
             {
-                Debug.LogWarning($"VoiceMicrophone: preset '{presetId}' is not available in the current configuration.");
+                LogWarning("Preset ID cannot be null or empty.");
                 return false;
             }
 
-            if (Initialized)
+            if (!AsrConfig.TrySelectPreset(presetId))
             {
-                try
-                {
-                    InitializeServices();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"VoiceMicrophone: failed to apply preset '{presetId}': {ex.Message}");
-                    return false;
-                }
+                LogWarning($"Preset '{presetId}' is not available.");
+                return false;
             }
 
-            return true;
+            // Can set preset before initialization / 可以在初始化前设置预设
+            if (!Initialized || _lifecycleState != LifecycleState.Ready)
+            {
+                LogInfo($"Preset '{presetId}' selected, will be applied on next initialization.");
+                return true;
+            }
+
+            if (!IsReady("set active preset"))
+            {
+                return false;
+            }
+
+            try
+            {
+                InitializeServices();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to apply preset '{presetId}': {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
-        /// Applies new turn detection settings for adaptive silence handling.
+        /// Configures turn detection settings.
+        /// 配置轮次检测设置。
         /// </summary>
         public void ConfigureTurnDetection(TurnDetectionOptions settings)
         {
             _turnDetectionSettings = settings.EnsureValid();
-            _turnDetector = CreateTurnDetector(_turnDetectionSettings);
+
+            // Can configure before initialization / 可以在初始化前配置
+            if (!Initialized || _lifecycleState != LifecycleState.Ready)
+            {
+                LogInfo("Turn detection settings stored, will be applied on initialization.");
+                return;
+            }
+
+            if (!IsReady("configure turn detection"))
+            {
+                return;
+            }
+
+            _turnDetector = new AdaptiveTurnDetector(_turnDetectionSettings);
             _silenceRecognizer?.ConfigureDetector(_turnDetector);
-            _silenceRecognizer?.Reset();
-            _recognitionBuffer?.Reset();
+            ResetRecognitionState();
         }
 
         /// <summary>
-        /// Switches the capture device used by this microphone.
+        /// Switches the capture device.
+        /// Can be called at any stable state (device will be applied when ready).
+        /// 切换捕获设备。可以在任何稳定状态下调用（设备将在准备就绪时应用）。
         /// </summary>
-        public void SwitchCaptureDevice(MicDevice device, Channel channel, SampleRate sampleRate, bool restartRecording = true)
+        public void SwitchCaptureDevice(
+            MicDevice device,
+            Channel channel,
+            SampleRate sampleRate,
+            bool restartRecording = true)
         {
+            if (!IsStable("switch capture device"))
+            {
+                return;
+            }
+
+            var state = _lifecycleState;
             var options = new DeviceOptions(device, channel, sampleRate);
+
+            // Store for later if not ready / 如果未就绪则存储
+            if (state != LifecycleState.Ready || !Initialized)
+            {
+                _pendingDeviceOptions = options;
+                _pendingRestartRecording = restartRecording;
+                LogInfo($"Device options stored (state: {state}), will be applied on initialization.");
+                return;
+            }
+
             ApplyDeviceOptions(options, restartRecording);
         }
 
-        public void SetGithubProxy(string url)
+        public void SetGithubProxy(string url) => SherpaONNXUnityAPI.SetGithubProxy(url);
+
+        /// <summary>
+        /// Resets all recognition state.
+        /// 重置所有识别状态。
+        /// </summary>
+        public void ResetRecognitionState()
         {
-            SherpaONNXUnityAPI.SetGithubProxy(url);
+            if (!IsReady("reset recognition state"))
+            {
+                return;
+            }
+
+            ResetRecognitionStateCore();
         }
 
         #endregion
 
+        #region Protected Virtual Methods
+
         protected virtual void OnBeforeServicesInitializationRequested(
             AutomaticSpeechRecognitionConfiguration configuration,
             AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
-        {
-        }
+        { }
 
         protected virtual void OnServicesInitializationRequested(
             AutomaticSpeechRecognitionConfiguration configuration,
             AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
-        {
-        }
+        { }
 
         protected virtual void OnServicesInitialized(
             AutomaticSpeechRecognitionConfiguration configuration,
             AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
-        {
-        }
+        { }
 
-        protected virtual void OnServiceLoadingFailed(FailedFeedback feedback)
-        {
-        }
-        protected virtual void OnServiceLoadingSucceeded(SuccessFeedback feedback)
-        {
-        }
+        protected virtual void OnServiceLoadingFailed(FailedFeedback feedback) { }
+        protected virtual void OnServiceLoadingSucceeded(SuccessFeedback feedback) { }
+        protected virtual void OnBeforeServicesDisposed() { }
+        protected virtual void OnAfterServicesDisposed() { }
+        protected virtual void OnAudioPipelineReady(AudioPipeline pipeline) { }
+        protected virtual void OnKeywordActivated(string keyword) { }
+        protected virtual void OnKeywordDeactivated() { }
+        protected virtual void OnTranscription(string result, bool isFinal) { }
 
-        protected virtual void OnBeforeServicesDisposed()
-        {
-        }
-
-        protected virtual void OnAfterServicesDisposed()
-        {
-        }
-
-        protected virtual void OnAudioPipelineReady(AudioPipeline pipeline)
-        {
-        }
-
-        protected virtual void OnKeywordActivated(string keyword)
-        {
-        }
-
-        protected virtual void OnKeywordDeactivated()
-        {
-        }
-
-        protected virtual void OnTranscription(string result, bool end)
-        {
-        }
+        #endregion
 
         #region Service Lifecycle
 
@@ -314,22 +491,36 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         {
             _progressAggregator ??= new ModelProgressAggregator();
             _turnDetectionSettings = AsrConfig.ActiveTurnDetectionOptions;
-            _turnDetector = CreateTurnDetector(_turnDetectionSettings);
+            _turnDetector ??= new AdaptiveTurnDetector(_turnDetectionSettings);
 
-            if (_voiceActivity == null)
+            InitializeVoiceActivityMonitor();
+            InitializeKeywordGate();
+            InitializeRecognitionBuffer();
+            _silenceRecognizer ??= new SilenceTurnRecognizer(_turnDetector);
+            _silenceRecognizer.ConfigureDetector(_turnDetector);
+        }
+
+        private void InitializeVoiceActivityMonitor()
+        {
+            if (_voiceActivity != null)
             {
-                _voiceActivity = new VoiceActivityMonitor();
-                _voiceActivity.VoiceActivityChanged += HandleVoiceActivityChanged;
+                return;
             }
 
-            var keywordSettings = AsrConfig.ActiveKeywordOptions;
+            _voiceActivity = new VoiceActivityMonitor();
+            _voiceActivity.VoiceActivityChanged += HandleVoiceActivityChanged;
+        }
+
+        private void InitializeKeywordGate()
+        {
+            var settings = AsrConfig.ActiveKeywordOptions;
+
             if (_keywordGate == null)
             {
                 _keywordGate = new KeywordGate(
-                    keywordSettings,
-                    Mathf.Max(0f, keywordSettings.ContinuousConversationTimeoutSeconds),
-                    0f,
-                    null);
+                    settings,
+                    Mathf.Max(0f, settings.ContinuousConversationTimeoutSeconds),
+                    0f, null);
 
                 _keywordGate.ActivityChanged += HandleKeywordActivityChanged;
                 _keywordGate.Activated += HandleKeywordActivatedInternal;
@@ -337,50 +528,36 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
             else
             {
-                _keywordGate.ApplySettings(keywordSettings);
+                _keywordGate.ApplySettings(settings);
             }
+        }
 
-            if (_recognitionBuffer == null)
+        private void InitializeRecognitionBuffer()
+        {
+            if (_recognitionBuffer != null)
             {
-                _recognitionBuffer = new RecognitionBuffer(
-                    _keywordGate,
-                    streaming => OnASRTranscriptionStreaming?.Invoke(streaming));
-
-                _recognitionBuffer.BufferAmended += HandleBufferAmended;
-                _recognitionBuffer.Finalized += HandleFinalizedTranscript;
+                return;
             }
 
-            _silenceRecognizer ??= new SilenceTurnRecognizer(_turnDetector);
-            _silenceRecognizer.ConfigureDetector(_turnDetector);
-            _silenceRecognizer.Reset();
-            _recognitionBuffer.Reset();
+            _recognitionBuffer = new RecognitionBuffer(
+                _keywordGate,
+                streaming => InvokeEvent(() => OnASRTranscriptionStreaming?.Invoke(streaming)));
+
+            _recognitionBuffer.BufferAmended += HandleBufferAmended;
+            _recognitionBuffer.Finalized += HandleFinalizedTranscript;
         }
 
         private void InitializeServices(bool preserveRecordingState = true)
         {
             bool wasRecording = preserveRecordingState && IsRecording;
-
             if (wasRecording)
             {
-                try
-                {
-                    StopRecording();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"VoiceMicrophone: failed to stop recording before reconfiguration - {ex.Message}");
-                    wasRecording = false;
-                }
+                StopRecordingSafely();
             }
 
-            DisposeServices();
+            DisposeServicesCore();
             EnsureInfrastructure();
-
-            _voiceActivity.Reset();
-            _keywordGate.Reset(clearStreamingHistory: true);
-            _recognitionBuffer.Reset();
-            _silenceRecognizer.Reset();
-            _pendingStreamingResult = string.Empty;
+            ResetRecognitionStateCore();
 
             _recognitionStrategy = SelectStrategy(AsrConfig.RecognitionMode);
             _recognitionLifetimeCts = new CancellationTokenSource();
@@ -390,65 +567,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             _initializingPreset = preset;
 
             OnBeforeServicesInitializationRequested(config, preset);
-
-            var defaults = AutomaticSpeechRecognitionConfiguration.ASRPreset.Default;
-            _serviceFactory = new SherpaServiceFactory((int)DEFAULT_SAMPLERATE, EnsureFeedbackReporter());
-
-            _expectedModelLoads = 0;
-            _completedModelLoads = 0;
-
-            var streamingResult = _recognitionStrategy.RequiresStreaming
-                ? _serviceFactory.CreateSpeechRecognition(preset.StreamingModelId, defaults.StreamingModelId, "streaming recognition")
-                : ServiceCreationResult<SpeechRecognition>.NoService;
-
-            var offlineResult = _recognitionStrategy.RequiresOffline
-                ? _serviceFactory.CreateSpeechRecognition(preset.OfflineModelId, defaults.OfflineModelId, "offline recognition")
-                : ServiceCreationResult<SpeechRecognition>.NoService;
-
-            var vadResult = _recognitionStrategy.RequiresVoiceActivity
-                ? _serviceFactory.CreateVoiceActivityDetection(preset.VadModelId, defaults.VadModelId)
-                : ServiceCreationResult<VoiceActivityDetection>.NoService;
-
-            var punctuationResult = RequiresPunctuation
-                ? _serviceFactory.CreatePunctuation(preset.PunctuationModelId, defaults.PunctuationModelId)
-                : ServiceCreationResult<Punctuation>.NoService;
-
-            var keywordResult = RequiresKeywordSpotting
-                ? _serviceFactory.CreateKeywordSpotting(config.ActiveKeywordOptions, KeywordOptions.Default.ModelId)
-                : ServiceCreationResult<KeywordSpotting>.NoService;
-
-            if (streamingResult.CountsTowardsInitialization)
-            {
-                _expectedModelLoads++;
-            }
-
-
-            if (offlineResult.CountsTowardsInitialization)
-            {
-                _expectedModelLoads++;
-            }
-
-            if (vadResult.CountsTowardsInitialization)
-            {
-                _expectedModelLoads++;
-            }
-
-
-            if (punctuationResult.CountsTowardsInitialization)
-            {
-                _expectedModelLoads++;
-            }
-
-
-            if (keywordResult.CountsTowardsInitialization)
-            {
-                _expectedModelLoads++;
-            }
-
-
-            AssignServices(streamingResult, offlineResult, vadResult, punctuationResult, keywordResult);
-
-            _progressAggregator.Reset(_expectedModelLoads);
+            CreateServices(preset);
             OnServicesInitializationRequested(config, preset);
 
             if (_expectedModelLoads == 0)
@@ -462,102 +581,248 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
         }
 
-        private void AssignServices(
-            ServiceCreationResult<SpeechRecognition> streamingResult,
-            ServiceCreationResult<SpeechRecognition> offlineResult,
-            ServiceCreationResult<VoiceActivityDetection> vadResult,
-            ServiceCreationResult<Punctuation> punctuationResult,
-            ServiceCreationResult<KeywordSpotting> keywordResult)
+        private void CreateServices(AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
         {
-            _streamingService = streamingResult.Service;
-            _realtimeRecognizer = _streamingService != null ? new SherpaRealtimeSpeechRecognizer(_streamingService) : null;
+            var defaults = AutomaticSpeechRecognitionConfiguration.ASRPreset.Default;
+            _serviceFactory = new SherpaServiceFactory((int)DEFAULT_SAMPLE_RATE, EnsureFeedbackReporter());
 
-            _offlineService = offlineResult.Service;
-            _offlineRecognizer = _offlineService != null ? new SherpaOfflineSpeechRecognizer(_offlineService) : null;
+            _expectedModelLoads = 0;
+            _completedModelLoads = 0;
 
-            _vadService = vadResult.Service;
-            _voiceFilter = _vadService != null ? new SherpaVoiceFilter(_vadService) : null;
+            CreateServiceIfNeeded(
+                _recognitionStrategy.RequiresStreaming,
+                () => _serviceFactory.CreateSpeechRecognition(preset.StreamingModelId, defaults.StreamingModelId, "streaming"),
+                result =>
+                {
+                    _streamingService = result.Service;
+                    _realtimeRecognizer = result.Service != null
+                        ? new SherpaRealtimeSpeechRecognizer(result.Service)
+                        : null;
+                });
 
-            _punctService = punctuationResult.Service;
+            CreateServiceIfNeeded(
+                _recognitionStrategy.RequiresOffline,
+                () => _serviceFactory.CreateSpeechRecognition(preset.OfflineModelId, defaults.OfflineModelId, "offline"),
+                result =>
+                {
+                    _offlineService = result.Service;
+                    _offlineRecognizer = result.Service != null
+                        ? new SherpaOfflineSpeechRecognizer(result.Service)
+                        : null;
+                });
 
-            _keywordService = keywordResult.Service;
-            _keywordDetector = _keywordService != null ? new SherpaKeywordDetector(_keywordService) : null;
+            CreateServiceIfNeeded(
+                _recognitionStrategy.RequiresVoiceActivity,
+                () => _serviceFactory.CreateVoiceActivityDetection(preset.VadModelId, defaults.VadModelId),
+                result =>
+                {
+                    _vadService = result.Service;
+                    _voiceFilter = result.Service != null ? new SherpaVoiceFilter(result.Service) : null;
+                });
+
+            CreateServiceIfNeeded(
+                RequiresPunctuation,
+                () => _serviceFactory.CreatePunctuation(preset.PunctuationModelId, defaults.PunctuationModelId),
+                result => _punctService = result.Service);
+
+            CreateServiceIfNeeded(
+                RequiresKeywordSpotting,
+                () => _serviceFactory.CreateKeywordSpotting(AsrConfig.ActiveKeywordOptions, KeywordOptions.Default.ModelId),
+                result =>
+                {
+                    _keywordService = result.Service;
+                    _keywordDetector = result.Service != null
+                        ? new SherpaKeywordDetector(result.Service)
+                        : null;
+                });
+
+            _progressAggregator.Reset(_expectedModelLoads);
         }
 
-        private void DisposeServices()
+        private void CreateServiceIfNeeded<T>(
+            bool condition,
+            Func<ServiceCreationResult<T>> creator,
+            Action<ServiceCreationResult<T>> assigner) where T : class
+        {
+            if (!condition)
+            {
+                assigner(ServiceCreationResult<T>.NoService);
+                return;
+            }
+
+            var result = creator();
+            if (result.CountsTowardsInitialization)
+            {
+                _expectedModelLoads++;
+            }
+
+            assigner(result);
+        }
+
+        private void DisposeServicesCore()
         {
             OnBeforeServicesDisposed();
 
-            _recognitionLifetimeCts?.Cancel();
-            _recognitionLifetimeCts?.Dispose();
-            _recognitionLifetimeCts = null;
+            // CRITICAL: Dispose wrappers BEFORE CTS to avoid ObjectDisposedException
+            DisposeServiceWrappers();
+            DisposeCancellationToken();
+            DisposeServiceInstances();
+            ClearReferences();
 
-            if (_voiceFilter != null)
+            Initialized = false;
+            OnAfterServicesDisposed();
+        }
+
+        private void DisposeServiceWrappers()
+        {
+            UnsubscribeAndDispose(ref _voiceFilter, f => f.OnVoiceActivityChanged -= HandleVoiceActivityFromFilter);
+            UnsubscribeAndDispose(ref _realtimeRecognizer, r => r.OnRecognitionResult -= HandleStreamingRecognition);
+            UnsubscribeAndDispose(ref _offlineRecognizer, r => r.OnRecognitionResult -= HandleOfflineRecognition);
+            UnsubscribeAndDispose(ref _keywordDetector, d => d.OnKeywordDetected -= HandleKeywordDetected);
+        }
+
+        private void DisposeCancellationToken()
+        {
+            if (_recognitionLifetimeCts == null)
             {
-                _voiceFilter.OnVoiceActivityChanged -= HandleVoiceActivityFromFilter;
-                SafeDispose(ref _voiceFilter);
+                return;
             }
 
-            if (_realtimeRecognizer != null)
+            try
             {
-                _realtimeRecognizer.OnRecognitionResult -= HandleStreamingRecognition;
-                SafeDispose(ref _realtimeRecognizer);
+                if (!_recognitionLifetimeCts.IsCancellationRequested)
+                {
+                    _recognitionLifetimeCts.Cancel();
+                }
             }
+            catch (ObjectDisposedException) { }
 
-            if (_offlineRecognizer != null)
-            {
-                _offlineRecognizer.OnRecognitionResult -= HandleOfflineRecognition;
-                SafeDispose(ref _offlineRecognizer);
-            }
+            SafeDispose(ref _recognitionLifetimeCts);
+        }
 
-            if (_keywordDetector != null)
-            {
-                _keywordDetector.OnKeywordDetected -= HandleKeywordDetected;
-                SafeDispose(ref _keywordDetector);
-            }
-
+        private void DisposeServiceInstances()
+        {
             SafeDispose(ref _streamingService);
             SafeDispose(ref _offlineService);
             SafeDispose(ref _vadService);
             SafeDispose(ref _keywordService);
             SafeDispose(ref _punctService);
+        }
 
+        private void ClearReferences()
+        {
             _feedbackReporter = null;
             _serviceFactory = null;
             _expectedModelLoads = 0;
             _completedModelLoads = 0;
             _pendingStreamingResult = string.Empty;
+        }
 
+        private void ResetRecognitionStateCore()
+        {
+            _pendingStreamingResult = string.Empty;
             _voiceActivity?.Reset();
             _keywordGate?.Reset(clearStreamingHistory: true);
             _recognitionBuffer?.Reset();
             _silenceRecognizer?.Reset();
             SetVoiceActivity(false);
-            Initialized = false;
-
-            OnAfterServicesDisposed();
         }
 
-        private void TryStartRecording()
+        private void DisposeAllResources()
         {
+            if (!TryTransitionState(_lifecycleState, LifecycleState.Disposing))
+            {
+                // Force dispose if already disposing or in bad state
+                if (_lifecycleState == LifecycleState.Disposing)
+                {
+                    return;
+                }
+            }
+
             try
             {
-                StartRecording();
+                EnsureRecordingStopped();
+                DisposeServicesCore();
+                DisposeInfrastructure();
             }
-            catch (Exception ex)
+            finally
             {
-                Debug.LogError($"VoiceMicrophone: failed to restart recording after configuration update - {ex.Message}");
+                SetState(LifecycleState.Disposed);
             }
+        }
+
+        private void DisposeInfrastructure()
+        {
+            if (_voiceActivity != null)
+            {
+                _voiceActivity.VoiceActivityChanged -= HandleVoiceActivityChanged;
+                _voiceActivity = null;
+            }
+
+            if (_keywordGate != null)
+            {
+                _keywordGate.ActivityChanged -= HandleKeywordActivityChanged;
+                _keywordGate.Activated -= HandleKeywordActivatedInternal;
+                _keywordGate.Deactivated -= HandleKeywordDeactivatedInternal;
+                _keywordGate = null;
+            }
+
+            if (_recognitionBuffer != null)
+            {
+                _recognitionBuffer.BufferAmended -= HandleBufferAmended;
+                _recognitionBuffer.Finalized -= HandleFinalizedTranscript;
+                _recognitionBuffer = null;
+            }
+
+            _silenceRecognizer = null;
+            _turnDetector = null;
+            _progressAggregator = null;
+        }
+
+        private void ApplyPendingDeviceOptions()
+        {
+            if (!_pendingDeviceOptions.HasValue)
+            {
+                return;
+            }
+
+            var options = _pendingDeviceOptions.Value;
+            _pendingDeviceOptions = null;
+
+            LogInfo("Applying pending device options...");
+            ApplyDeviceOptions(options, _pendingRestartRecording);
         }
 
         #endregion
 
-        private void HandleStreamingRecognition(string content) => _ = ProcessRecognitionAsync(content, isStreaming: true);
+        #region Audio Pipeline
 
-        private void HandleOfflineRecognition(string content) => _ = ProcessRecognitionAsync(content, isStreaming: false);
-
-        private async Task ProcessRecognitionAsync(string content, bool isStreaming)
+        private void ConfigureAudioPipeline(AudioPipeline pipeline)
         {
+            var configurator = new AudioPipelineConfigurator(pipeline);
+            configurator.ConfigureKeywordDetector(_keywordDetector, HandleKeywordDetected);
+            configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
+            configurator.ConfigureVoiceFilter(_voiceFilter, HandleVoiceActivityFromFilter);
+            configurator.ConfigureOfflineRecognizer(_offlineRecognizer, HandleOfflineRecognition);
+        }
+
+        #endregion
+
+        #region Recognition Processing
+
+        private void HandleStreamingRecognition(string content) =>
+            ProcessRecognition(content, isStreaming: true);
+
+        private void HandleOfflineRecognition(string content) =>
+            ProcessRecognition(content, isStreaming: false);
+
+        private async void ProcessRecognition(string content, bool isStreaming)
+        {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             var token = _recognitionLifetimeCts?.Token ?? CancellationToken.None;
             if (token.IsCancellationRequested)
             {
@@ -568,97 +833,89 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             try
             {
-                if (_punctService != null)
+                content = await ApplyPunctuationAsync(content, token);
+                if (token.IsCancellationRequested)
                 {
-                    try
-                    {
-                        content = await _punctService.AddPunctuationAsync(content);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"VoiceMicrophone: punctuation failed - {ex.Message}");
-                    }
+                    return;
                 }
-
-                content ??= string.Empty;
 
                 if (isStreaming)
                 {
-                    await HandleStreamingAsync(content, token);
+                    ProcessStreamingResult(content, token);
                 }
                 else
                 {
-                    await HandleOfflineAsync(content, token);
+                    ProcessOfflineResult(content, token);
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // Intended cancellation path.
-            }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Debug.LogError($"VoiceMicrophone: recognition pipeline failed - {ex.Message}");
+                LogError($"Recognition pipeline failed: {ex.Message}");
             }
         }
 
-        #region Recognition Flow
-
-        private Task HandleStreamingAsync(string content, CancellationToken token)
+        private async Task<string> ApplyPunctuationAsync(string content, CancellationToken token)
         {
-            string payload = content ?? string.Empty;
-            bool hasContent = payload.Length > 0;
+            if (_punctService == null || token.IsCancellationRequested)
+            {
+                return content ?? string.Empty;
+            }
 
-            _recognitionBuffer.EmitPartial(payload);
+            try
+            {
+                return await _punctService.AddPunctuationAsync(content) ?? string.Empty;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogWarning($"Punctuation failed: {ex.Message}");
+                return content ?? string.Empty;
+            }
+        }
 
-            if (hasContent)
+        private void ProcessStreamingResult(string content, CancellationToken token)
+        {
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _recognitionBuffer?.EmitPartial(content ?? string.Empty);
+
+            if (!string.IsNullOrEmpty(content))
             {
                 SetVoiceActivity(true);
-                _pendingStreamingResult = payload;
-                return Task.CompletedTask;
+                _pendingStreamingResult = content;
+                return;
             }
 
             SetVoiceActivity(false);
 
-            if (string.IsNullOrEmpty(_pendingStreamingResult))
+            if (!string.IsNullOrEmpty(_pendingStreamingResult) &&
+                _recognitionStrategy?.AllowsStreamingFinalCommit == true &&
+                !token.IsCancellationRequested)
             {
-                return Task.CompletedTask;
-            }
-
-            if (_recognitionStrategy == null || !_recognitionStrategy.AllowsStreamingFinalCommit)
-            {
-                _pendingStreamingResult = string.Empty;
-                return Task.CompletedTask;
-            }
-
-            if (!token.IsCancellationRequested)
-            {
-                AppendToRecognitionBuffer(_pendingStreamingResult);
+                CommitResult(_pendingStreamingResult);
             }
 
             _pendingStreamingResult = string.Empty;
-            return Task.CompletedTask;
         }
 
-        private Task HandleOfflineAsync(string content, CancellationToken token)
+        private void ProcessOfflineResult(string content, CancellationToken token)
         {
-            if (string.IsNullOrWhiteSpace(content))
+            if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(content))
             {
-                return Task.CompletedTask;
+                return;
             }
 
             SetVoiceActivity(false);
-
-            if (!token.IsCancellationRequested)
-            {
-                AppendToRecognitionBuffer(content);
-            }
-
-            return Task.CompletedTask;
+            CommitResult(content);
         }
 
-        private void AppendToRecognitionBuffer(string text)
+        private void CommitResult(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            if (string.IsNullOrWhiteSpace(text) || !IsOperational)
             {
                 return;
             }
@@ -668,117 +925,108 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 return;
             }
 
-            _recognitionBuffer.Commit(text);
+            _recognitionBuffer?.Commit(text);
         }
 
         #endregion
 
-        #region Activity & Keyword Handlers
+        #region Event Handlers
 
         private void HandleBufferAmended(string buffer)
         {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             OnTranscription(buffer, false);
         }
 
         private void HandleFinalizedTranscript(string text)
         {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             OnTranscription(text, true);
-            OnASRTranscriptionSubmit?.Invoke(text);
+            InvokeEvent(() => OnASRTranscriptionSubmit?.Invoke(text));
         }
 
         private void HandleVoiceActivityChanged(bool isActive)
         {
-            _silenceRecognizer?.OnVoiceActivityChanged(isActive);
-            OnVoiceActivityChanged?.Invoke(isActive);
-            OnSpeakingChanged?.Invoke(isActive);
+            if (!IsOperational)
+            {
+                return;
+            }
 
-            if (!isActive &&
-                _recognitionStrategy != null &&
-                _recognitionStrategy.SubmitWhenSpeakingEndsWithoutOffline &&
+            _silenceRecognizer?.OnVoiceActivityChanged(isActive);
+            InvokeEvent(() => OnVoiceActivityChanged?.Invoke(isActive));
+            InvokeEvent(() => OnSpeakingChanged?.Invoke(isActive));
+
+            if (!isActive && _recognitionStrategy?.SubmitWhenSpeakingEndsWithoutOffline == true &&
                 !string.IsNullOrEmpty(_pendingStreamingResult))
             {
-                AppendToRecognitionBuffer(_pendingStreamingResult);
+                CommitResult(_pendingStreamingResult);
                 _pendingStreamingResult = string.Empty;
             }
         }
 
-        private void HandleUtteranceEnded()
-        {
-            _keywordGate?.OnUtteranceEnded();
-        }
-
         private void HandleKeywordActivityChanged(string keyword, bool isActive)
         {
-            OnKeywordActivityChanged?.Invoke(keyword, isActive);
+            if (!IsOperational)
+            {
+                return;
+            }
+
+            InvokeEvent(() => OnKeywordActivityChanged?.Invoke(keyword, isActive));
         }
 
         private void HandleKeywordActivatedInternal(string keyword)
         {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             OnKeywordActivated(keyword);
         }
 
         private void HandleKeywordDeactivatedInternal(string keyword)
         {
+            if (!IsOperational)
+            {
+                return;
+            }
+
             OnKeywordDeactivated();
         }
 
         private void HandleKeywordDetected(string keyword)
         {
-            if (!string.IsNullOrWhiteSpace(keyword))
-            {
-                _keywordGate?.Activate(keyword);
-            }
-        }
-
-        private void HandleVoiceActivityFromFilter(bool isVoiceActivity) => SetVoiceActivity(isVoiceActivity);
-
-        private void SetVoiceActivity(bool isVoiceActivity) => _voiceActivity?.SetVoiceActivity(isVoiceActivity);
-
-        #endregion
-
-        #region Strategy & Feedback
-
-        private TurnDetector CreateTurnDetector(TurnDetectionOptions settings)
-        {
-            return new AdaptiveTurnDetector(settings);
-        }
-
-        private IRecognitionStrategy SelectStrategy(RecognitionMode mode)
-        {
-            return mode switch
-            {
-                RecognitionMode.Streaming => StreamingStrategy,
-                RecognitionMode.OfflineWithVad => OfflineStrategy,
-                RecognitionMode.Hybrid => HybridStrategy,
-                _ => StreamingStrategy
-            };
-        }
-
-        private SherpaONNXFeedbackReporter EnsureFeedbackReporter()
-        {
-            return _feedbackReporter ??= new SherpaONNXFeedbackReporter(null, this);
-        }
-
-        private static void SafeDispose<T>(ref T disposable) where T : class, IDisposable
-        {
-            if (disposable == null)
+            if (!IsOperational || string.IsNullOrWhiteSpace(keyword))
             {
                 return;
             }
 
-            try
-            {
-                disposable.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"VoiceMicrophone: failed to dispose {typeof(T).Name} - {ex.Message}");
-            }
-            finally
-            {
-                disposable = null;
-            }
+            _keywordGate?.Activate(keyword);
         }
+
+        private void HandleVoiceActivityFromFilter(bool isActive)
+        {
+            if (!IsOperational)
+            {
+                return;
+            }
+
+            SetVoiceActivity(isActive);
+        }
+
+        private void SetVoiceActivity(bool isActive) => _voiceActivity?.SetVoiceActivity(isActive);
+
+        #endregion
+
+        #region Initialization Finalization
 
         private void FinalizeInitialization()
         {
@@ -788,6 +1036,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
 
             Initialized = true;
+            SetState(LifecycleState.Ready);
             OnServicesInitialized(AsrConfig, _initializingPreset);
         }
 
@@ -804,110 +1053,288 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
         }
 
+        #endregion
+
+        #region Progress & Feedback
+
         private void PublishProgress(string message)
         {
-            float progress = _progressAggregator.CalculateProgress();
-            OnLoadingProgressFeedback?.Invoke(message, progress);
-        }
-
-        private void PublishFailed(FailedFeedback feedback)
-        {
-            PublishProgress(feedback?.Message);
-            OnServiceLoadingFailed(feedback);
-            OnLoadingFailedFeedback?.Invoke(feedback);
-        }
-
-        private void PublishSuccess(SuccessFeedback feedback)
-        {
-            PublishProgress(feedback?.Message);
-            OnServiceLoadingSucceeded(feedback);
-            OnLoadingSucceededFeedback?.Invoke(feedback);
-        }
-
-        public void OnFeedback(PrepareFeedback feedback)
-        {
-            if (feedback == null)
+            if (_progressAggregator == null)
             {
                 return;
             }
 
-            _progressAggregator.RegisterPrepare(feedback.Metadata, feedback.Message);
-            PublishProgress(feedback.Message);
+            float progress = _progressAggregator.CalculateProgress();
+            InvokeEvent(() => OnLoadingProgressFeedback?.Invoke(message, progress));
+        }
+
+        #endregion
+
+        #region ISherpaFeedbackHandler
+
+        public void OnFeedback(PrepareFeedback feedback)
+        {
+            _progressAggregator?.RegisterPrepare(feedback?.Metadata, feedback?.Message);
+            PublishProgress(feedback?.Message);
         }
 
         public void OnFeedback(DownloadFeedback feedback)
         {
-            if (feedback == null)
-            {
-                return;
-            }
-
-            _progressAggregator.RegisterDownload(feedback.Metadata, feedback.Progress, feedback.Message);
-            PublishProgress(feedback.Message);
+            _progressAggregator?.RegisterDownload(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
+            PublishProgress(feedback?.Message);
         }
 
         public void OnFeedback(DecompressFeedback feedback)
         {
-            if (feedback == null)
-            {
-                return;
-            }
-
-            _progressAggregator.RegisterDecompress(feedback.Metadata, feedback.Progress, feedback.Message);
-            PublishProgress(feedback.Message);
+            _progressAggregator?.RegisterDecompress(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
+            PublishProgress(feedback?.Message);
         }
 
         public void OnFeedback(VerifyFeedback feedback)
         {
-            if (feedback == null)
-            {
-                return;
-            }
-
-            _progressAggregator.RegisterVerify(feedback.Metadata, feedback.Progress, feedback.Message);
-            PublishProgress(feedback.Message);
+            _progressAggregator?.RegisterVerify(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
+            PublishProgress(feedback?.Message);
         }
 
         public void OnFeedback(LoadFeedback feedback)
         {
-            if (feedback == null)
-            {
-                return;
-            }
-
-            _progressAggregator.RegisterLoad(feedback.Metadata, feedback.Message);
-            PublishProgress(feedback.Message);
-        }
-
-        public void OnFeedback(CancelFeedback feedback)
-        {
+            _progressAggregator?.RegisterLoad(feedback?.Metadata, feedback?.Message);
             PublishProgress(feedback?.Message);
         }
 
+        public void OnFeedback(CancelFeedback feedback) => PublishProgress(feedback?.Message);
+        public void OnFeedback(CleanFeedback feedback) => PublishProgress(feedback?.Message);
+
         public void OnFeedback(SuccessFeedback feedback)
         {
-            if (feedback != null)
-            {
-                _progressAggregator.RegisterSuccess(feedback.Metadata, feedback.Message);
-            }
-
+            _progressAggregator?.RegisterSuccess(feedback?.Metadata, feedback?.Message);
             _completedModelLoads++;
-            PublishSuccess(feedback);
+            PublishProgress(feedback?.Message);
+            OnServiceLoadingSucceeded(feedback);
+            InvokeEvent(() => OnLoadingSucceededFeedback?.Invoke(feedback));
             FinalizeInitializationIfReady();
         }
 
         public void OnFeedback(FailedFeedback feedback)
         {
             _completedModelLoads++;
-            Debug.LogError($"VoiceMicrophone: model load failed - {feedback?.Message ?? "unknown error"}");
-            PublishFailed(feedback);
+            LogError($"Model load failed: {feedback?.Message ?? "unknown error"}");
+            PublishProgress(feedback?.Message);
+            OnServiceLoadingFailed(feedback);
+            InvokeEvent(() => OnLoadingFailedFeedback?.Invoke(feedback));
             FinalizeInitializationIfReady();
         }
 
-        public void OnFeedback(CleanFeedback feedback)
+        #endregion
+
+        #region Helper Methods
+
+        private IRecognitionStrategy SelectStrategy(RecognitionMode mode) => mode switch
         {
-            PublishProgress(feedback?.Message);
+            RecognitionMode.Streaming => StreamingStrategy,
+            RecognitionMode.OfflineWithVad => OfflineStrategy,
+            RecognitionMode.Hybrid => HybridStrategy,
+            _ => StreamingStrategy
+        };
+
+        private SherpaONNXFeedbackReporter EnsureFeedbackReporter() =>
+            _feedbackReporter ??= new SherpaONNXFeedbackReporter(null, this);
+
+        private void EnsureRecordingStopped()
+        {
+            if (!IsRecording)
+            {
+                return;
+            }
+
+            LogInfo("Ensuring recording is stopped...");
+            for (int i = 0; i < 3 && IsRecording; i++)
+            {
+                StopRecordingSafely();
+                if (IsRecording)
+                {
+                    Thread.Sleep(50);
+                }
+            }
         }
+
+        private void StopRecordingSafely()
+        {
+            try
+            {
+                if (IsRecording)
+                {
+                    StopRecording();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"Failed to stop recording: {ex.Message}");
+            }
+        }
+
+        private void TryStartRecording()
+        {
+            if (!IsOperational)
+            {
+                return;
+            }
+
+            try
+            {
+                StartRecording();
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to start recording: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Validates that the component is in Ready state.
+        /// 验证组件是否处于 Ready 状态。
+        /// </summary>
+        private bool IsReady(string operation)
+        {
+            var state = _lifecycleState;
+
+            if (state == LifecycleState.Initializing)
+            {
+                LogWarning($"Cannot {operation}: initialization in progress.");
+                return false;
+            }
+
+            if (state == LifecycleState.Disposing)
+            {
+                LogWarning($"Cannot {operation}: disposal in progress.");
+                return false;
+            }
+
+            if (state != LifecycleState.Ready)
+            {
+                LogWarning($"Cannot {operation}: component not ready (current state: {state}).");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Validates that the component is not in a transitioning state.
+        /// 验证组件不在过渡状态。
+        /// </summary>
+        private bool IsStable(string operation)
+        {
+            var state = _lifecycleState;
+
+            if (state == LifecycleState.Initializing)
+            {
+                LogWarning($"Cannot {operation}: initialization in progress. Please wait or call after initialization completes.");
+                return false;
+            }
+
+            if (state == LifecycleState.Disposing)
+            {
+                LogWarning($"Cannot {operation}: disposal in progress.");
+                return false;
+            }
+
+            return true;
+        }
+
+        #endregion
+
+        #region State Management Helpers
+
+        private bool TryTransitionState(LifecycleState expected, LifecycleState newState)
+        {
+            lock (_stateLock)
+            {
+                if (_lifecycleState != expected)
+                {
+                    return false;
+                }
+
+                _lifecycleState = newState;
+                return true;
+            }
+        }
+
+        private void SetState(LifecycleState newState)
+        {
+            lock (_stateLock)
+            {
+                _lifecycleState = newState;
+            }
+        }
+
+        #endregion
+
+        #region Dispose Helpers
+
+        private static void SafeDispose<T>(ref T disposable) where T : class, IDisposable
+        {
+            if (disposable == null)
+            {
+                return;
+            }
+
+            try
+            {
+                disposable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LOG_PREFIX} Failed to dispose {typeof(T).Name}: {ex.Message}");
+            }
+            finally
+            {
+                disposable = null;
+            }
+        }
+
+        private static void UnsubscribeAndDispose<T>(ref T disposable, Action<T> unsubscribe)
+            where T : class, IDisposable
+        {
+            if (disposable == null)
+            {
+                return;
+            }
+
+            try
+            {
+                unsubscribe?.Invoke(disposable);
+                disposable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LOG_PREFIX} Failed to dispose {typeof(T).Name}: {ex.Message}");
+            }
+            finally
+            {
+                disposable = null;
+            }
+        }
+
+        private void InvokeEvent(Action action)
+        {
+            try
+            {
+                action?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                LogError($"Event invocation failed: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Logging
+
+        private static void LogInfo(string message) => Debug.Log($"{LOG_PREFIX} {message}");
+        private static void LogWarning(string message) => Debug.LogWarning($"{LOG_PREFIX} {message}");
+        private static void LogError(string message) => Debug.LogError($"{LOG_PREFIX} {message}");
 
         #endregion
     }

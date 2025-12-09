@@ -56,7 +56,6 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
                 return;
             }
 
-
             try
             {
                 if (!audiobuffer.IsEmpty)
