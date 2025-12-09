@@ -1,6 +1,6 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System.Collections.Generic;
-using Eitan.SherpaOnnxUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
@@ -49,7 +49,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Marks that preparation of the provided model has started.
         /// </summary>
-        public void RegisterPrepare(SherpaOnnxModelMetadata metadata, string message)
+        public void RegisterPrepare(SherpaONNXModelMetadata metadata, string message)
         {
             var state = GetOrCreateState(metadata, initialize: true);
             state.EnsureStarted();
@@ -59,7 +59,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Updates download progress.
         /// </summary>
-        public void RegisterDownload(SherpaOnnxModelMetadata metadata, float progress, string message)
+        public void RegisterDownload(SherpaONNXModelMetadata metadata, float progress, string message)
         {
             var state = GetOrCreateState(metadata);
             state.Download = Mathf.Max(state.Download, NormalizeProgress(progress));
@@ -69,7 +69,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Updates decompression progress.
         /// </summary>
-        public void RegisterDecompress(SherpaOnnxModelMetadata metadata, float progress, string message)
+        public void RegisterDecompress(SherpaONNXModelMetadata metadata, float progress, string message)
         {
             var state = GetOrCreateState(metadata);
             state.Uncompress = Mathf.Max(state.Uncompress, NormalizeProgress(progress));
@@ -79,7 +79,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Updates verification progress.
         /// </summary>
-        public void RegisterVerify(SherpaOnnxModelMetadata metadata, float progress, string message)
+        public void RegisterVerify(SherpaONNXModelMetadata metadata, float progress, string message)
         {
             var state = GetOrCreateState(metadata);
             state.MarkDownloadComplete();
@@ -91,7 +91,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Updates loading progress.
         /// </summary>
-        public void RegisterLoad(SherpaOnnxModelMetadata metadata, string message)
+        public void RegisterLoad(SherpaONNXModelMetadata metadata, string message)
         {
             var state = GetOrCreateState(metadata);
             state.MarkDownloadComplete();
@@ -104,7 +104,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Marks the specified model as successfully loaded.
         /// </summary>
-        public void RegisterSuccess(SherpaOnnxModelMetadata metadata, string message)
+        public void RegisterSuccess(SherpaONNXModelMetadata metadata, string message)
         {
             var state = GetOrCreateState(metadata);
             state.MarkComplete();
@@ -114,12 +114,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         /// <summary>
         /// Ensures that a model entry exists in the aggregator.
         /// </summary>
-        public void EnsureModelRegistered(SherpaOnnxModelMetadata metadata)
+        public void EnsureModelRegistered(SherpaONNXModelMetadata metadata)
         {
             GetOrCreateState(metadata);
         }
 
-        private ModelProgressState GetOrCreateState(SherpaOnnxModelMetadata metadata, bool initialize = false)
+        private ModelProgressState GetOrCreateState(SherpaONNXModelMetadata metadata, bool initialize = false)
         {
             string key = GetModelKey(metadata);
             if (!_states.TryGetValue(key, out var state))
@@ -136,7 +136,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             return state;
         }
 
-        private static string GetModelKey(SherpaOnnxModelMetadata metadata)
+        private static string GetModelKey(SherpaONNXModelMetadata metadata)
         {
             return string.IsNullOrWhiteSpace(metadata?.modelId) ? "unknown" : metadata.modelId;
         }

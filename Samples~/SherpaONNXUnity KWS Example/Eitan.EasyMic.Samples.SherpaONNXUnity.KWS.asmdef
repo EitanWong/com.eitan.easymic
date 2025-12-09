@@ -1,11 +1,11 @@
 {
-    "name": "Eitan.EasyMic.Samples.SherpaOnnx.KWS",
-    "rootNamespace": "Eitan.EasyMic.Samples.SherpaOnnx.KWS",
+    "name": "Eitan.EasyMic.Samples.SherpaONNX.KWS",
+    "rootNamespace": "Eitan.EasyMic.Samples.SherpaONNXUnity.KWS",
     "references": [
         "Eitan.EasyMic",
-        "Eitan.EasyMic.SherpaOnnxUnity",
-        "Eitan.SherpaOnnxUnity",
-        "Eitan.EasyMic.Apm"
+        "Eitan.EasyMic.Apm",
+        "Eitan.EasyMic.SherpaONNXUnity",
+        "Eitan.SherpaONNXUnity"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

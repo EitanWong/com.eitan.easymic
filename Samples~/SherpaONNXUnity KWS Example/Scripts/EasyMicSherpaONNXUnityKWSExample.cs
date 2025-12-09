@@ -1,5 +1,5 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
-namespace Eitan.SherpaOnnxUnity.Samples.KWS
+namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
 {
     using System;
     using System.Collections;
@@ -7,14 +7,14 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
     using System.Linq;
     using System.Threading.Tasks;
     using Eitan.EasyMic;
-
     using Eitan.EasyMic.Runtime;
-    using Eitan.EasyMic.Runtime.SherpaOnnxUnity;
-    using Eitan.SherpaOnnxUnity.Runtime;
+    using Eitan.EasyMic.Runtime.SherpaONNXUnity;
+    using Eitan.SherpaONNXUnity.Runtime;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
     using UnityEngine;
     using UnityEngine.UI;
 
-    public class EasyMicSherpaOnnxKWSExample : MonoBehaviour, ISherpaFeedbackHandler
+    public class EasyMicSherpaONNXUnityKWSExample : MonoBehaviour, ISherpaFeedbackHandler
     {
         #region UI Constants
         private const string STATE_NOT_LOADED = "Not Loaded";
@@ -166,12 +166,12 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
             _modelIDDropdown.options.Clear();
             _modelIDDropdown.captionText.text = "Fetching model manifest from GitHub…";
             _modelLoadOrUnloadButton.gameObject.SetActive(false);
-            var manifest = await SherpaOnnxModelRegistry.Instance.GetManifestAsync();
+            var manifest = await SherpaONNXModelRegistry.Instance.GetManifestAsync();
             _modelLoadOrUnloadButton.gameObject.SetActive(true);
             _modelIDDropdown.options.Clear();
             if (manifest.models != null)
             {
-                List<Dropdown.OptionData> modelOptions = manifest.Filter(m => m.moduleType == SherpaOnnxModuleType.KeywordSpotting)
+                List<Dropdown.OptionData> modelOptions = manifest.Filter(m => m.moduleType == SherpaONNXModuleType.KeywordSpotting)
                                                                .Select(m => new Dropdown.OptionData(m.modelId)).ToList();
                 _modelIDDropdown.AddOptions(modelOptions);
 
@@ -233,7 +233,7 @@ namespace Eitan.SherpaOnnxUnity.Samples.KWS
                 return;
             }
             UpdateState(AppState.Loading);
-            var reporter = new SherpaOnnxFeedbackReporter(null, this);
+            var reporter = new SherpaONNXFeedbackReporter(null, this);
             _keywordSpottingService = new KeywordSpotting(_modelIDDropdown.captionText.text, SampleRate, 2.0f, 0.25f, kwsKeywords, reporter);
         }
 

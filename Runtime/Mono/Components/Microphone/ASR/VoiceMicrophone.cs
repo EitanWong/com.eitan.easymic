@@ -3,9 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Eitan.EasyMic.Runtime.SherpaOnnxUnity;
-using Eitan.SherpaOnnxUnity;
-using Eitan.SherpaOnnxUnity.Runtime;
+using Eitan.EasyMic.Runtime.SherpaONNXUnity;
+using Eitan.SherpaONNXUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime.Core;
+using Eitan.SherpaONNXUnity.Runtime.Modules;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
@@ -42,7 +43,8 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private SherpaOfflineSpeechRecognizer _offlineRecognizer;
         private SherpaKeywordDetector _keywordDetector;
 
-        private SherpaOnnxFeedbackReporter _feedbackReporter;
+
+        private SherpaONNXFeedbackReporter _feedbackReporter;
         private SherpaServiceFactory _serviceFactory;
 
         #endregion
@@ -252,7 +254,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         public void SetGithubProxy(string url)
         {
-            SherpaOnnxUnityAPI.SetGithubProxy(url);
+            SherpaONNXUnityAPI.SetGithubProxy(url);
         }
 
         #endregion
@@ -738,7 +740,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private TurnDetector CreateTurnDetector(TurnDetectionOptions settings)
         {
-            return new HeuristicTurnDetector(settings);
+            return new AdaptiveTurnDetector(settings);
         }
 
         private IRecognitionStrategy SelectStrategy(RecognitionMode mode)
@@ -752,9 +754,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             };
         }
 
-        private SherpaOnnxFeedbackReporter EnsureFeedbackReporter()
+        private SherpaONNXFeedbackReporter EnsureFeedbackReporter()
         {
-            return _feedbackReporter ??= new SherpaOnnxFeedbackReporter(null, this);
+            return _feedbackReporter ??= new SherpaONNXFeedbackReporter(null, this);
         }
 
         private static void SafeDispose<T>(ref T disposable) where T : class, IDisposable

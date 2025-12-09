@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AudioCapturer for recording audio to Unity AudioClip
   - AudioDownmixer for channel conversion (stereo to mono)
   - VolumeGateFilter for noise gate functionality
-  - SherpaOnnxUnity integration for speech recognition
+  - SherpaONNXUnity integration for speech recognition
 - Cross-platform native plugin support:
   - Windows (x86, x86_64, ARM64)
   - macOS (x86_64, ARM64)

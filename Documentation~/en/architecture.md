@@ -91,7 +91,7 @@ You can also set EasyMicAPI.DefaultWorkers at app init to standardize commonly u
 
 ## Integrations
 
-- SherpaOnnxUnity: Optional speech recognition and VAD processors (guarded by scripting defines). Requires the Sherpa package.
+- SherpaONNXUnity: Optional speech recognition and VAD processors (guarded by scripting defines). Requires the Sherpa package.
 - APM (AEC/ANS/AGC): An add‑on package that integrates professional 3A processing. This is a paid extension; contact the author to purchase a license.
 
 ## Gotchas & Tips

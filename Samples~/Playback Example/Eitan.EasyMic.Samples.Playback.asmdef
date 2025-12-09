@@ -2,7 +2,8 @@
     "name": "Eitan.EasyMic.Samples.Playback",
     "rootNamespace": "Eitan.EasyMic.Samples.Playback",
     "references": [
-        "Eitan.EasyMic"
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

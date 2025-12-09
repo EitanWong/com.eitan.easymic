@@ -1,6 +1,6 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
-using Eitan.EasyMic.Runtime.SherpaOnnxUnity;
+using Eitan.EasyMic.Runtime.SherpaONNXUnity;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
 {

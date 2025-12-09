@@ -1,17 +1,18 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
-namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
+namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
 {
     using UnityEngine;
     using UnityEngine.UI;
     using System.Linq;
     using Eitan.EasyMic.Runtime;
-    using Eitan.SherpaOnnxUnity.Runtime;
     using System;
     using System.Threading.Tasks;
+    using Eitan.SherpaONNXUnity.Runtime;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
 
 
     /// <summary>
-    /// This is a comprehensive example demonstrating the capabilities of the EasyMic and SherpaOnnx Unity packages.
+    /// This is a comprehensive example demonstrating the capabilities of the EasyMic and SherpaONNX Unity packages.
     /// It covers:
     /// - Refreshing and listing available microphone devices.
     /// - Asynchronously loading and unloading speech recognition (ASR) and voice activity detection (VAD) models.
@@ -23,7 +24,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
     /// - Playing back and saving the recorded audio.
     /// - Managing UI states for a clear user experience.
     /// </summary>
-    public class EasyMicSherpaOnnxASRExample : MonoBehaviour, ISherpaFeedbackHandler
+    public class EasyMicSherpaONNXUnityASRExample : MonoBehaviour, ISherpaFeedbackHandler
     {
         #region UI Constants
         private const string STATE_NOT_LOADED = "Not Loaded";
@@ -131,7 +132,6 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
             BindUIEvents();
             SetInitialUIState();
 
-            SherpaOnnxUnityAPI.SetGithubProxy("https://gh-proxy.com/");
             OnRefreshButtonPressed();
         }
 
@@ -260,14 +260,14 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
 
             _asrModelsDropdown.ClearOptions();
             _asrModelsDropdown.captionText.text = "Fetching model manifest from GitHub…";
-            var _asrModelIDArray = await SherpaOnnxUnityAPI.GetModelIDByTypeAsync(SherpaOnnxModuleType.SpeechRecognition);
+            var _asrModelIDArray = await SherpaONNXUnityAPI.GetModelIDByTypeAsync(SherpaONNXModuleType.SpeechRecognition);
             _asrModelsDropdown.AddOptions(_asrModelIDArray.ToList());
 
             _asrModelsDropdown.value = _asrModelsDropdown.options.FindIndex(m => m.text == _defaultAsrModelName);
 
             _vadModelsDropdown.ClearOptions();
             _vadModelsDropdown.captionText.text = "Fetching model manifest from GitHub…";
-            var _vadModelsIDArray = await SherpaOnnxUnityAPI.GetModelIDByTypeAsync(SherpaOnnxModuleType.VoiceActivityDetection);
+            var _vadModelsIDArray = await SherpaONNXUnityAPI.GetModelIDByTypeAsync(SherpaONNXModuleType.VoiceActivityDetection);
             _vadModelsDropdown.AddOptions(_vadModelsIDArray.ToList());
             _vadModelsDropdown.value = _vadModelsDropdown.options.FindIndex(m => m.text == _defaultVadModelName);
         }
@@ -279,7 +279,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
             if (_asrModelsDropdown.options.Count > 0)
             {
                 var selectedAsrModel = _asrModelsDropdown.options[_asrModelsDropdown.value].text;
-                bool isOnlineModel = SherpaOnnxUnityAPI.IsOnlineModel(selectedAsrModel);
+                bool isOnlineModel = SherpaONNXUnityAPI.IsOnlineModel(selectedAsrModel);
                 _vadModelsDropdown.gameObject.SetActive(!isOnlineModel);
                 _vadDropdownLayoutContainer.gameObject.SetActive(!isOnlineModel);
             }
@@ -406,7 +406,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
             EasyMicAPI.AddProcessor(_handle, bpDownmixer);
 
             var selectedAsrModel = _asrModelsDropdown.options[_asrModelsDropdown.value].text;
-            bool isOnlineModel = SherpaOnnxUnityAPI.IsOnlineModel(selectedAsrModel);
+            bool isOnlineModel = SherpaONNXUnityAPI.IsOnlineModel(selectedAsrModel);
 
             if (isOnlineModel)
             {
@@ -414,7 +414,7 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
                 {
                     _bpRealtime ??= new AudioWorkerBlueprint(() =>
                     {
-                        var r = new Eitan.EasyMic.Runtime.SherpaOnnxUnity.SherpaRealtimeSpeechRecognizer(_asrService);
+                        var r = new Eitan.EasyMic.Runtime.SherpaONNXUnity.SherpaRealtimeSpeechRecognizer(_asrService);
                         r.OnRecognitionResult += OnTranscriptionUpdate;
                         return r;
                     }, key: "asr-realtime");
@@ -425,14 +425,14 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
             {
                 if (_vadService != null)
                 {
-                    _bpVoiceFilter ??= new AudioWorkerBlueprint(() => new Eitan.EasyMic.Runtime.SherpaOnnxUnity.SherpaVoiceFilter(_vadService), key: "vad-filter");
+                    _bpVoiceFilter ??= new AudioWorkerBlueprint(() => new Eitan.EasyMic.Runtime.SherpaONNXUnity.SherpaVoiceFilter(_vadService), key: "vad-filter");
                     EasyMicAPI.AddProcessor(_handle, _bpVoiceFilter);
                 }
                 if (_asrService != null)
                 {
                     _bpOffline ??= new AudioWorkerBlueprint(() =>
                     {
-                        var r = new Eitan.EasyMic.Runtime.SherpaOnnxUnity.SherpaOfflineSpeechRecognizer(_asrService);
+                        var r = new Eitan.EasyMic.Runtime.SherpaONNXUnity.SherpaOfflineSpeechRecognizer(_asrService);
                         r.OnRecognitionResult += OnTranscriptionUpdate;
                         return r;
                     }, key: "asr-offline");
@@ -459,12 +459,12 @@ namespace Eitan.EasyMic.Samples.SherpaOnnx.ASR
             UpdateState(AppState.Loading);
 
             var asrModelName = _asrModelsDropdown.options[_asrModelsDropdown.value].text;
-            bool isOnlineModel = SherpaOnnxUnityAPI.IsOnlineModel(asrModelName);
+            bool isOnlineModel = SherpaONNXUnityAPI.IsOnlineModel(asrModelName);
 
             _modelsToLoad = isOnlineModel ? 1 : 2; // Online: ASR only. Offline: ASR + VAD.
             _modelsLoaded = 0;
 
-            var reporter = new SherpaOnnxFeedbackReporter(null, this);
+            var reporter = new SherpaONNXFeedbackReporter(null, this);
 
             _asrService = new SpeechRecognition(asrModelName, SAMPLERATE, reporter);
 

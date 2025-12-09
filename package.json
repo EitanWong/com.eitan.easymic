@@ -54,14 +54,14 @@
       "path": "Samples~/AudioPlayback API Example"
     },
     {
-      "displayName": "SherpaOnnx ASR Example",
+      "displayName": "SherpaONNXUnity ASR Example",
       "description": "A simple scene demonstrating real-time speech recognition by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
-      "path": "Samples~/SherpaOnnx ASR Example"
+      "path": "Samples~/SherpaONNXUnity ASR Example"
     },
     {
-      "displayName": "SherpaOnnx KWS Example",
+      "displayName": "SherpaONNXUnity KWS Example",
       "description": "A simple scene demonstrating keyword spotting by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
-      "path": "Samples~/SherpaOnnx KWS Example"
+      "path": "Samples~/SherpaONNXUnity KWS Example"
     }
   ],
   "repository": {

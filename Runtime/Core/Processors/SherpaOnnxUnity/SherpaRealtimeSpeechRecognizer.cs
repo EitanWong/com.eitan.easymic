@@ -1,11 +1,12 @@
 ﻿#if EASYMIC_SHERPA_ONNX_INTEGRATION
-namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
-{
 
+namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
+{
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using Eitan.SherpaOnnxUnity.Runtime;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
+
     /// <summary>
     /// Realtime speech recognizer that consumes audio on a dedicated reader thread
     /// and dispatches transcription work asynchronously, keeping the audio path non-blocking.
