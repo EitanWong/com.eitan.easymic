@@ -4,22 +4,38 @@ using UnityEngine;
 namespace Eitan.EasyMic.Runtime.Mono.ASR
 {
     /// <summary>
-    /// Carries contextual information used by turn detectors.
+    /// /// Extended turn detection context with additional linguistic features.
     /// </summary>
     public readonly struct TurnDetectionContext
     {
-        public TurnDetectionContext(string transcript, int segmentCount, bool endsWithPunctuation, float silenceSeconds)
-        {
-            Transcript = transcript ?? string.Empty;
-            SegmentCount = Mathf.Max(0, segmentCount);
-            EndsWithPunctuation = endsWithPunctuation;
-            SilenceSeconds = Mathf.Max(0f, silenceSeconds);
-        }
+        public readonly float SilenceSeconds;
+        public readonly int SegmentCount;
+        public readonly int CharacterCount;
+        public readonly bool EndsWithPunctuation;
+        public readonly bool EndsWithConjunction;
+        public readonly bool HasOpenParentheses;
+        public readonly bool HasOpenQuotes;
+        public readonly char LastCharacter;
 
-        public string Transcript { get; }
-        public int SegmentCount { get; }
-        public bool EndsWithPunctuation { get; }
-        public float SilenceSeconds { get; }
+        public TurnDetectionContext(
+            float silenceSeconds,
+            int segmentCount,
+            int characterCount,
+            bool endsWithPunctuation,
+            bool endsWithConjunction = false,
+            bool hasOpenParentheses = false,
+            bool hasOpenQuotes = false,
+            char lastCharacter = '\0')
+        {
+            SilenceSeconds = silenceSeconds;
+            SegmentCount = segmentCount;
+            CharacterCount = characterCount;
+            EndsWithPunctuation = endsWithPunctuation;
+            EndsWithConjunction = endsWithConjunction;
+            HasOpenParentheses = hasOpenParentheses;
+            HasOpenQuotes = hasOpenQuotes;
+            LastCharacter = lastCharacter;
+        }
     }
 }
 #endif

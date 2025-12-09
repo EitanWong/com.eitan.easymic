@@ -91,7 +91,7 @@ var clip = capturer?.GetCapturedAudioClip();
 
 ## 集成
 
-- SherpaOnnxUnity：可选的语音识别与 VAD 处理器（脚本宏控制），需单独导入 Sherpa 包。
+- SherpaONNXUnity：可选的语音识别与 VAD 处理器（脚本宏控制），需单独导入 Sherpa 包。
 - APM（三大件 AEC/ANS/AGC）：专业音频增强扩展包。该扩展为付费内容，需要联系作者购买许可证后使用。
 
 ## 小贴士

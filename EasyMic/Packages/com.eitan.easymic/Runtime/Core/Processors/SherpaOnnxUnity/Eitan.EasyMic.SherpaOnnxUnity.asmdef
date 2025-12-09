@@ -1,6 +1,6 @@
 {
-    "name": "Eitan.EasyMic.SherpaOnnxUnity",
-    "rootNamespace": "Eitan.EasyMic.Runtime.SherpaOnnxUnity",
+    "name": "Eitan.EasyMic.SherpaONNXUnity",
+    "rootNamespace": "Eitan.EasyMic.Runtime.SherpaONNXUnity",
     "references": [
         "GUID:ffbca9e1633ba48bca018caa0d7f0a71",
         "GUID:29430346984cd40e88baf934b36ebace"

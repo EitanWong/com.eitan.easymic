@@ -1,7 +1,8 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
-using Eitan.SherpaOnnxUnity;
-using Eitan.SherpaOnnxUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime.Core;
+using Eitan.SherpaONNXUnity.Runtime.Modules;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
@@ -12,12 +13,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
     public sealed class SherpaServiceFactory
     {
         private readonly int _sampleRate;
-        private readonly SherpaOnnxFeedbackReporter _feedbackReporter;
+        private readonly SherpaONNXFeedbackReporter _feedbackReporter;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SherpaServiceFactory"/> class.
         /// </summary>
-        public SherpaServiceFactory(int sampleRate, SherpaOnnxFeedbackReporter feedbackReporter)
+        public SherpaServiceFactory(int sampleRate, SherpaONNXFeedbackReporter feedbackReporter)
         {
             _sampleRate = sampleRate;
             _feedbackReporter = feedbackReporter;

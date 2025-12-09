@@ -1,11 +1,12 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 
-namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
+namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
 {
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using Eitan.SherpaOnnxUnity.Runtime;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
+
     using UnityEngine;
     /// <summary>
     /// Offline recognizer. Accumulates audio in a lock-free ring buffer while VAD (external) indicates speech,

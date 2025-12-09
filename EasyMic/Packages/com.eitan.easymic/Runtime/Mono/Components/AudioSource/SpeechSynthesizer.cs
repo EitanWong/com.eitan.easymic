@@ -3,18 +3,17 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Eitan.EasyMic.Runtime;
-using Eitan.SherpaOnnxUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime;
 using UnityEngine;
 using System.Threading;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Eitan.SherpaONNXUnity.Runtime.Modules;
+using System.Collections.Concurrent;
 
 #region Helper Modules
 namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
 {
-    /// <summary>
-    /// Handles all text processing tasks like cleaning, splitting, and corrections.
-    /// </summary>
     internal static class TextProcessor
     {
         #region Regex Definitions
@@ -33,10 +32,7 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
         private static readonly Regex SentenceSplitRegex = new Regex(@"(?<=[.!?\n。！？])(?=\s|\S)", RegexOptions.Compiled);
         #endregion
 
-        public static string[] SplitSentences(string text)
-        {
-            return SentenceSplitRegex.Split(text);
-        }
+        public static string[] SplitSentences(string text) => SentenceSplitRegex.Split(text);
 
         public static string CleanTextForTts(string text)
         {
@@ -63,23 +59,21 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
             return cleaned;
         }
-        public static string ApplyPronunciationCorrection(string sentence)
-        {
-            return sentence.Replace("海晟", "海胜"); // 纠错发音
-        }
+
+        public static string ApplyPronunciationCorrection(string sentence) => sentence.Replace("海晟", "海胜");
     }
 
-    internal class SynthesisJob
+    internal sealed class SynthesisJob
     {
-        public bool IsDone { get; private set; }
-        private int _finalized; // 0 = no, 1 = yes
-
+        private int _finalized;
         private readonly string _originalSentence;
         private readonly SpeechSynthesis _speechSynthesis;
         private readonly SpeechSynthesizerConfiguration _config;
         private readonly Action<string> _onStart;
         private readonly Action<string> _onFinish;
-        private readonly PlaybackHandle _playbackHandle;
+        private readonly Func<PlaybackHandle> _playbackHandleProvider;
+
+        public bool IsDone { get; private set; }
 
         public SynthesisJob(
             string sentence,
@@ -87,97 +81,119 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
             SpeechSynthesizerConfiguration config,
             Action<string> onStart,
             Action<string> onFinish,
-            PlaybackHandle playbackHandle)
+            Func<PlaybackHandle> playbackHandleProvider)
         {
             _originalSentence = sentence;
             _speechSynthesis = speechSynthesis;
             _config = config;
             _onStart = onStart;
             _onFinish = onFinish;
-            _playbackHandle = playbackHandle;
+            _playbackHandleProvider = playbackHandleProvider;
         }
 
-        public async Task RunAsync(Func<bool> isCancelled)
+        public async Task RunAsync(CancellationToken cancellationToken)
         {
             string ttsText = TextProcessor.CleanTextForTts(_originalSentence);
-            _onStart?.Invoke(ttsText);
+
+            try
+            {
+                _onStart?.Invoke(ttsText);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[SynthesisJob] OnStart callback error: {ex.Message}");
+            }
 
             if (string.IsNullOrEmpty(ttsText))
             {
-                FinalizeJob(ttsText, false);
+                FinalizeJob(ttsText);
                 return;
             }
 
             int sampleRate = Math.Max(8000, _config.SampleRates);
-            int channels = 1;
+            const int channels = 1;
 
-            var playback = _playbackHandle;
+            var playback = _playbackHandleProvider?.Invoke() ?? default;
             if (!playback.IsValid)
             {
-                Debug.LogError("[SpeechSynthesizer] Failed to obtain playback handle for TTS streaming.");
-                FinalizeJob(ttsText, true);
+                Debug.LogError("[SynthesisJob] Invalid playback handle.");
+                FinalizeJob(ttsText);
                 return;
             }
 
             try
             {
                 var ttsRequest = TextProcessor.ApplyPronunciationCorrection(ttsText);
+                cancellationToken.ThrowIfCancellationRequested();
 
-                // Generate with progress; copy directly from ptr -> pooled float[] -> Enqueue
-                await _speechSynthesis.GenerateWithProgressCallbackAsync(ttsRequest, _config.VoiceId, _config.Speed, (samplesPtr, count, progress) =>
-                {
-                    if (isCancelled())
+                await _speechSynthesis.GenerateWithProgressCallbackAsync(
+                    ttsRequest,
+                    _config.VoiceId,
+                    _config.Speed,
+                    (samplesPtr, count, progress) =>
                     {
-                        // Stop further generation
-                        return 0;
-                    }
-
-                    if (samplesPtr == IntPtr.Zero || count <= 0)
-                    {
-                        return 1;
-                    }
-
-                    // Rent, copy, enqueue, return
-                    var buf = ArrayPool<float>.Shared.Rent(count);
-                    try
-                    {
-                        Marshal.Copy(samplesPtr, buf, 0, count);
-                        if (playback.IsValid)
+                        if (cancellationToken.IsCancellationRequested)
                         {
-                            playback.Enqueue(buf, count, channels, sampleRate, false);
+                            return 0;
                         }
-                    }
-                    finally
-                    {
-                        ArrayPool<float>.Shared.Return(buf);
-                    }
 
-                    return 1; // continue
-                });
 
-                FinalizeJob(ttsText, false);
+                        if (samplesPtr == IntPtr.Zero || count <= 0)
+                        {
+                            return 1;
+                        }
+
+
+                        var buf = ArrayPool<float>.Shared.Rent(count);
+                        try
+                        {
+                            Marshal.Copy(samplesPtr, buf, 0, count);
+                            var currentHandle = _playbackHandleProvider?.Invoke() ?? default;
+                            if (currentHandle.IsValid)
+                            {
+                                currentHandle.Enqueue(buf, count, channels, sampleRate, false);
+                            }
+                        }
+                        finally
+                        {
+                            ArrayPool<float>.Shared.Return(buf);
+                        }
+                        return 1;
+                    },
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on cancellation
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SpeechSynthesizer] Generation exception: {ex}");
-                FinalizeJob(ttsText, true);
+                Debug.LogError($"[SynthesisJob] Generation exception: {ex}");
+            }
+            finally
+            {
+                FinalizeJob(ttsText);
             }
         }
 
-        private void FinalizeJob(string sentence, bool errored)
+        private void FinalizeJob(string sentence)
         {
             if (Interlocked.Exchange(ref _finalized, 1) == 0)
             {
-                _onFinish?.Invoke(sentence);
                 IsDone = true;
+                try
+                {
+                    _onFinish?.Invoke(sentence);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[SynthesisJob] OnFinish callback error: {ex.Message}");
+                }
             }
         }
     }
 
-    /// <summary>
-    /// Handles model loading feedback and progress reporting.
-    /// </summary>
-    internal class ModelInitializationHandler : ISherpaFeedbackHandler
+    internal sealed class ModelInitializationHandler : ISherpaFeedbackHandler
     {
         public event Action<string, float> OnProgress;
         public event Action<FailedFeedback> OnFailed;
@@ -235,17 +251,13 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
                 _ => LoadStage.Unknown
             };
 
-            float stageFraction = -1f; // ExtractStageFractionFromFeedback(feedback); // Assuming this helper exists
-            if (stageFraction < 0f)
+            float stageFraction = stage switch
             {
-                stageFraction = stage switch
-                {
-                    LoadStage.Download => 0.25f,
-                    LoadStage.Uncompress or LoadStage.Verify or LoadStage.Clean => 0.5f,
-                    LoadStage.Load => 0.9f,
-                    _ => 0f
-                };
-            }
+                LoadStage.Download => 0.25f,
+                LoadStage.Uncompress or LoadStage.Verify or LoadStage.Clean => 0.5f,
+                LoadStage.Load => 0.9f,
+                _ => 0f
+            };
 
             float globalProgress = MapStageProgress(stage, stageFraction);
 
@@ -270,12 +282,14 @@ namespace Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal
         public void OnFeedback(CleanFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(LoadFeedback feedback) => PublishProgress(feedback);
         public void OnFeedback(CancelFeedback feedback) => PublishProgress(feedback);
+
         public void OnFeedback(SuccessFeedback feedback)
         {
             lock (_progressLock) { _currentProgress = 1f; _currentStage = LoadStage.Success; }
             OnProgress?.Invoke(feedback?.Message ?? "Loaded", 1f);
             OnSuccess?.Invoke(feedback);
         }
+
         public void OnFeedback(FailedFeedback feedback)
         {
             lock (_progressLock) { _currentStage = LoadStage.Failed; }
@@ -303,9 +317,18 @@ public sealed class SpeechSynthesizerConfiguration
 
         public TTSPreset Clone() => (TTSPreset)MemberwiseClone();
 
-        public static TTSPreset Create(string modelId, int voiceId, float speed, int sampleRate, string id = DefaultPresetId, string displayName = "Default")
+        public static TTSPreset Create(string modelId, int voiceId, float speed, int sampleRate,
+            string id = DefaultPresetId, string displayName = "Default")
         {
-            return new TTSPreset { Id = id, DisplayName = displayName, modelId = modelId, voiceId = voiceId, speed = speed, sampleRates = sampleRate };
+            return new TTSPreset
+            {
+                Id = id,
+                DisplayName = displayName,
+                modelId = modelId,
+                voiceId = voiceId,
+                speed = speed,
+                sampleRates = sampleRate
+            };
         }
 
         public static TTSPreset Default => Create("vits-melo-tts-zh_en", 1, 1f, 44100);
@@ -336,6 +359,7 @@ public sealed class SpeechSynthesizerConfiguration
             {
                 if (string.Equals(cfg.Id, presetId, StringComparison.OrdinalIgnoreCase))
                 {
+
                     return cfg;
                 }
 
@@ -353,7 +377,8 @@ public sealed class SpeechSynthesizerConfiguration
     {
         if (Presets.Count == 0)
         {
-            bool isDefault = string.IsNullOrWhiteSpace(presetId) || string.Equals(presetId, TTSPreset.DefaultPresetId, StringComparison.OrdinalIgnoreCase);
+            bool isDefault = string.IsNullOrWhiteSpace(presetId) ||
+                           string.Equals(presetId, TTSPreset.DefaultPresetId, StringComparison.OrdinalIgnoreCase);
             if (isDefault)
             {
                 ActivePresetId = TTSPreset.DefaultPresetId;
@@ -362,11 +387,13 @@ public sealed class SpeechSynthesizerConfiguration
 
             return isDefault;
         }
+
         if (string.IsNullOrWhiteSpace(presetId))
         {
             ActivePresetId = !string.IsNullOrWhiteSpace(Presets[0].Id) ? Presets[0].Id : TTSPreset.DefaultPresetId;
             return true;
         }
+
         foreach (var p in Presets)
         {
             if (string.Equals(p.Id, presetId, StringComparison.OrdinalIgnoreCase))
@@ -382,7 +409,6 @@ public sealed class SpeechSynthesizerConfiguration
 }
 #endregion
 
-
 public class SpeechSynthesizer : MonoBehaviour
 {
     #region Public Properties & Events
@@ -390,17 +416,14 @@ public class SpeechSynthesizer : MonoBehaviour
     [SerializeField] private bool _initOnAwake = true;
     public bool InitOnAwake => _initOnAwake;
     public bool Initialized { get; private set; }
-    public bool IsProcessingTTS => _ttsInProgress;
+    public bool IsProcessingTTS => _ttsInProgress > 0;
 
     [Header("Configuration")]
     [SerializeField] private SpeechSynthesizerConfiguration _ttsConfig;
 
-    // Model loading feedback events
     public event Action<string, float> OnLoadingProgressFeedback;
     public event Action<FailedFeedback> OnLoadingFailedFeedback;
     public event Action<SuccessFeedback> OnLoadingSuccessedFeedback;
-
-    // Synthesizer lifecycle / TTS events
     public event Action<bool> OnSynthesizerInitialized;
     public event Action<bool> OnTTSStateChanged;
     public event Action<string> OnSentenceStarted;
@@ -410,20 +433,25 @@ public class SpeechSynthesizer : MonoBehaviour
     #region Private Fields
     private SpeechSynthesis _speechSynthesis;
     private volatile bool _initializing;
-    private volatile bool _ttsInProgress;
-    private volatile bool _ttsCancelRequested;
+    private int _ttsInProgress; // 使用Interlocked操作
 
-    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _sentenceQueue = new System.Collections.Concurrent.ConcurrentQueue<string>();
+    private readonly ConcurrentQueue<string> _sentenceQueue = new ConcurrentQueue<string>();
     private Coroutine _ttsPumpCoroutine;
 
-    // Helper Modules
     private Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.ModelInitializationHandler _progressHandler;
-    private CancellationTokenSource _ttsCts;
-    private string _logPrefix;
+
+    // 会话管理 - 核心修复
+    private readonly object _sessionLock = new object();
+    private CancellationTokenSource _sessionCts;
+    private Task _currentSessionTask = Task.CompletedTask;
+    private long _sessionId; // 用于识别当前会话
+
     private readonly object _playbackLock = new object();
     private PlaybackHandle _playbackHandle;
     private bool _playbackHandleInitialized;
+    private long _playbackSessionId; // 跟踪playback属于哪个会话
 
+    private string _logPrefix;
     private string LogPrefix => !string.IsNullOrEmpty(_logPrefix) ? _logPrefix : "[SpeechSynthesizer] ";
     #endregion
 
@@ -433,7 +461,7 @@ public class SpeechSynthesizer : MonoBehaviour
         _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
         _progressHandler = new Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.ModelInitializationHandler();
         _logPrefix = $"[SpeechSynthesizer:{name}] ";
-        EnsurePlaybackStream();
+
         _progressHandler.OnProgress += (msg, progress) => OnLoadingProgressFeedback?.Invoke(msg, progress);
         _progressHandler.OnFailed += feedback => OnLoadingFailedFeedback?.Invoke(feedback);
         _progressHandler.OnSuccess += feedback => OnLoadingSuccessedFeedback?.Invoke(feedback);
@@ -444,19 +472,22 @@ public class SpeechSynthesizer : MonoBehaviour
         if (_initOnAwake)
         {
             Init();
-            yield return new WaitUntil(() => Initialized);
+            yield return new WaitUntil(() => Initialized || !_initializing);
         }
     }
 
-    private void OnDestroy()
+    private async void OnDestroy()
     {
-        Stop();
+        await StopAndWaitAsync();
+
         if (_ttsPumpCoroutine != null)
         {
             StopCoroutine(_ttsPumpCoroutine);
             _ttsPumpCoroutine = null;
         }
-        DisposePlaybackStream();
+
+        DisposePlaybackHandle();
+
         _speechSynthesis?.Dispose();
         _speechSynthesis = null;
     }
@@ -470,10 +501,11 @@ public class SpeechSynthesizer : MonoBehaviour
             return;
         }
 
+
         _initializing = true;
         try
         {
-            var reporter = new SherpaOnnxFeedbackReporter(null, _progressHandler);
+            var reporter = new SherpaONNXFeedbackReporter(null, _progressHandler);
             _speechSynthesis = new SpeechSynthesis(_ttsConfig.ModelId, _ttsConfig.SampleRates, reporter);
 
             if (_ttsPumpCoroutine == null)
@@ -484,23 +516,70 @@ public class SpeechSynthesizer : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[SpeechSynthesizer] Init failed: {ex}");
+            Debug.LogError($"{LogPrefix}Init failed: {ex}");
             _initializing = false;
         }
     }
 
+    /// <summary>
+    /// 停止当前所有TTS任务，清空队列。用于中断。
+    /// </summary>
     public void Stop()
     {
-        _ttsCancelRequested = true;
-        _ttsCts?.Cancel();
-        _ttsCts?.Dispose();
-        _ttsCts = null;
+        _ = StopAndWaitAsync();
+    }
 
-        _sentenceQueue.Clear();
-        StopPlayback();
-        CompletePlaybackStream();
-        _ttsInProgress = false;
-        OnTTSStateChanged?.Invoke(false);
+    /// <summary>
+    /// 异步停止并等待当前任务完成。
+    /// </summary>
+    public async Task StopAndWaitAsync()
+    {
+        Task taskToWait;
+        long oldSessionId;
+
+        lock (_sessionLock)
+        {
+            oldSessionId = _sessionId;
+
+            // 取消当前会话
+            if (_sessionCts != null)
+            {
+                try
+                {
+                    if (!_sessionCts.IsCancellationRequested)
+                    {
+                        _sessionCts.Cancel();
+                    }
+
+                }
+                catch (ObjectDisposedException) { }
+            }
+
+            taskToWait = _currentSessionTask;
+        }
+
+        // 清空队列
+        while (_sentenceQueue.TryDequeue(out _)) { }
+
+        // 等待当前任务完成
+        if (taskToWait != null && !taskToWait.IsCompleted)
+        {
+            try
+            {
+                await taskToWait.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LogPrefix}Error waiting for session to stop: {ex.Message}");
+            }
+        }
+
+        // 停止并释放当前playback（在主线程）
+        StopAndDisposeCurrentPlayback(oldSessionId);
+
+        // 更新状态
+        UpdateTtsState(false);
     }
 
     public void EnqueueSentence(string text)
@@ -511,32 +590,51 @@ public class SpeechSynthesizer : MonoBehaviour
         }
 
 
+        string trimmed = text.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+
+        _sentenceQueue.Enqueue(trimmed);
+    }
+
+    public void EnqueueText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+
         string[] sentences = Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.TextProcessor.SplitSentences(text);
         foreach (string sentence in sentences)
         {
-            string trimmed = sentence.Trim();
-            if (!string.IsNullOrEmpty(trimmed))
-            {
-                _sentenceQueue.Enqueue(trimmed);
-            }
+            EnqueueSentence(sentence);
         }
     }
     #endregion
 
     #region Playback Management
-    private PlaybackHandle EnsurePlaybackStream()
+    private PlaybackHandle EnsurePlaybackHandle(long sessionId)
     {
         lock (_playbackLock)
         {
-            if (_playbackHandleInitialized && _playbackHandle.IsValid)
+            // 如果是不同的会话，需要重新创建
+            if (_playbackHandleInitialized && _playbackHandle.IsValid && _playbackSessionId == sessionId)
             {
                 return _playbackHandle;
             }
+
+            // 释放旧的handle
+            DisposePlaybackHandleUnsafe();
 
             try
             {
                 _playbackHandle = AudioPlayback.CreateStream(volume: 1f);
                 _playbackHandleInitialized = _playbackHandle.IsValid;
+                _playbackSessionId = sessionId;
             }
             catch (Exception ex)
             {
@@ -549,7 +647,7 @@ public class SpeechSynthesizer : MonoBehaviour
         }
     }
 
-    private PlaybackHandle GetPlaybackHandleSnapshot()
+    private PlaybackHandle GetCurrentPlaybackHandle()
     {
         lock (_playbackLock)
         {
@@ -557,87 +655,81 @@ public class SpeechSynthesizer : MonoBehaviour
         }
     }
 
-    private void StopPlayback()
+    private void StopAndDisposeCurrentPlayback(long sessionId)
     {
-        var handle = GetPlaybackHandleSnapshot();
-        if (!handle.IsValid)
-        {
-            return;
-        }
-
-        try
-        {
-            handle.Stop();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"{LogPrefix}Failed to stop playback: {ex.Message}");
-        }
-    }
-
-    private void CompletePlaybackStream()
-    {
-        var handle = GetPlaybackHandleSnapshot();
-        if (!handle.IsValid)
-        {
-            return;
-        }
-
-        try
-        {
-            handle.CompleteStream();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"{LogPrefix}Failed to finalize playback stream: {ex.Message}");
-        }
-    }
-
-    private void DisposePlaybackStream()
-    {
-        PlaybackHandle handle;
         lock (_playbackLock)
         {
-            handle = _playbackHandle;
-            _playbackHandle = default;
-            _playbackHandleInitialized = false;
-        }
+            if (!_playbackHandleInitialized || _playbackSessionId != sessionId)
+            {
+                return;
+            }
 
-        if (!handle.IsValid)
+
+            DisposePlaybackHandleUnsafe();
+        }
+    }
+
+    private void CompleteCurrentPlaybackStream()
+    {
+        lock (_playbackLock)
+        {
+            if (!_playbackHandleInitialized || !_playbackHandle.IsValid)
+            {
+                return;
+            }
+
+
+            try
+            {
+                _playbackHandle.CompleteStream();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LogPrefix}Failed to complete playback stream: {ex.Message}");
+            }
+
+            // CompleteStream后handle不能再用于新数据，标记为需要重新创建
+            DisposePlaybackHandleUnsafe();
+        }
+    }
+
+    private void DisposePlaybackHandleUnsafe()
+    {
+        if (!_playbackHandleInitialized)
         {
             return;
         }
 
-        try
-        {
-            handle.Stop();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"{LogPrefix}Failed to stop playback stream during dispose: {ex.Message}");
-        }
 
         try
         {
-            handle.CompleteStream();
+            if (_playbackHandle.IsValid)
+            {
+                _playbackHandle.Stop();
+                _playbackHandle.CompleteStream();
+                _playbackHandle.Dispose();
+            }
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"{LogPrefix}Failed to finalize playback stream during dispose: {ex.Message}");
+            Debug.LogWarning($"{LogPrefix}Error disposing playback handle: {ex.Message}");
         }
 
-        try
+        _playbackHandle = default;
+        _playbackHandleInitialized = false;
+        _playbackSessionId = -1;
+    }
+
+    private void DisposePlaybackHandle()
+    {
+        lock (_playbackLock)
         {
-            handle.Dispose();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"{LogPrefix}Failed to dispose playback stream: {ex.Message}");
+            DisposePlaybackHandleUnsafe();
         }
     }
     #endregion
 
-    #region Coroutines & Internal Logic
+    #region TTS Processing
     private System.Collections.IEnumerator WaitForModelInitialization()
     {
         while (_speechSynthesis != null && !_speechSynthesis.Initialized)
@@ -652,7 +744,7 @@ public class SpeechSynthesizer : MonoBehaviour
         }
         else
         {
-            Debug.LogError("[SpeechSynthesizer] Model initialization failed.");
+            Debug.LogError($"{LogPrefix}Model initialization failed.");
             OnSynthesizerInitialized?.Invoke(false);
         }
         _initializing = false;
@@ -662,52 +754,235 @@ public class SpeechSynthesizer : MonoBehaviour
     {
         while (true)
         {
-            yield return new WaitUntil(() => !_ttsInProgress && _sentenceQueue.Count > 0 && Initialized);
+            // 等待：没有活动任务 + 队列有数据 + 已初始化
+            yield return new WaitUntil(() =>
+                !IsSessionRunning() &&
+                !_sentenceQueue.IsEmpty &&
+                Initialized);
 
-            if (_sentenceQueue.TryDequeue(out string sentence))
+            // 开始新的处理会话
+            StartNewProcessingSession();
+        }
+    }
+
+    private bool IsSessionRunning()
+    {
+        lock (_sessionLock)
+        {
+            return _currentSessionTask != null && !_currentSessionTask.IsCompleted;
+        }
+    }
+
+    private void StartNewProcessingSession()
+    {
+        lock (_sessionLock)
+        {
+            // 创建新会话
+            _sessionId++;
+            var currentSessionId = _sessionId;
+
+            // 清理旧的CTS
+            if (_sessionCts != null)
             {
-                var playbackHandle = EnsurePlaybackStream();
-                if (!playbackHandle.IsValid)
+                try { _sessionCts.Dispose(); } catch { }
+            }
+            _sessionCts = new CancellationTokenSource();
+            var token = _sessionCts.Token;
+
+            // 启动处理任务
+            _currentSessionTask = ProcessSentenceQueueAsync(currentSessionId, token);
+        }
+    }
+
+    private async Task ProcessSentenceQueueAsync(long sessionId, CancellationToken cancellationToken)
+    {
+        UpdateTtsState(true);
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && _sentenceQueue.TryDequeue(out string sentence))
+            {
+                if (string.IsNullOrWhiteSpace(sentence))
                 {
-                    Debug.LogError($"{LogPrefix}Failed to obtain playback stream; retrying.");
-                    _sentenceQueue.Enqueue(sentence);
-                    yield return null;
                     continue;
                 }
 
-                _ttsInProgress = true;
-                _ttsCancelRequested = false;
-                OnTTSStateChanged?.Invoke(true);
+                // 确保有playback handle
 
-                _ttsCts?.Dispose();
-                _ttsCts = new CancellationTokenSource();
-                var localCts = _ttsCts;
+                var playbackHandle = EnsurePlaybackHandle(sessionId);
+                if (!playbackHandle.IsValid)
+                {
+                    Debug.LogError($"{LogPrefix}Failed to obtain playback stream.");
+                    continue;
+                }
 
+                // 创建并运行合成任务
                 var job = new Eitan.EasyMic.Runtime.Components.SpeechSynthesizerInternal.SynthesisJob(
-                    sentence, _speechSynthesis, _ttsConfig,
-                    OnSentenceStarted,
-                    (finishedSentence) =>
-                    {
-                        OnSentenceFinished?.Invoke(finishedSentence);
-                    },
-                    playbackHandle
+                    sentence,
+                    _speechSynthesis,
+                    _ttsConfig,
+                    s => SafeInvokeOnMainThread(() => OnSentenceStarted?.Invoke(s)),
+                    s => SafeInvokeOnMainThread(() => OnSentenceFinished?.Invoke(s)),
+                    () => GetPlaybackHandleForSession(sessionId)
                 );
 
-                // Kick off async job and wait until completion inside the coroutine loop
-                var task = job.RunAsync(() => _ttsCancelRequested || localCts.IsCancellationRequested);
-                while (!task.IsCompleted)
+                try
                 {
-                    yield return null;
+                    await job.RunAsync(cancellationToken).ConfigureAwait(false);
+
+                    // 等待音频播放完成
+                    await WaitForPlaybackDrainAsync(sessionId, cancellationToken).ConfigureAwait(false);
                 }
-
-                _ttsInProgress = false;
-                OnTTSStateChanged?.Invoke(false);
-
-                if (_sentenceQueue.IsEmpty)
+                catch (OperationCanceledException)
                 {
-                    CompletePlaybackStream();
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"{LogPrefix}Synthesis job failed: {ex}");
                 }
             }
+        }
+        finally
+        {
+            // 会话结束，完成playback stream
+            CompletePlaybackStreamForSession(sessionId);
+            UpdateTtsState(false);
+        }
+    }
+
+    private PlaybackHandle GetPlaybackHandleForSession(long sessionId)
+    {
+        lock (_playbackLock)
+        {
+            if (_playbackSessionId == sessionId && _playbackHandleInitialized && _playbackHandle.IsValid)
+            {
+
+                return _playbackHandle;
+            }
+
+
+            return default;
+        }
+    }
+
+    private void CompletePlaybackStreamForSession(long sessionId)
+    {
+        lock (_playbackLock)
+        {
+            if (_playbackSessionId != sessionId)
+            {
+                return;
+            }
+
+
+            if (_playbackHandleInitialized && _playbackHandle.IsValid)
+            {
+                try
+                {
+                    _playbackHandle.CompleteStream();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"{LogPrefix}Failed to complete stream: {ex.Message}");
+                }
+            }
+
+            // 标记需要重新创建
+            _playbackHandleInitialized = false;
+        }
+    }
+
+    private async Task WaitForPlaybackDrainAsync(long sessionId, CancellationToken cancellationToken)
+    {
+        const double epsilon = 0.05;
+        const int pollDelayMs = 30;
+        int stagnantCount = 0;
+        double lastBuffered = double.MaxValue;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            PlaybackHandle handle;
+            lock (_playbackLock)
+            {
+                if (_playbackSessionId != sessionId || !_playbackHandleInitialized)
+                {
+                    break;
+                }
+
+
+                handle = _playbackHandle;
+            }
+
+            if (!handle.IsValid)
+            {
+                break;
+            }
+
+
+            double buffered = handle.BufferedSeconds;
+            if (buffered <= epsilon)
+            {
+                break;
+            }
+
+
+            if (Math.Abs(buffered - lastBuffered) < 0.001)
+            {
+                stagnantCount++;
+                if (stagnantCount > 100) // 约3秒无变化
+                {
+                    break;
+                }
+
+            }
+            else
+            {
+                stagnantCount = 0;
+                lastBuffered = buffered;
+            }
+
+            try
+            {
+                await Task.Delay(pollDelayMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private void UpdateTtsState(bool isSpeaking)
+    {
+        int oldValue = isSpeaking
+            ? Interlocked.Exchange(ref _ttsInProgress, 1)
+            : Interlocked.Exchange(ref _ttsInProgress, 0);
+
+        bool changed = (oldValue != 0) != isSpeaking;
+        if (changed)
+        {
+            SafeInvokeOnMainThread(() => OnTTSStateChanged?.Invoke(isSpeaking));
+        }
+    }
+
+    private void SafeInvokeOnMainThread(Action action)
+    {
+        if (action == null)
+        {
+            return;
+        }
+
+
+        try
+        {
+            // 如果需要确保在主线程执行，可以使用UnityMainThreadDispatcher
+            // 这里简化处理，直接调用
+            action();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"{LogPrefix}Callback error: {ex.Message}");
         }
     }
     #endregion

@@ -1,0 +1,30 @@
+{
+    "name": "Eitan.EasyMic.Samples.SherpaONNX.ASR",
+    "rootNamespace": "Eitan.EasyMic.Samples.SherpaONNXUnity.ASR",
+    "references": [
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Apm",
+        "Eitan.EasyMic.SherpaONNXUnity",
+        "Eitan.SherpaONNXUnity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EASYMIC_SHERPA_ONNX_INTEGRATION"
+        },
+        {
+            "name": "com.eitan.easymic.apm",
+            "expression": "",
+            "define": "EASYMIC_APM_INTEGRATION"
+        }
+    ],
+    "noEngineReferences": false
+}

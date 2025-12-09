@@ -488,7 +488,7 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    DeviceName: Logitech BRIO
+    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
     Channel: 2
     SampleRate: 48000
   _audioProcessingOptions:
@@ -531,9 +531,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c471bf37790664c5f8bfcee0f48e13bb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  microphone: {fileID: 1276574527}
-  speechSynthesizer: {fileID: 1276574530}
-  micStartupDelay: 13
+  _config:
+    Microphone: {fileID: 1276574527}
+    SpeechSynthesizer: {fileID: 1276574530}
+    ApiBaseUrl: https://api.siliconflow.cn/v1/
+    ApiKey: sk-eskcypxrqbycupuvaqbwttmcoxbedgfuycpyloedzsqlwkzk
+    LlmModel: Qwen/Qwen2.5-7B-Instruct
+    LlmTemperature: 0.7
+    SystemPrompt: You are Samantha, an empathetic AI companion. Keep answers concise,
+      warm, and natural.
+    LogStreamingChunks: 1
+    UseLocalTts: 1
+    TtsModel: gpt-4o-mini-tts
+    TtsVoice: alloy
+    UseStreamingTts: 1
+    StreamingPlaybackBufferSeconds: 0.18
+    InterruptAssistantOnUserSpeech: 1
+    MicStartupDelay: 13
 --- !u!114 &1276574530
 MonoBehaviour:
   m_ObjectHideFlags: 0

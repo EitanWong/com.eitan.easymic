@@ -1,7 +1,7 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using UnityEngine;
-using Eitan.SherpaOnnxUnity.Runtime;
+using Eitan.SherpaONNXUnity.Runtime.Modules;
 
 namespace Eitan.EasyMic.Runtime.Mono.ASR
 {

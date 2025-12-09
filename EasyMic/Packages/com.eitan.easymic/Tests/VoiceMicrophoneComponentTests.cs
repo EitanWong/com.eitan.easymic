@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Eitan.EasyMic.Runtime.Mono;
 using Eitan.EasyMic.Runtime.Mono.ASR;
-using Eitan.EasyMic.Runtime.SherpaOnnxUnity;
+using Eitan.EasyMic.Runtime.SherpaONNXUnity;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -86,8 +86,8 @@ namespace Eitan.EasyMic.Tests
             var aggregator = new ModelProgressAggregator();
             aggregator.Reset(2);
 
-            var metadataA = new SherpaOnnxModelMetadata { modelId = "modelA" };
-            var metadataB = new SherpaOnnxModelMetadata { modelId = "modelB" };
+            var metadataA = new SherpaONNXModelMetadata { modelId = "modelA" };
+            var metadataB = new SherpaONNXModelMetadata { modelId = "modelB" };
 
             aggregator.RegisterPrepare(metadataA, "prepare");
             aggregator.RegisterDownload(metadataA, 50f, "download");

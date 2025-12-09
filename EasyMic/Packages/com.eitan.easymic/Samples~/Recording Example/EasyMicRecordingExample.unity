@@ -3233,7 +3233,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 1338078743}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f2a8f4e6664924391bae4e1bd9e32396, type: 3}
+  m_Script: {fileID: 11500000, guid: a2acb743bbc32456a89a70b0b561b56d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   _clip: {fileID: 0}
@@ -3241,6 +3241,7 @@ MonoBehaviour:
   _loop: 1
   _volume: 1
   _mute: 0
+  _solo: 0
 --- !u!4 &1338078745
 Transform:
   m_ObjectHideFlags: 0

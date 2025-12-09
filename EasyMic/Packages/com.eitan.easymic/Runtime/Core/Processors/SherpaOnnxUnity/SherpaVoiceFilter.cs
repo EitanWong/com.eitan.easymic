@@ -1,11 +1,11 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 
-namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
+namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
 {
     using System;
     using System.Threading;
-    using Eitan.SherpaOnnxUnity.Runtime;
-    using UnityEngine;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
+
     /// <summary>
     /// Voice gate using Sherpa-Onnx VAD.
     /// - Buffers a short lead-in to avoid clipping speech onsets.

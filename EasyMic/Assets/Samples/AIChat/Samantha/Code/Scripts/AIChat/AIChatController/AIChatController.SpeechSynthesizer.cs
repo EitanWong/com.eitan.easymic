@@ -1,0 +1,20 @@
+namespace Eitan.EasyMic.Demo.AIChat.Samantha
+{
+    public partial class AIChatController
+    {
+        private void OnSpeechSynthesizerProgressFeedbackHandler(string message, float progress)
+        {
+            UpdateServiceLoading(SERVICE_TTS_INIT_KEY, progress);
+        }
+
+        private void OnLocalTtsStateChanged(bool isSpeaking)
+        {
+            if (!Config.UseLocalTts)
+            {
+                return;
+            }
+
+            SetAssistantSpeakingState(isSpeaking);
+        }
+    }
+}
