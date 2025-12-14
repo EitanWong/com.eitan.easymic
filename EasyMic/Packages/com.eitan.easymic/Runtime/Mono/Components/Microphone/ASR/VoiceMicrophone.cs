@@ -799,6 +799,10 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private void ConfigureAudioPipeline(AudioPipeline pipeline)
         {
+            // Ensure audio matches Sherpa model requirements (mono handled by base pipeline downmixer).
+            // This must run before Sherpa workers so their Initialize() sees the final sample rate.
+            pipeline.AddWorker(new Resampler((int)DEFAULT_SAMPLE_RATE));
+
             var configurator = new AudioPipelineConfigurator(pipeline);
             configurator.ConfigureKeywordDetector(_keywordDetector, HandleKeywordDetected);
             configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);

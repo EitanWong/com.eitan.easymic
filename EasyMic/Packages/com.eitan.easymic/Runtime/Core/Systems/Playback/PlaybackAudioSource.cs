@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -15,15 +15,16 @@ namespace Eitan.EasyMic.Runtime
         private const int EnqueueSpinBeforeSleep = 512;
         private const int EnqueueSleepMilliseconds = 1;
         private const int EnqueueMaxCopySamples = 16384;
+        private const int MaxMeterChannels = 8;
 
         public string name;
         private readonly AudioBuffer _queue;
         private readonly float[] _work; // temp buffer for per-frame processing
+        private readonly float[] _rtOutChunk; // RT-safe scratch for event/telemetry chunking
+        private readonly float[] _rtHeadScratch; // RT-safe scratch for small per-frame head writes
         private readonly AudioPipeline _pipeline;
         private readonly AudioContext _state;
-        // Real-time callback buffer
-        private float[] _callbackBuffer;
-        private readonly Dictionary<int, float[]> _callbackBufferCache = new Dictionary<int, float[]>(4);
+        private readonly int _eventSourceId;
 
         /// <summary>
         /// Real-time playback callback similar to Unity's OnAudioFilterRead. but readonly
@@ -62,6 +63,7 @@ namespace Eitan.EasyMic.Runtime
         private float[] _meterPeakScratch;
         private double[] _meterSumSqScratch;
         private float[] _lastOutputPerChannel;
+        private int _lastMeterChannelCount;
 
         private float _volume = 1.0f;
         private bool _mute;
@@ -192,6 +194,8 @@ namespace Eitan.EasyMic.Runtime
             _queue = new AudioBuffer(cap, Channels);
             int workSamples = AlignToFrameSamples(Math.Max(Channels * SampleRate / 50, 256));
             _work = new float[workSamples > 0 ? workSamples : Channels]; // ~20ms default min
+            _rtOutChunk = new float[Math.Max(_work.Length, EnqueueMaxCopySamples)];
+            _rtHeadScratch = new float[MaxMeterChannels];
             _pipeline = new AudioPipeline();
             _state = new AudioContext(Channels, SampleRate, 0);
             _pipeline.Initialize(_state);
@@ -200,6 +204,13 @@ namespace Eitan.EasyMic.Runtime
             _resFrames = 0;
             _phase = 0.0;
             _playedSourceFrames = 0;
+            _meterPeak = new float[MaxMeterChannels];
+            _meterRms = new float[MaxMeterChannels];
+            _meterPeakScratch = new float[MaxMeterChannels];
+            _meterSumSqScratch = new double[MaxMeterChannels];
+            _lastOutputPerChannel = new float[MaxMeterChannels];
+            _eventSourceId = EasyMicAudioEventPump.RegisterPlaybackSource(this);
+            try { EasyMicAudioEventPump.SetMainThreadContext(SynchronizationContext.Current); } catch { }
             try { (attachTo ?? AudioSystem.Instance.MasterMixer).AddSource(this); } catch { }
         }
 
@@ -502,10 +513,8 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
-            TryDispatchLoopBoundary();
-
             int totalSamples = destination.Length;
-            if (totalSamples == 0)
+            if (totalSamples <= 0)
             {
                 UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
                 TryRaiseCompletionIfDrained();
@@ -513,25 +522,34 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            EnsureCallbackBuffer(totalSamples);
-            var callbackSlice = new Span<float>(_callbackBuffer, 0, totalSamples);
-            callbackSlice.Clear();
-
             int outChannels = Math.Max(1, sysChannels);
-            int totalFrames = outChannels > 0 ? totalSamples / outChannels : 0;
+            int totalFrames = totalSamples / outChannels;
+
+            int meterChannels = Math.Min(outChannels, MaxMeterChannels);
+            if (meterChannels > 0)
+            {
+                Array.Clear(_meterPeakScratch, 0, meterChannels);
+                Array.Clear(_meterSumSqScratch, 0, meterChannels);
+            }
+
             bool allowPlayback = _isPlaying;
             bool mixToDestination = allowPlayback && !Mute;
+
+            bool wantsPlaybackFrame = OnAudioPlayback != null && _eventSourceId != 0;
+            var writer = wantsPlaybackFrame
+                ? EasyMicAudioEventPump.TryBeginPlaybackFrame(_eventSourceId, outChannels, sysSampleRate, totalSamples)
+                : default;
 
             int framesFromSource = 0;
             if (allowPlayback)
             {
                 if (sysChannels == Channels && sysSampleRate == SampleRate)
                 {
-                    framesFromSource = RenderNativeRate(destination, callbackSlice, outChannels, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples);
+                    framesFromSource = RenderNativeRate(destination, outChannels, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples, meterChannels, ref writer);
                 }
                 else
                 {
-                    framesFromSource = RenderResampled(destination, callbackSlice, sysChannels, sysSampleRate, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples);
+                    framesFromSource = RenderResampled(destination, outChannels, sysSampleRate, totalFrames, mixToDestination, ref gainEnvelope, targetGain, rampSamples, meterChannels, ref writer);
                 }
             }
             else
@@ -544,15 +562,28 @@ namespace Eitan.EasyMic.Runtime
                 framesFromSource = totalFrames;
             }
 
-            ApplyUnderflowFade(destination, callbackSlice, framesFromSource, totalFrames, outChannels, mixToDestination);
-            ApplyMeters(callbackSlice, outChannels, totalFrames);
+            ApplyUnderflowFade(destination, framesFromSource, totalFrames, outChannels, mixToDestination, meterChannels, ref writer);
+            FinalizeMeters(meterChannels, totalFrames);
+
+            if (writer.IsValid)
+            {
+                writer.Commit();
+            }
 
             TryRaiseCompletionIfDrained();
             TryDispatchLoopBoundary();
-            DispatchCallback(callbackSlice, sysChannels, sysSampleRate);
         }
 
-        private int RenderNativeRate(Span<float> destination, Span<float> callbackSlice, int outChannels, int totalFrames, bool mixToDestination, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
+        private int RenderNativeRate(
+            Span<float> destination,
+            int outChannels,
+            int totalFrames,
+            bool mixToDestination,
+            ref MixerGainEnvelope gainEnvelope,
+            float targetGain,
+            int rampSamples,
+            int meterChannels,
+            ref EasyMicAudioEventPump.AudioEventWriter writer)
         {
             if (totalFrames <= 0)
             {
@@ -595,28 +626,61 @@ namespace Eitan.EasyMic.Runtime
                 _pipeline.OnAudioPass(processedSpan, _state);
 
                 var destSlice = destination.Slice(processedSamples, read);
-                var cbSlice = callbackSlice.Slice(processedSamples, read);
-
-                for (int i = 0; i < read; i++)
+                int framesRead = read / outChannels;
+                for (int frame = 0; frame < framesRead; frame++)
                 {
-                    float sample = processedSpan[i];
-                    sample += DenormalGuard;
-                    sample -= DenormalGuard;
-                    float scaled = sample * currentGain;
-                    if (mixToDestination)
+                    int baseIndex = frame * outChannels;
+                    for (int ch = 0; ch < outChannels; ch++)
                     {
-                        destSlice[i] += scaled;
-                    }
-                    cbSlice[i] = scaled;
+                        int i = baseIndex + ch;
+                        float sample = processedSpan[i];
+                        sample += DenormalGuard;
+                        sample -= DenormalGuard;
+                        float scaled = sample * currentGain;
+                        processedSpan[i] = scaled;
 
-                    if (remaining > 0)
-                    {
-                        currentGain += gainStep;
-                        remaining--;
-                        if (remaining == 0)
+                        if (mixToDestination)
                         {
-                            currentGain = gainTarget;
+                            destSlice[i] += scaled;
                         }
+
+                        if (ch < meterChannels)
+                        {
+                            float abs = MathF.Abs(scaled);
+                            if (abs > _meterPeakScratch[ch])
+                            {
+                                _meterPeakScratch[ch] = abs;
+                            }
+                            _meterSumSqScratch[ch] += scaled * scaled;
+                        }
+
+                        if (remaining > 0)
+                        {
+                            currentGain += gainStep;
+                            remaining--;
+                            if (remaining == 0)
+                            {
+                                currentGain = gainTarget;
+                            }
+                        }
+                    }
+                }
+
+                if (framesRead > 0)
+                {
+                    int lastBase = (framesRead - 1) * outChannels;
+                    int lastChannels = Math.Min(outChannels, _lastOutputPerChannel.Length);
+                    for (int ch = 0; ch < lastChannels; ch++)
+                    {
+                        _lastOutputPerChannel[ch] = processedSpan[lastBase + ch];
+                    }
+                }
+
+                if (writer.IsValid)
+                {
+                    if (!writer.Write(processedSpan))
+                    {
+                        writer.WriteZeros(read);
                     }
                 }
 
@@ -637,7 +701,17 @@ namespace Eitan.EasyMic.Runtime
             return framesFromSource;
         }
 
-        private int RenderResampled(Span<float> destination, Span<float> callbackSlice, int sysChannels, int sysSampleRate, int totalFrames, bool mixToDestination, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
+        private int RenderResampled(
+            Span<float> destination,
+            int outChannels,
+            int sysSampleRate,
+            int totalFrames,
+            bool mixToDestination,
+            ref MixerGainEnvelope gainEnvelope,
+            float targetGain,
+            int rampSamples,
+            int meterChannels,
+            ref EasyMicAudioEventPump.AudioEventWriter writer)
         {
             if (totalFrames <= 0)
             {
@@ -645,21 +719,28 @@ namespace Eitan.EasyMic.Runtime
                 return 0;
             }
 
-            int outChannels = Math.Max(1, sysChannels);
             double step = (double)SampleRate / Math.Max(1, sysSampleRate);
             double startPhase = _phase;
             double phase = startPhase;
 
             int neededSrcFrames = (int)Math.Ceiling(startPhase + totalFrames * step) + ResamplerGuardFrames;
-            EnsureResBufCapacity(neededSrcFrames * Channels);
+            if (!EnsureResBufCapacity(neededSrcFrames * Channels))
+            {
+                UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
+                return 0;
+            }
             FillResBuffer(neededSrcFrames);
 
             int initialResFrames = _resFrames;
-            if (_resFrames < neededSrcFrames)
+            int framesFromSource = 0;
+            if (initialResFrames > 0 && step > 0.0)
             {
-                int missing = neededSrcFrames - _resFrames;
-                new Span<float>(_resBuf, _resFrames * Channels, missing * Channels).Clear();
-                _resFrames += missing;
+                double maxSourceIndex = Math.Max(0.0, initialResFrames - 1 - startPhase);
+                double framesAvailable = (maxSourceIndex / step) + 1.0;
+                if (framesAvailable > 0.0)
+                {
+                    framesFromSource = (int)Math.Min(totalFrames, Math.Floor(framesAvailable));
+                }
             }
 
             UpdateGainEnvelope(ref gainEnvelope, targetGain, rampSamples);
@@ -670,9 +751,17 @@ namespace Eitan.EasyMic.Runtime
             float gainTarget = gainEnvelope.Target;
 
             int destIndex = 0;
-            int cbIndex = 0;
+            int chunkIndex = 0;
+            int chunkCapacity = _rtOutChunk.Length - (_rtOutChunk.Length % Math.Max(1, outChannels));
+            if (chunkCapacity <= 0)
+            {
+                chunkCapacity = Math.Max(1, outChannels);
+            }
 
-            for (int frame = 0; frame < totalFrames; frame++)
+            int lastRealFrame = framesFromSource - 1;
+            int lastChannels = Math.Min(outChannels, _lastOutputPerChannel.Length);
+
+            for (int frame = 0; frame < framesFromSource; frame++)
             {
                 int i0 = (int)phase;
                 if (i0 >= _resFrames)
@@ -697,7 +786,19 @@ namespace Eitan.EasyMic.Runtime
                         {
                             destination[destIndex + ch] += scaled;
                         }
-                        callbackSlice[cbIndex + ch] = scaled;
+                        _rtOutChunk[chunkIndex + ch] = scaled;
+
+                        if (ch < meterChannels)
+                        {
+                            float abs = MathF.Abs(scaled);
+                            if (abs > _meterPeakScratch[ch]) { _meterPeakScratch[ch] = abs; }
+                            _meterSumSqScratch[ch] += scaled * scaled;
+                        }
+
+                        if (frame == lastRealFrame && ch < lastChannels)
+                        {
+                            _lastOutputPerChannel[ch] = scaled;
+                        }
                     }
                 }
                 else if (Channels == 1 && outChannels == 2)
@@ -713,8 +814,26 @@ namespace Eitan.EasyMic.Runtime
                         destination[destIndex] += scaled;
                         destination[destIndex + 1] += scaled;
                     }
-                    callbackSlice[cbIndex] = scaled;
-                    callbackSlice[cbIndex + 1] = scaled;
+                    _rtOutChunk[chunkIndex] = scaled;
+                    _rtOutChunk[chunkIndex + 1] = scaled;
+
+                    if (meterChannels > 0)
+                    {
+                        float abs = MathF.Abs(scaled);
+                        if (abs > _meterPeakScratch[0]) { _meterPeakScratch[0] = abs; }
+                        _meterSumSqScratch[0] += scaled * scaled;
+                        if (meterChannels > 1)
+                        {
+                            if (abs > _meterPeakScratch[1]) { _meterPeakScratch[1] = abs; }
+                            _meterSumSqScratch[1] += scaled * scaled;
+                        }
+                    }
+
+                    if (frame == lastRealFrame && lastChannels >= 2)
+                    {
+                        _lastOutputPerChannel[0] = scaled;
+                        _lastOutputPerChannel[1] = scaled;
+                    }
                 }
                 else if (Channels == 2 && outChannels == 1)
                 {
@@ -730,7 +849,19 @@ namespace Eitan.EasyMic.Runtime
                     {
                         destination[destIndex] += scaled;
                     }
-                    callbackSlice[cbIndex] = scaled;
+                    _rtOutChunk[chunkIndex] = scaled;
+
+                    if (meterChannels > 0)
+                    {
+                        float abs = MathF.Abs(scaled);
+                        if (abs > _meterPeakScratch[0]) { _meterPeakScratch[0] = abs; }
+                        _meterSumSqScratch[0] += scaled * scaled;
+                    }
+
+                    if (frame == lastRealFrame && lastChannels >= 1)
+                    {
+                        _lastOutputPerChannel[0] = scaled;
+                    }
                 }
                 else
                 {
@@ -754,7 +885,19 @@ namespace Eitan.EasyMic.Runtime
                     }
                     for (int ch = 0; ch < outChannels; ch++)
                     {
-                        callbackSlice[cbIndex + ch] = scaled;
+                        _rtOutChunk[chunkIndex + ch] = scaled;
+
+                        if (ch < meterChannels)
+                        {
+                            float abs = MathF.Abs(scaled);
+                            if (abs > _meterPeakScratch[ch]) { _meterPeakScratch[ch] = abs; }
+                            _meterSumSqScratch[ch] += scaled * scaled;
+                        }
+
+                        if (frame == lastRealFrame && ch < lastChannels)
+                        {
+                            _lastOutputPerChannel[ch] = scaled;
+                        }
                     }
                 }
 
@@ -769,18 +912,24 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 destIndex += outChannels;
-                cbIndex += outChannels;
+                chunkIndex += outChannels;
+
+                if (writer.IsValid && chunkIndex >= chunkCapacity)
+                {
+                    if (!writer.Write(new ReadOnlySpan<float>(_rtOutChunk, 0, chunkIndex)))
+                    {
+                        writer.WriteZeros(chunkIndex);
+                    }
+                    chunkIndex = 0;
+                }
                 phase += step;
             }
 
-            int framesFromSource = 0;
-            if (initialResFrames > 0 && step > 0.0)
+            if (writer.IsValid && chunkIndex > 0)
             {
-                double maxSourceIndex = Math.Max(0.0, initialResFrames - 1 - startPhase);
-                double framesAvailable = (maxSourceIndex / step) + 1.0;
-                if (framesAvailable > 0.0)
+                if (!writer.Write(new ReadOnlySpan<float>(_rtOutChunk, 0, chunkIndex)))
                 {
-                    framesFromSource = (int)Math.Min(totalFrames, Math.Floor(framesAvailable));
+                    writer.WriteZeros(chunkIndex);
                 }
             }
 
@@ -885,22 +1034,18 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private void ApplyUnderflowFade(Span<float> destination, Span<float> callbackSlice, int framesFromSource, int totalFrames, int outChannels, bool mixToDestination)
+        private void ApplyUnderflowFade(
+            Span<float> destination,
+            int framesFromSource,
+            int totalFrames,
+            int outChannels,
+            bool mixToDestination,
+            int meterChannels,
+            ref EasyMicAudioEventPump.AudioEventWriter writer)
         {
             if (totalFrames <= 0 || outChannels <= 0)
             {
                 return;
-            }
-
-            EnsureLastOutputBuffer(outChannels);
-
-            if (framesFromSource > 0)
-            {
-                int lastIndex = (framesFromSource - 1) * outChannels;
-                for (int ch = 0; ch < outChannels; ch++)
-                {
-                    _lastOutputPerChannel[ch] = callbackSlice[lastIndex + ch];
-                }
             }
 
             if (framesFromSource >= totalFrames)
@@ -908,131 +1053,87 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
+            int lastChannels = Math.Min(outChannels, _lastOutputPerChannel.Length);
             int fadeFrames = Math.Min(StarvationFadeFrames, totalFrames - framesFromSource);
             for (int f = 0; f < fadeFrames; f++)
             {
                 float t = (float)(f + 1) / (fadeFrames + 1);
                 int sampleIndex = (framesFromSource + f) * outChannels;
+
+                int headChannels = Math.Min(outChannels, MaxMeterChannels);
+                var head = _rtHeadScratch;
+
                 for (int ch = 0; ch < outChannels; ch++)
                 {
-                    float sample = _lastOutputPerChannel[ch] * (1f - t);
+                    float sample = (ch < lastChannels ? _lastOutputPerChannel[ch] : 0f) * (1f - t);
                     sample += DenormalGuard;
                     sample -= DenormalGuard;
+
                     if (mixToDestination)
                     {
                         destination[sampleIndex + ch] += sample;
                     }
-                    callbackSlice[sampleIndex + ch] = sample;
+
+                    if (ch < headChannels)
+                    {
+                        head[ch] = sample;
+                    }
+
+                    if (ch < meterChannels)
+                    {
+                        float abs = MathF.Abs(sample);
+                        if (abs > _meterPeakScratch[ch])
+                        {
+                            _meterPeakScratch[ch] = abs;
+                        }
+                        _meterSumSqScratch[ch] += sample * sample;
+                    }
+                }
+
+                if (writer.IsValid)
+                {
+                    if (!writer.Write(new ReadOnlySpan<float>(head, 0, headChannels)))
+                    {
+                        writer.WriteZeros(headChannels);
+                    }
+
+                    if (outChannels > headChannels)
+                    {
+                        writer.WriteZeros(outChannels - headChannels);
+                    }
                 }
             }
 
-            int zeroStart = (framesFromSource + fadeFrames) * outChannels;
-            if (zeroStart < callbackSlice.Length)
+            int remainingFrames = totalFrames - framesFromSource - fadeFrames;
+            int remainingSamples = remainingFrames > 0 ? remainingFrames * outChannels : 0;
+            if (writer.IsValid && remainingSamples > 0)
             {
-                callbackSlice.Slice(zeroStart).Clear();
+                writer.WriteZeros(remainingSamples);
             }
 
-            Array.Clear(_lastOutputPerChannel, 0, outChannels);
-        }
-
-        private void EnsureLastOutputBuffer(int channelCount)
-        {
-            if (_lastOutputPerChannel == null || _lastOutputPerChannel.Length < channelCount)
+            if (lastChannels > 0)
             {
-                _lastOutputPerChannel = new float[channelCount];
+                Array.Clear(_lastOutputPerChannel, 0, lastChannels);
             }
         }
 
-        private void EnsureCallbackBuffer(int sampleCount)
+        private void FinalizeMeters(int meterChannels, int frames)
         {
-            if (_callbackBuffer != null && _callbackBuffer.Length == sampleCount)
-            {
-                return;
-            }
-
-            if (_callbackBufferCache.TryGetValue(sampleCount, out var cached))
-            {
-                _callbackBuffer = cached;
-                return;
-            }
-
-            var buffer = new float[sampleCount];
-            _callbackBufferCache[sampleCount] = buffer;
-            _callbackBuffer = buffer;
-        }
-
-        private void DispatchCallback(Span<float> callbackSlice, int sysChannels, int sysSampleRate)
-        {
-            var handler = OnAudioPlayback;
-            if (handler == null)
-            {
-                return;
-            }
-
-            try { handler(_callbackBuffer, sysChannels, sysSampleRate); } catch { }
-        }
-
-        private void ApplyMeters(Span<float> data, int channels, int frames)
-        {
+            int channels = Math.Min(meterChannels, Math.Min(_meterPeak.Length, _meterRms.Length));
             if (channels <= 0 || frames <= 0)
             {
-                if (_meterPeak != null && _meterPeak.Length >= channels && channels > 0)
-                {
-                    Array.Clear(_meterPeak, 0, channels);
-                }
-                if (_meterRms != null && _meterRms.Length >= channels && channels > 0)
-                {
-                    Array.Clear(_meterRms, 0, channels);
-                }
+                Volatile.Write(ref _lastMeterChannelCount, 0);
                 return;
             }
 
-            EnsureMeterScratch(channels);
-
-            for (int frame = 0; frame < frames; frame++)
-            {
-                int baseIndex = frame * channels;
-                for (int ch = 0; ch < channels; ch++)
-                {
-                    float sample = data[baseIndex + ch];
-                    float abs = MathF.Abs(sample);
-                    if (abs > _meterPeakScratch[ch])
-                    {
-                        _meterPeakScratch[ch] = abs;
-                    }
-                    _meterSumSqScratch[ch] += sample * sample;
-                }
-            }
-
-            if (_meterPeak == null || _meterPeak.Length != channels)
-            {
-                _meterPeak = new float[channels];
-            }
-            if (_meterRms == null || _meterRms.Length != channels)
-            {
-                _meterRms = new float[channels];
-            }
-
+            double denom = Math.Max(1, frames);
             for (int ch = 0; ch < channels; ch++)
             {
                 _meterPeak[ch] = _meterPeakScratch[ch];
-                _meterRms[ch] = (float)Math.Sqrt(_meterSumSqScratch[ch] / frames);
-            }
-        }
-
-        private void EnsureMeterScratch(int channelCount)
-        {
-            if (_meterPeakScratch == null || _meterPeakScratch.Length < channelCount)
-            {
-                _meterPeakScratch = new float[channelCount];
-            }
-            if (_meterSumSqScratch == null || _meterSumSqScratch.Length < channelCount)
-            {
-                _meterSumSqScratch = new double[channelCount];
+                _meterRms[ch] = (float)Math.Sqrt(_meterSumSqScratch[ch] / denom);
             }
 
-            Array.Clear(_meterPeakScratch, 0, channelCount);
-            Array.Clear(_meterSumSqScratch, 0, channelCount);
+            Volatile.Write(ref _lastMeterChannelCount, channels);
         }
 
         private int AlignToFrameSamples(int sampleCount)
@@ -1290,40 +1391,29 @@ namespace Eitan.EasyMic.Runtime
             {
                 Array.Clear(_lastOutputPerChannel, 0, _lastOutputPerChannel.Length);
             }
-
-            try { OnPlaybackCompleted?.Invoke(this); } catch { }
+            var writer = EasyMicAudioEventPump.TryBeginPlaybackCompleted(_eventSourceId, Channels, SampleRate);
+            if (writer.IsValid)
+            {
+                writer.Commit();
+            }
         }
 
         private void TryDispatchLoopBoundary()
         {
             if (System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 0) == 1)
             {
-                try { OnPlaybackCompleted?.Invoke(this); } catch { }
+                var writer = EasyMicAudioEventPump.TryBeginPlaybackCompleted(_eventSourceId, Channels, SampleRate);
+                if (writer.IsValid)
+                {
+                    writer.Commit();
+                }
             }
         }
 
-        private void EnsureResBufCapacity(int neededSamples)
+        private bool EnsureResBufCapacity(int neededSamples)
         {
             neededSamples = AlignToFrameSamples(neededSamples);
-            if (_resBuf.Length >= neededSamples)
-            {
-                return;
-            }
-
-            int newSize = _resBuf.Length;
-            if (newSize == 0)
-            {
-                newSize = AlignToFrameSamples(Channels * 4);
-            }
-            while (newSize < neededSamples)
-            {
-                newSize *= 2;
-            }
-
-
-            var nb = new float[newSize];
-            Array.Copy(_resBuf, nb, _resFrames * Channels);
-            _resBuf = nb;
+            return _resBuf != null && _resBuf.Length >= neededSamples;
         }
 
         public void AddProcessor(AudioWorkerBlueprint blueprint)
@@ -1339,15 +1429,56 @@ namespace Eitan.EasyMic.Runtime
 
         public void Dispose()
         {
+            try { EasyMicAudioEventPump.UnregisterPlaybackSource(_eventSourceId); } catch { }
             try { _pipeline.Dispose(); } catch { }
         }
 
         public void GetMeters(out float[] peak, out float[] rms)
         {
+            int channels = Volatile.Read(ref _lastMeterChannelCount);
+            if (channels <= 0)
+            {
+                peak = Array.Empty<float>();
+                rms = Array.Empty<float>();
+                return;
+            }
+
             var p = _meterPeak;
             var r = _meterRms;
-            peak = p != null ? (float[])p.Clone() : Array.Empty<float>();
-            rms = r != null ? (float[])r.Clone() : Array.Empty<float>();
+            int count = Math.Min(channels, Math.Min(p?.Length ?? 0, r?.Length ?? 0));
+            if (count <= 0)
+            {
+                peak = Array.Empty<float>();
+                rms = Array.Empty<float>();
+                return;
+            }
+
+            peak = new float[count];
+            rms = new float[count];
+            Array.Copy(p, 0, peak, 0, count);
+            Array.Copy(r, 0, rms, 0, count);
+        }
+
+        internal void DispatchAudioPlaybackFrame(float[] data, int channels, int sampleRate)
+        {
+            var handler = OnAudioPlayback;
+            if (handler == null || data == null)
+            {
+                return;
+            }
+
+            try { handler(data, channels, sampleRate); } catch { }
+        }
+
+        internal void DispatchPlaybackCompleted()
+        {
+            var handler = OnPlaybackCompleted;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try { handler(this); } catch { }
         }
 
         string IMixNode.Name => name ?? string.Empty;

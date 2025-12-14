@@ -143,8 +143,14 @@ namespace Eitan.EasyMic.Runtime
             }
             catch (Exception ex)
             {
-                watcher._system.Log($"EasyMic: Device watcher refresh failed: {ex.Message}", MicSystem.LogLevel.Error);
-                throw ex;
+                try
+                {
+                    watcher._system?.Log($"EasyMic: Device watcher refresh failed: {ex.Message}", MicSystem.LogLevel.Error);
+                }
+                catch
+                {
+                    // Never let background refresh crash the process.
+                }
             }
             finally
             {

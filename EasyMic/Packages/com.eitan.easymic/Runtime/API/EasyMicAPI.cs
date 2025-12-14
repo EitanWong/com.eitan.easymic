@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Exceptions;
+using UnityEngine;
 
 namespace Eitan.EasyMic
 {
@@ -190,14 +191,7 @@ namespace Eitan.EasyMic
             var resolvedRate = chosen.ResolveSampleRate(sampleRate);
             var blueprintSet = workers ?? _defaultWorkers;
 
-            try
-            {
-                return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
+            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
         }
 
         private static Channel ResolveChannel(MicDevice device, Channel? requested)
@@ -287,13 +281,25 @@ namespace Eitan.EasyMic
             var message = $"Cannot {actionDescription}. Microphone permission not granted. Call EasyMic.RequestPermission() first.";
             if (asError)
             {
-                // Debug.LogError(message);
-                _micSystem.Log(message, MicSystem.LogLevel.Error);
+                if (_micSystem != null)
+                {
+                    _micSystem.Log(message, MicSystem.LogLevel.Error);
+                }
+                else
+                {
+                    Debug.LogError(message);
+                }
             }
             else
             {
-                // Debug.LogWarning(message);
-                _micSystem.Log(message, MicSystem.LogLevel.Warning);
+                if (_micSystem != null)
+                {
+                    _micSystem.Log(message, MicSystem.LogLevel.Warning);
+                }
+                else
+                {
+                    Debug.LogWarning(message);
+                }
             }
 
             return false;

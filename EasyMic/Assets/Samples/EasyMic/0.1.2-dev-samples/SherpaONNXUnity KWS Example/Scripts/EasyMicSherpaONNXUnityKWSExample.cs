@@ -300,7 +300,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             EasyMicAPI.AddProcessor(_handle, bpApm);
 #endif
 
-            var bpDownmixer = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmixer");
+            var bpDownmixer = new AudioWorkerBlueprint(() => new Downmixer(), key: "downmixer");
             EasyMicAPI.AddProcessor(_handle, bpDownmixer);
 
 

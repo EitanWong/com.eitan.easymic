@@ -12,7 +12,7 @@ namespace Eitan.EasyMic.Runtime
 
         public static AudioWorkerBlueprint Downmixer()
         {
-            return new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "Downmixer");
+            return new AudioWorkerBlueprint(() => new Downmixer(), key: "Downmixer");
         }
 
         public static AudioWorkerBlueprint VolumeGate(float thresholdDb = -40f)
