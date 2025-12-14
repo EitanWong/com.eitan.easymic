@@ -2,7 +2,7 @@ using System;
 
 namespace Eitan.EasyMic.Runtime
 {
-    public class AudioDownmixer : AudioWriter
+    public class Downmixer : AudioWriter
     {
 
         // Optimized coefficients for different channel configurations
@@ -14,6 +14,10 @@ namespace Eitan.EasyMic.Runtime
         public override void Initialize(AudioContext state)
         {
             _originalChannelCount = state.ChannelCount;
+            // Publish the post-downmix format to downstream workers during initialization.
+            // This avoids initializing downstream processors with a channel layout they will never see at runtime.
+            state.ChannelCount = 1;
+            state.Length = 0;
             base.Initialize(state);
         }
 

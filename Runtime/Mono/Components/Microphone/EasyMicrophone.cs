@@ -34,7 +34,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         private AudioWorkerBlueprint _pipelineBlueprint;
 
         private RecordingHandle _recordingHandle;
-        private AudioCapturer _capturer;
+        private Capturer _capturer;
         private AudioClip _latestRecordingClip;
         private string _latestRecordingPath;
         private StreamingWavWriter _streamingWriter;
@@ -541,13 +541,13 @@ namespace Eitan.EasyMic.Runtime.Mono
                 }
 #endif
 
-                var downmixer = new AudioDownmixer();
+                var downmixer = new Downmixer();
                 pipeline.AddWorker(downmixer);
                 OnAudioPiplineBuild(pipeline);
 
                 if (_capturer == null)
                 {
-                    _capturer = new AudioCapturer();
+                    _capturer = new Capturer();
                 }
                 pipeline.AddWorker(_capturer);
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -8,9 +9,13 @@ namespace Eitan.EasyMic.Runtime
     {
         private sealed class RecordingSession : IDisposable
         {
-            private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, RecordingSession> s_devicePtrSessionMap = new System.Collections.Concurrent.ConcurrentDictionary<IntPtr, RecordingSession>();
             private static readonly Native.AudioCallback s_staticAudioCallback = StaticAudioCallback;
             private static readonly Native.AudioCallbackEx s_staticAudioCallbackEx = StaticAudioCallbackEx;
+
+            private const int MaxLegacyCallbackSessions = 16;
+            private static readonly IntPtr s_legacyPendingKey = new IntPtr(-1);
+            private static readonly IntPtr[] s_legacyDevicePtrs = new IntPtr[MaxLegacyCallbackSessions];
+            private static readonly RecordingSession[] s_legacySessions = new RecordingSession[MaxLegacyCallbackSessions];
 
             private readonly object _sessionLock = new object();
             private readonly Dictionary<AudioWorkerBlueprint, IAudioWorker> _workerMap = new Dictionary<AudioWorkerBlueprint, IAudioWorker>();
@@ -214,7 +219,7 @@ namespace Eitan.EasyMic.Runtime
                         return;
                     }
 
-                    _disposed = true;
+                    Volatile.Write(ref _disposed, true);
                     ReleaseNativeResources();
                 }
 
@@ -327,7 +332,7 @@ namespace Eitan.EasyMic.Runtime
 
                     if (!_usingUserDataCallback)
                     {
-                        s_devicePtrSessionMap[_devicePtr] = this;
+                        RegisterLegacyCallbackSession(_devicePtr, this);
                     }
 
                     _audioPipeline.Initialize(_state);
@@ -401,12 +406,13 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (_devicePtr != IntPtr.Zero)
                 {
+                    var oldDevicePtr = _devicePtr;
                     try { Native.DeviceStop(_devicePtr); } catch { }
                     try { Native.DeviceUninit(_devicePtr); } catch { }
                     try { Native.Free(_devicePtr); } catch { }
                     if (!_usingUserDataCallback)
                     {
-                        s_devicePtrSessionMap.TryRemove(_devicePtr, out _);
+                        UnregisterLegacyCallbackSession(oldDevicePtr);
                     }
                     _devicePtr = IntPtr.Zero;
                 }
@@ -430,7 +436,8 @@ namespace Eitan.EasyMic.Runtime
 #endif
             private static void StaticAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
-                if (s_devicePtrSessionMap.TryGetValue(device, out var session))
+                var session = FindLegacyCallbackSession(device);
+                if (session != null)
                 {
                     session.HandleAudioCallback(device, output, input, length);
                 }
@@ -448,7 +455,7 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var handle = GCHandle.FromIntPtr(userData);
-                if (handle.Target is RecordingSession session && !session._disposed)
+                if (handle.Target is RecordingSession session && !Volatile.Read(ref session._disposed))
                 {
                     session.HandleAudioCallback(device, output, input, length);
                 }
@@ -456,12 +463,20 @@ namespace Eitan.EasyMic.Runtime
 
             private void HandleAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
-                if (_disposed)
+                using var _ = EasyMicThreading.EnterAudioThread();
+
+                if (Volatile.Read(ref _disposed) || input == IntPtr.Zero)
                 {
                     return;
                 }
 
-                int sampleCount = (int)(length * _channelCount);
+                ulong sampleCountU = (ulong)length * (ulong)_channelCount;
+                if (sampleCountU == 0 || sampleCountU > int.MaxValue)
+                {
+                    return;
+                }
+
+                int sampleCount = (int)sampleCountU;
                 _state.ChannelCount = (int)_channelCount;
                 _state.SampleRate = (int)_sampleRate;
                 _state.Length = sampleCount;
@@ -477,6 +492,76 @@ namespace Eitan.EasyMic.Runtime
             private unsafe Span<T> GetSpan<T>(IntPtr ptr, int length) where T : unmanaged
             {
                 return new Span<T>((void*)ptr, length);
+            }
+
+            private static void RegisterLegacyCallbackSession(IntPtr devicePtr, RecordingSession session)
+            {
+                if (devicePtr == IntPtr.Zero || session == null)
+                {
+                    return;
+                }
+
+                for (int i = 0; i < MaxLegacyCallbackSessions; i++)
+                {
+                    var key = Volatile.Read(ref s_legacyDevicePtrs[i]);
+                    if (key == devicePtr)
+                    {
+                        Volatile.Write(ref s_legacySessions[i], session);
+                        return;
+                    }
+
+                    if (key != IntPtr.Zero)
+                    {
+                        continue;
+                    }
+
+                    if (Interlocked.CompareExchange(ref s_legacyDevicePtrs[i], s_legacyPendingKey, IntPtr.Zero) == IntPtr.Zero)
+                    {
+                        Volatile.Write(ref s_legacySessions[i], session);
+                        Volatile.Write(ref s_legacyDevicePtrs[i], devicePtr);
+                        return;
+                    }
+                }
+
+                throw new InvalidOperationException("EasyMic: Too many concurrent recording sessions for legacy callback registry.");
+            }
+
+            private static void UnregisterLegacyCallbackSession(IntPtr devicePtr)
+            {
+                if (devicePtr == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                for (int i = 0; i < MaxLegacyCallbackSessions; i++)
+                {
+                    if (Volatile.Read(ref s_legacyDevicePtrs[i]) != devicePtr)
+                    {
+                        continue;
+                    }
+
+                    Volatile.Write(ref s_legacySessions[i], null);
+                    Volatile.Write(ref s_legacyDevicePtrs[i], IntPtr.Zero);
+                    return;
+                }
+            }
+
+            private static RecordingSession FindLegacyCallbackSession(IntPtr devicePtr)
+            {
+                if (devicePtr == IntPtr.Zero)
+                {
+                    return null;
+                }
+
+                for (int i = 0; i < MaxLegacyCallbackSessions; i++)
+                {
+                    if (Volatile.Read(ref s_legacyDevicePtrs[i]) == devicePtr)
+                    {
+                        return Volatile.Read(ref s_legacySessions[i]);
+                    }
+                }
+
+                return null;
             }
 
 

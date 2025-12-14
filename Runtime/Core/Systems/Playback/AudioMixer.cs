@@ -13,6 +13,7 @@ namespace Eitan.EasyMic.Runtime
         private const float GainEpsilon = 1e-6f;
         private const float DefaultHeadroom = 0.97f;
         private const float RampMilliseconds = 4.0f;
+        private const int DefaultMaxBlockFrames = 8192;
 
         private readonly struct NodeRegistration
         {
@@ -137,6 +138,11 @@ namespace Eitan.EasyMic.Runtime
         {
             _state = new AudioContext(channels, sampleRate, 0);
             Pipeline.Initialize(_state);
+
+            int maxSamples = Math.Max(1024, Math.Max(1, channels) * DefaultMaxBlockFrames);
+            _accumBuf = new float[maxSamples];
+            _scratchBuf = new float[maxSamples];
+
             MarkDirty();
             EnsureGainTable();
         }
@@ -225,7 +231,10 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            EnsureAccumBuffer(buffer.Length);
+            if (!EnsureAccumBuffer(buffer.Length))
+            {
+                return;
+            }
             var acc = new Span<float>(_accumBuf, 0, buffer.Length);
             acc.Clear();
 
@@ -354,7 +363,11 @@ namespace Eitan.EasyMic.Runtime
             }
             else
             {
-                EnsureScratchBuffer(destination.Length);
+                if (!EnsureScratchBuffer(destination.Length))
+                {
+                    UpdateGainEnvelope(ref envelope, 0f, rampSamples);
+                    return;
+                }
                 targetBuffer = new Span<float>(_scratchBuf, 0, destination.Length);
             }
 
@@ -423,7 +436,6 @@ namespace Eitan.EasyMic.Runtime
 
             node.StateChanged += handler;
             MarkDirty();
-            EnsureGainTable();
         }
 
         private void RemoveNode(IMixNode node)
@@ -452,7 +464,6 @@ namespace Eitan.EasyMic.Runtime
             }
 
             MarkDirty();
-            EnsureGainTable();
         }
 
         private int FindNodeIndexUnsafe(IMixNode node)
@@ -476,6 +487,12 @@ namespace Eitan.EasyMic.Runtime
         private void MarkDirty()
         {
             _dirty = true;
+            if (EasyMicThreading.IsAudioThread)
+            {
+                return;
+            }
+
+            EnsureGainTable();
             GraphDirty?.Invoke(this);
             _stateChanged?.Invoke(this);
         }
@@ -483,6 +500,11 @@ namespace Eitan.EasyMic.Runtime
         private void EnsureGainTable()
         {
             if (!_dirty)
+            {
+                return;
+            }
+
+            if (EasyMicThreading.IsAudioThread)
             {
                 return;
             }
@@ -770,11 +792,16 @@ namespace Eitan.EasyMic.Runtime
             return sign >= 0f ? abs : -abs;
         }
 
-        private void EnsureAccumBuffer(int required)
+        private bool EnsureAccumBuffer(int required)
         {
             if (_accumBuf.Length >= required)
             {
-                return;
+                return true;
+            }
+
+            if (EasyMicThreading.IsAudioThread)
+            {
+                return false;
             }
 
             int newSize = _accumBuf.Length == 0 ? 1024 : _accumBuf.Length;
@@ -783,13 +810,19 @@ namespace Eitan.EasyMic.Runtime
                 newSize *= 2;
             }
             _accumBuf = new float[newSize];
+            return true;
         }
 
-        private void EnsureScratchBuffer(int required)
+        private bool EnsureScratchBuffer(int required)
         {
             if (_scratchBuf.Length >= required)
             {
-                return;
+                return true;
+            }
+
+            if (EasyMicThreading.IsAudioThread)
+            {
+                return false;
             }
 
             int newSize = _scratchBuf.Length == 0 ? 1024 : _scratchBuf.Length;
@@ -798,6 +831,7 @@ namespace Eitan.EasyMic.Runtime
                 newSize *= 2;
             }
             _scratchBuf = new float[newSize];
+            return true;
         }
     }
 }

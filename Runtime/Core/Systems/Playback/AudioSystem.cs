@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -15,9 +16,22 @@ namespace Eitan.EasyMic.Runtime
 
         private static readonly object s_lock = new object();
         private static AudioSystem s_instance;
+        private static AudioSystem s_instanceNoLock;
         public static AudioSystem Instance
         {
-            get { lock (s_lock) { return s_instance ??= new AudioSystem(); } }
+            get
+            {
+                lock (s_lock)
+                {
+                    if (s_instance == null)
+                    {
+                        s_instance = new AudioSystem();
+                        Volatile.Write(ref s_instanceNoLock, s_instance);
+                    }
+
+                    return s_instance;
+                }
+            }
         }
 
         private AudioMixer _masterMixer;
@@ -81,6 +95,14 @@ namespace Eitan.EasyMic.Runtime
 
             try
             {
+                Volatile.Write(ref s_instanceNoLock, this);
+                try
+                {
+                    EasyMicAudioEventPump.SetMainThreadContext(SynchronizationContext.Current);
+                    EasyMicAudioEventPump.SetAudioSystem(this);
+                }
+                catch { }
+
                 if (_sampleRate == 0 || _channels == 0)
                 {
                     TryPickUnityOutputFormat(out _sampleRate, out _channels);
@@ -102,6 +124,8 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 _masterMixer.Initialize((int)_channels, (int)_sampleRate);
+                _peak = new float[Math.Max(1, (int)_channels)];
+                _rms = new float[Math.Max(1, (int)_channels)];
 
                 var startResult = Native.DeviceStart(_device);
                 Check(startResult == Native.Result.Success, $"DeviceStart: {startResult}");
@@ -182,7 +206,20 @@ namespace Eitan.EasyMic.Runtime
 
         private void Render(IntPtr output, uint frameCount)
         {
-            int samples = checked((int)(frameCount * _channels));
+            using var _ = EasyMicThreading.EnterAudioThread();
+
+            if (output == IntPtr.Zero)
+            {
+                return;
+            }
+
+            ulong samplesU = (ulong)frameCount * (ulong)_channels;
+            if (samplesU == 0 || samplesU > int.MaxValue)
+            {
+                return;
+            }
+
+            int samples = (int)samplesU;
             unsafe
             {
                 var outSpan = new Span<float>((void*)output, samples);
@@ -195,10 +232,17 @@ namespace Eitan.EasyMic.Runtime
                 // Update meters
                 UpdateMeters(outSpan, (int)_channels);
 
-                var handler = OnMixedFrame;
-                if (handler != null)
+                if (OnMixedFrame != null)
                 {
-                    handler(new ReadOnlySpan<float>((void*)output, samples), (int)_channels, (int)_sampleRate);
+                    var writer = EasyMicAudioEventPump.TryBeginMixedFrame((int)_channels, (int)_sampleRate, samples);
+                    if (writer.IsValid)
+                    {
+                        if (!writer.Write(outSpan))
+                        {
+                            writer.WriteZeros(samples);
+                        }
+                        writer.Commit();
+                    }
                 }
             }
         }
@@ -221,7 +265,11 @@ namespace Eitan.EasyMic.Runtime
         private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
         {
             // Fallback: singleton
-            Instance.Render(output, length);
+            var self = Volatile.Read(ref s_instanceNoLock);
+            if (self != null)
+            {
+                self.Render(output, length);
+            }
         }
 
         private static void Check(bool cond, string msg)
@@ -383,20 +431,16 @@ namespace Eitan.EasyMic.Runtime
 
         private void UpdateMeters(Span<float> interleaved, int channels)
         {
-            if (_peak == null || _peak.Length != channels)
+            var peak = _peak;
+            var rms = _rms;
+            if (channels <= 0 || peak == null || rms == null || peak.Length < channels || rms.Length < channels)
             {
-                _peak = new float[channels];
-            }
-
-
-            if (_rms == null || _rms.Length != channels)
-            {
-                _rms = new float[channels];
+                return;
             }
 
             int frames = interleaved.Length / channels;
             Span<double> sumSq = stackalloc double[channels];
-            for (int ch = 0; ch < channels; ch++) { _peak[ch] = 0f; sumSq[ch] = 0.0; }
+            for (int ch = 0; ch < channels; ch++) { peak[ch] = 0f; sumSq[ch] = 0.0; }
             for (int i = 0; i < frames; i++)
             {
                 int baseIdx = i * channels;
@@ -404,9 +448,9 @@ namespace Eitan.EasyMic.Runtime
                 {
                     float s = interleaved[baseIdx + ch];
                     float a = MathF.Abs(s);
-                    if (a > _peak[ch])
+                    if (a > peak[ch])
                     {
-                        _peak[ch] = a;
+                        peak[ch] = a;
                     }
 
                     sumSq[ch] += s * s;
@@ -414,7 +458,7 @@ namespace Eitan.EasyMic.Runtime
             }
             for (int ch = 0; ch < channels; ch++)
             {
-                _rms[ch] = (float)Math.Sqrt(sumSq[ch] / Math.Max(1, frames));
+                rms[ch] = (float)Math.Sqrt(sumSq[ch] / Math.Max(1, frames));
             }
 
         }
@@ -428,5 +472,16 @@ namespace Eitan.EasyMic.Runtime
         // Diagnostics info (backend, device name) – defaults; can be extended via native helpers
         public string BackendName { get; private set; } = "miniaudio";
         public string DeviceName { get; private set; } = "Default Output";
+
+        internal void DispatchMixedFrame(float[] interleaved, int channels, int sampleRate)
+        {
+            var handler = OnMixedFrame;
+            if (handler == null || interleaved == null)
+            {
+                return;
+            }
+
+            try { handler(new ReadOnlySpan<float>(interleaved), channels, sampleRate); } catch { }
+        }
     }
 }

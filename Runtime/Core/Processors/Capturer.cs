@@ -14,7 +14,7 @@ namespace Eitan.EasyMic.Runtime
         void OnSamples(ReadOnlySpan<float> samples, int sampleRate, int channels);
     }
 
-    public class AudioCapturer : AudioReader
+    public class Capturer : AudioReader
     {
         // Auto-managed preview cache heuristics tuned for editor playback.
         private const int DefaultPreviewSeconds = 12;
@@ -33,11 +33,11 @@ namespace Eitan.EasyMic.Runtime
         private IAudioSink _sink; // optional streaming sink (to disk, network, etc.)
         private int _frameStride = 1; // channels alignment for ring buffer
 
-        public AudioCapturer()
+        public Capturer()
             : this(0) { }
 
         /// <param name="targetSampleRate">Optional desired capture sample rate. 0 means keep input rate.</param>
-        public AudioCapturer(int targetSampleRate)
+        public Capturer(int targetSampleRate)
         {
             _targetSampleRate = Math.Max(0, targetSampleRate);
         }
@@ -181,11 +181,28 @@ namespace Eitan.EasyMic.Runtime
 
 
             // Determine the channel count of the resulting clip.
-            int resultChannels = _AudioContext.ChannelCount;
-            int resultSampleRate = _targetSampleRate > 0 ? _targetSampleRate : _AudioContext.SampleRate;
+            // IMPORTANT: Don't use the initialization AudioContext for format.
+            // The pipeline may change ChannelCount/SampleRate at runtime (e.g. downmix to mono).
+            // We must use the last observed runtime format to avoid metadata mismatches that change
+            // playback speed/pitch when constructing the AudioClip.
+            int resultChannels = CurrentChannelCount > 0
+                ? CurrentChannelCount
+                : Math.Max(1, _AudioContext?.ChannelCount ?? 1);
+
+            int srcSampleRate = CurrentSampleRate > 0
+                ? CurrentSampleRate
+                : Math.Max(1, _AudioContext?.SampleRate ?? 48000);
+
+            int resultSampleRate = _targetSampleRate > 0 ? _targetSampleRate : srcSampleRate;
 
             // The length for AudioClip.Create is the number of samples *per channel*.
-            int lengthSamplesPerChannel = samples.Length / resultChannels;
+            int alignedSamples = samples.Length - (samples.Length % resultChannels);
+            if (alignedSamples <= 0)
+            {
+                return null;
+            }
+
+            int lengthSamplesPerChannel = alignedSamples / resultChannels;
 
             AudioClip createdAudioClip = AudioClip.Create(
                 $"CapturedClip_{resultSampleRate}_{resultChannels}_{DateTime.Now:HHmmss}",
@@ -195,7 +212,16 @@ namespace Eitan.EasyMic.Runtime
                 false
             );
 
-            createdAudioClip.SetData(samples, 0);
+            if (alignedSamples != samples.Length)
+            {
+                var trimmed = new float[alignedSamples];
+                Array.Copy(samples, trimmed, alignedSamples);
+                createdAudioClip.SetData(trimmed, 0);
+            }
+            else
+            {
+                createdAudioClip.SetData(samples, 0);
+            }
             return createdAudioClip;
         }
 
