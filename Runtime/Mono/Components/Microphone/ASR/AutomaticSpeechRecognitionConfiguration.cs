@@ -17,7 +17,8 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
     {
         Streaming,
         OfflineWithVad,
-        Hybrid
+        Hybrid,
+        KeywordSpottingOnly
     }
 
     /// <summary>

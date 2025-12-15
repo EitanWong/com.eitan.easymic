@@ -239,6 +239,25 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
         /// <summary>
+        /// Applies new microphone options and optionally restarts the recording session.
+        /// </summary>
+        public void ApplyMicrophoneOptions(MicrophoneOptions options, bool restartRecording = true)
+        {
+            bool shouldRestart = restartRecording && IsRecording;
+            if (shouldRestart)
+            {
+                StopRecording();
+            }
+
+            _microphoneOptions = options;
+
+            if (shouldRestart)
+            {
+                StartRecording();
+            }
+        }
+
+        /// <summary>
         /// Applies new device options and optionally restarts the recording session.
         /// </summary>
         public void ApplyDeviceOptions(DeviceOptions options, bool restartRecording = true)

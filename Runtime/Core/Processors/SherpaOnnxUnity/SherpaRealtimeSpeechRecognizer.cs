@@ -102,13 +102,30 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
                 {
                     try
                     {
-                        var text = await _svc.SpeechTranscriptionAsync(data, sampleRate, token)
+                        var result = await _svc.TranscribeAsync(data, sampleRate, token)
                             .ConfigureAwait(false);
 
-                        // Skip if disposed or cancelled or empty result
+                        // Skip if disposed or cancelled
                         if (Volatile.Read(ref _disposed) == 1 ||
-                            token.IsCancellationRequested ||
-                            string.IsNullOrEmpty(text))
+                            token.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        if (result.Status != SpeechRecognition.TranscriptionStatus.Success)
+                        {
+                            return;
+                        }
+
+                        string text = result.Text ?? string.Empty;
+                        bool isFinal = result.IsFinal;
+
+                        // Only emit empty-string end markers when the recognizer actually hit an endpoint.
+                        // Avoids treating "busy"/"no tokens yet" as an end-of-speech signal.
+                        bool shouldEmitText = text.Length != 0;
+                        bool shouldEmitEndMarker = isFinal;
+
+                        if (!shouldEmitText && !shouldEmitEndMarker)
                         {
                             return;
                         }
@@ -120,13 +137,29 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
                             {
                                 if (Volatile.Read(ref _disposed) == 0)
                                 {
-                                    OnRecognitionResult?.Invoke(text);
+                                    if (shouldEmitText)
+                                    {
+                                        OnRecognitionResult?.Invoke(text);
+                                    }
+
+                                    if (shouldEmitEndMarker)
+                                    {
+                                        OnRecognitionResult?.Invoke(string.Empty);
+                                    }
                                 }
                             }, null);
                         }
                         else
                         {
-                            OnRecognitionResult?.Invoke(text);
+                            if (shouldEmitText)
+                            {
+                                OnRecognitionResult?.Invoke(text);
+                            }
+
+                            if (shouldEmitEndMarker)
+                            {
+                                OnRecognitionResult?.Invoke(string.Empty);
+                            }
                         }
                     }
                     catch (OperationCanceledException)
