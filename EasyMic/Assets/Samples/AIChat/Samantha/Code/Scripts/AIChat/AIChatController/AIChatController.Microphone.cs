@@ -73,8 +73,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 _userInputBuffer.Append(trimmed);
             }
-
-            OnChatStateChanged?.Invoke(ChatState.UserInput, GetUserInputBuffer());
+            var finalSubmit = GetUserInputBuffer();
+            if (Config.LogStreamingChunks)
+            {
+                Debug.Log($"[AIChat][ASR] Submit: {finalSubmit}");
+            }
+            OnChatStateChanged?.Invoke(ChatState.UserInput, finalSubmit);
             TryDispatchBufferedInput();
         }
 

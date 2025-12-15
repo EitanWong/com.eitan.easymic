@@ -22,6 +22,6 @@
   <Project Path="Eitan.SherpaONNXUnity.Editor.csproj" />
   <Project Path="Utilities.BuildPipeline.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Editor.csproj" />
-  <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
   <Project Path="Eitan.EasyMic.Tests.csproj" />
+  <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
 </Solution>

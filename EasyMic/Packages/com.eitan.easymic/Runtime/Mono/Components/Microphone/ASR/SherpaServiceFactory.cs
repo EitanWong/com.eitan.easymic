@@ -30,9 +30,18 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public ServiceCreationResult<SpeechRecognition> CreateSpeechRecognition(
             string requestedModelId,
             string fallbackModelId,
-            string descriptor)
+            string descriptor,
+            SpeechRecognition.Options options = null,
+            int maxPendingTranscriptions = 2,
+            bool dropIfBusy = true)
         {
-            return CreateService(candidate => new SpeechRecognition(candidate, _sampleRate, _feedbackReporter),
+            return CreateService(candidate => new SpeechRecognition(
+                    candidate,
+                    _sampleRate,
+                    _feedbackReporter,
+                    options: options,
+                    maxPendingTranscriptions: maxPendingTranscriptions,
+                    dropIfBusy: dropIfBusy),
                 requestedModelId,
                 fallbackModelId,
                 descriptor);
@@ -126,6 +135,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
                 try
                 {
+                    Debug.Log($"VoiceMicrophone: initializing {descriptor} model '{candidate}'.");
                     var service = factory(candidate);
                     if (i > 0 && !string.Equals(candidate, primary, StringComparison.Ordinal))
                     {
@@ -146,7 +156,58 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private static string NormalizeModelId(string modelId)
         {
-            return string.IsNullOrWhiteSpace(modelId) ? string.Empty : modelId.Trim();
+            if (string.IsNullOrWhiteSpace(modelId))
+            {
+                return string.Empty;
+            }
+
+            string candidate = modelId.Trim();
+
+            // Accept common user inputs: file paths / URLs / archives.
+            // Sherpa model IDs generally match archive names without extensions.
+            candidate = StripQuery(candidate);
+            candidate = TakeLastPathSegment(candidate);
+            candidate = StripKnownSuffixes(candidate);
+
+            return candidate.Trim();
+        }
+
+        private static string StripQuery(string value)
+        {
+            int queryIndex = value.IndexOf('?');
+            return queryIndex >= 0 ? value.Substring(0, queryIndex) : value;
+        }
+
+        private static string TakeLastPathSegment(string value)
+        {
+            int lastSlash = value.LastIndexOfAny(new[] { '/', '\\' });
+            if (lastSlash < 0 || lastSlash >= value.Length - 1)
+            {
+                return value;
+            }
+
+            return value.Substring(lastSlash + 1);
+        }
+
+        private static string StripKnownSuffixes(string value)
+        {
+            value = StripSuffix(value, ".tar.bz2");
+            value = StripSuffix(value, ".tar.gz");
+            value = StripSuffix(value, ".onnx");
+            value = StripSuffix(value, ".zip");
+            value = StripSuffix(value, ".bz2");
+            value = StripSuffix(value, ".tar");
+            return value;
+        }
+
+        private static string StripSuffix(string value, string suffix)
+        {
+            if (value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return value.Substring(0, value.Length - suffix.Length);
+            }
+
+            return value;
         }
     }
 

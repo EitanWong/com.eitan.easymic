@@ -516,8 +516,8 @@ MonoBehaviour:
         UseTriggerSound: 0
         TriggerSoundClip: {fileID: 0}
       TurnDetectionOptions:
-        MinDelaySeconds: 0
-        MaxDelaySeconds: 0.7
+        MinDelaySeconds: 0.7
+        MaxDelaySeconds: 1.9
     _activePresetId: default
 --- !u!114 &1276574528
 MonoBehaviour:

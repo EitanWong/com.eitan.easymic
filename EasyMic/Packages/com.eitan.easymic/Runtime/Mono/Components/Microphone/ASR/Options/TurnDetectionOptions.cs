@@ -25,7 +25,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             return new TurnDetectionOptions(min, max);
         }
 
-        public static TurnDetectionOptions Default => new TurnDetectionOptions(0.12f, 0.65f);
+        public static TurnDetectionOptions Default => new TurnDetectionOptions(0.5f, 2.4f);
     }
 }
 #endif

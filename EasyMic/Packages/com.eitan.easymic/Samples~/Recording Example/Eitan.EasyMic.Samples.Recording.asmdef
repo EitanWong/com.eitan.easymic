@@ -2,7 +2,8 @@
     "name": "Eitan.EasyMic.Samples.Recording",
     "rootNamespace": "Eitan.EasyMic.Samples.Recording",
     "references": [
-        "Eitan.EasyMic"
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -42,14 +42,15 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private static readonly StreamingRecognitionStrategy StreamingStrategy = new();
         private static readonly OfflineWithVadRecognitionStrategy OfflineStrategy = new();
         private static readonly HybridRecognitionStrategy HybridStrategy = new();
+        private static readonly KeywordSpottingOnlyRecognitionStrategy KeywordSpottingOnlyStrategy = new();
 
         #endregion
 
         #region Serialized Fields
 
-        [Header("ASR Configuration / ASR 配置")]
+        [Header("ASR Configuration")]
         [SerializeField]
-        [Tooltip("Automatic Speech Recognition Configuration / 自动语音识别配置")]
+        [Tooltip("Automatic Speech Recognition Configuration")]
         private AutomaticSpeechRecognitionConfiguration _asrConfig;
 
         #endregion
@@ -164,6 +165,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         protected override void OnInitialization()
         {
+            if (_lifecycleState == LifecycleState.Initializing)
+            {
+                LogInfo("Initialize requested while initialization is already in progress.");
+                return;
+            }
+
             if (!TryTransitionState(LifecycleState.Uninitialized, LifecycleState.Initializing) &&
                 !TryTransitionState(LifecycleState.Disposed, LifecycleState.Initializing))
             {
@@ -591,7 +598,13 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             CreateServiceIfNeeded(
                 _recognitionStrategy.RequiresStreaming,
-                () => _serviceFactory.CreateSpeechRecognition(preset.StreamingModelId, defaults.StreamingModelId, "streaming"),
+                () => _serviceFactory.CreateSpeechRecognition(
+                    preset.StreamingModelId,
+                    defaults.StreamingModelId,
+                    "streaming",
+                    options: CreateStreamingEndpointingOptions(),
+                    maxPendingTranscriptions: 1,
+                    dropIfBusy: true),
                 result =>
                 {
                     _streamingService = result.Service;
@@ -638,6 +651,26 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _progressAggregator.Reset(_expectedModelLoads);
         }
+
+        private SpeechRecognition.Options CreateStreamingEndpointingOptions()
+        {
+            var turn = _turnDetectionSettings.EnsureValid();
+            float min = Mathf.Max(0.01f, turn.MinDelaySeconds);
+            float max = Mathf.Max(min, turn.MaxDelaySeconds);
+
+            // Avoid aggressive internal endpointing that fragments speech into tiny utterances.
+            // Turn detection still controls when the final transcript is submitted.
+            float rule2 = Mathf.Clamp(max + Mathf.Max(0.15f, min * 0.5f), 0.6f, 1.2f);
+            float rule1 = Mathf.Clamp(rule2 + 0.2f, rule2, 1.5f);
+
+            return new SpeechRecognition.Options
+            {
+                Rule1MinTrailingSilence = rule1,
+                Rule2MinTrailingSilence = rule2,
+                Rule3MinUtteranceLength = 60
+            };
+        }
+
 
         private void CreateServiceIfNeeded<T>(
             bool condition,
@@ -801,13 +834,55 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         {
             // Ensure audio matches Sherpa model requirements (mono handled by base pipeline downmixer).
             // This must run before Sherpa workers so their Initialize() sees the final sample rate.
-            pipeline.AddWorker(new Resampler((int)DEFAULT_SAMPLE_RATE));
+            if (this.DeviceOpts.SampleRate != DEFAULT_SAMPLE_RATE)
+            {
+                pipeline.AddWorker(new Resampler((int)DEFAULT_SAMPLE_RATE));
+            }
 
+            RefreshPipelineWorkers();
+
+            var strategy = CurrentStrategy;
             var configurator = new AudioPipelineConfigurator(pipeline);
             configurator.ConfigureKeywordDetector(_keywordDetector, HandleKeywordDetected);
-            configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
-            configurator.ConfigureVoiceFilter(_voiceFilter, HandleVoiceActivityFromFilter);
-            configurator.ConfigureOfflineRecognizer(_offlineRecognizer, HandleOfflineRecognition);
+
+            switch (strategy.Mode)
+            {
+                case RecognitionMode.Streaming:
+                    configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
+                    break;
+
+                case RecognitionMode.OfflineWithVad:
+                    configurator.ConfigureVoiceFilter(_voiceFilter, HandleVoiceActivityFromFilter);
+                    configurator.ConfigureOfflineRecognizer(_offlineRecognizer, HandleOfflineRecognition);
+                    break;
+
+                case RecognitionMode.Hybrid:
+                    configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
+                    configurator.ConfigureVoiceFilter(_voiceFilter, HandleVoiceActivityFromFilter);
+                    configurator.ConfigureOfflineRecognizer(_offlineRecognizer, HandleOfflineRecognition);
+                    break;
+
+                case RecognitionMode.KeywordSpottingOnly:
+                    break;
+
+                default:
+                    configurator.ConfigureStreamingRecognizer(_realtimeRecognizer, HandleStreamingRecognition);
+                    break;
+            }
+        }
+
+        private void RefreshPipelineWorkers()
+        {
+            // The audio pipeline may dispose workers when recording stops. Re-create wrappers per pipeline build.
+            UnsubscribeAndDispose(ref _keywordDetector, d => d.OnKeywordDetected -= HandleKeywordDetected);
+            UnsubscribeAndDispose(ref _realtimeRecognizer, r => r.OnRecognitionResult -= HandleStreamingRecognition);
+            UnsubscribeAndDispose(ref _offlineRecognizer, r => r.OnRecognitionResult -= HandleOfflineRecognition);
+            UnsubscribeAndDispose(ref _voiceFilter, f => f.OnVoiceActivityChanged -= HandleVoiceActivityFromFilter);
+
+            _keywordDetector = _keywordService != null ? new SherpaKeywordDetector(_keywordService) : null;
+            _realtimeRecognizer = _streamingService != null ? new SherpaRealtimeSpeechRecognizer(_streamingService) : null;
+            _offlineRecognizer = _offlineService != null ? new SherpaOfflineSpeechRecognizer(_offlineService) : null;
+            _voiceFilter = _vadService != null ? new SherpaVoiceFilter(_vadService) : null;
         }
 
         #endregion
@@ -837,18 +912,26 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             try
             {
-                content = await ApplyPunctuationAsync(content, token);
-                if (token.IsCancellationRequested)
-                {
-                    return;
-                }
-
                 if (isStreaming)
                 {
-                    ProcessStreamingResult(content, token);
+                    content ??= string.Empty;
+                    if (content.Length != 0)
+                    {
+                        // Keep streaming path as low-latency as possible; punctuation is applied only when committing.
+                        ProcessStreamingResult(content, token);
+                        return;
+                    }
+
+                    await ProcessStreamingEndMarkerAsync(token);
                 }
                 else
                 {
+                    content = await ApplyPunctuationAsync(content, token);
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
                     ProcessOfflineResult(content, token);
                 }
             }
@@ -859,11 +942,64 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
         }
 
+        private async Task ProcessStreamingEndMarkerAsync(CancellationToken token)
+        {
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _recognitionBuffer?.EmitPartial(string.Empty);
+
+            var strategy = CurrentStrategy;
+            bool applyStreamingVoiceActivity = strategy.AppliesStreamingVoiceActivity;
+
+            string pendingSnapshot = _pendingStreamingResult ?? string.Empty;
+            bool hadSpeech = IsVoiceActivity || pendingSnapshot.Length != 0;
+            if (applyStreamingVoiceActivity && hadSpeech)
+            {
+                SetVoiceActivity(false);
+            }
+
+            if (pendingSnapshot.Length == 0)
+            {
+                return;
+            }
+
+            string pending = pendingSnapshot;
+            if (strategy.AllowsStreamingFinalCommit && _punctService != null)
+            {
+                string punctuated = await ApplyPunctuationAsync(pending, token);
+                if (!token.IsCancellationRequested && !string.IsNullOrWhiteSpace(punctuated))
+                {
+                    pending = punctuated;
+                }
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (strategy.AllowsStreamingFinalCommit)
+            {
+                CommitResult(pending);
+            }
+
+            if (hadSpeech &&
+                string.Equals(_pendingStreamingResult, pendingSnapshot, StringComparison.Ordinal))
+            {
+                _pendingStreamingResult = string.Empty;
+            }
+        }
+
         private async Task<string> ApplyPunctuationAsync(string content, CancellationToken token)
         {
-            if (_punctService == null || token.IsCancellationRequested)
+            content ??= string.Empty;
+
+            if (content.Length == 0 || _punctService == null || token.IsCancellationRequested)
             {
-                return content ?? string.Empty;
+                return content;
             }
 
             try
@@ -885,25 +1021,29 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 return;
             }
 
-            _recognitionBuffer?.EmitPartial(content ?? string.Empty);
+            content ??= string.Empty;
+            _recognitionBuffer?.EmitPartial(content);
 
-            if (!string.IsNullOrEmpty(content))
+            var strategy = CurrentStrategy;
+            bool applyStreamingVoiceActivity = strategy.AppliesStreamingVoiceActivity;
+            bool trackPendingStreamingResult = strategy.AllowsStreamingFinalCommit || strategy.SubmitWhenSpeakingEndsWithoutOffline;
+
+            if (content.Length != 0)
             {
-                SetVoiceActivity(true);
-                _pendingStreamingResult = content;
+                if (trackPendingStreamingResult)
+                {
+                    _pendingStreamingResult = content;
+                }
+
+                if (applyStreamingVoiceActivity)
+                {
+                    SetVoiceActivity(true);
+                }
+
                 return;
             }
 
-            SetVoiceActivity(false);
-
-            if (!string.IsNullOrEmpty(_pendingStreamingResult) &&
-                _recognitionStrategy?.AllowsStreamingFinalCommit == true &&
-                !token.IsCancellationRequested)
-            {
-                CommitResult(_pendingStreamingResult);
-            }
-
-            _pendingStreamingResult = string.Empty;
+            // Empty results are handled by ProcessStreamingEndMarkerAsync to keep ordering predictable (e.g., punctuation).
         }
 
         private void ProcessOfflineResult(string content, CancellationToken token)
@@ -955,6 +1095,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             OnTranscription(text, true);
             InvokeEvent(() => OnASRTranscriptionSubmit?.Invoke(text));
+            _keywordGate?.OnUtteranceEnded();
+
+
         }
 
         private void HandleVoiceActivityChanged(bool isActive)
@@ -967,13 +1110,6 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             _silenceRecognizer?.OnVoiceActivityChanged(isActive);
             InvokeEvent(() => OnVoiceActivityChanged?.Invoke(isActive));
             InvokeEvent(() => OnSpeakingChanged?.Invoke(isActive));
-
-            if (!isActive && _recognitionStrategy?.SubmitWhenSpeakingEndsWithoutOffline == true &&
-                !string.IsNullOrEmpty(_pendingStreamingResult))
-            {
-                CommitResult(_pendingStreamingResult);
-                _pendingStreamingResult = string.Empty;
-            }
         }
 
         private void HandleKeywordActivityChanged(string keyword, bool isActive)
@@ -1122,7 +1258,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public void OnFeedback(FailedFeedback feedback)
         {
             _completedModelLoads++;
-            LogError($"Model load failed: {feedback?.Message ?? "unknown error"}");
+            string modelId = feedback?.Metadata?.modelId;
+            string moduleType = feedback?.Metadata?.moduleType.ToString();
+            string detail = !string.IsNullOrWhiteSpace(modelId)
+                ? $" (modelId={modelId}{(string.IsNullOrWhiteSpace(moduleType) ? string.Empty : $", moduleType={moduleType}")})"
+                : string.Empty;
+            LogError($"Model load failed{detail}: {feedback?.Message ?? "unknown error"}");
             PublishProgress(feedback?.Message);
             OnServiceLoadingFailed(feedback);
             InvokeEvent(() => OnLoadingFailedFeedback?.Invoke(feedback));
@@ -1138,6 +1279,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             RecognitionMode.Streaming => StreamingStrategy,
             RecognitionMode.OfflineWithVad => OfflineStrategy,
             RecognitionMode.Hybrid => HybridStrategy,
+            RecognitionMode.KeywordSpottingOnly => KeywordSpottingOnlyStrategy,
             _ => StreamingStrategy
         };
 

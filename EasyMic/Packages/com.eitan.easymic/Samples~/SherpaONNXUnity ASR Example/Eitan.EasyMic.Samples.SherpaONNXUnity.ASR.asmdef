@@ -3,6 +3,7 @@
     "rootNamespace": "Eitan.EasyMic.Samples.SherpaONNXUnity.ASR",
     "references": [
         "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono",
         "Eitan.EasyMic.Apm",
         "Eitan.EasyMic.SherpaONNXUnity",
         "Eitan.SherpaONNXUnity"

@@ -570,6 +570,11 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
 
             // Build configuration based on selected models
             var config = BuildConfiguration(asrModel);
+            if (config == null)
+            {
+                UpdateState(AppState.NotLoaded);
+                return;
+            }
 
             // Apply configuration to VoiceMicrophone - this triggers model loading
             _voiceMicrophone.ApplyConfiguration(config);
@@ -594,11 +599,18 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
         {
             bool isOnline = SherpaONNXUnityAPI.IsOnlineModel(asrModel);
 
+            if (!isOnline && string.IsNullOrWhiteSpace(GetSelectedVadModel()))
+            {
+                Debug.LogError("Offline ASR requires a VAD model. Please select a VAD model first.");
+                return null;
+            }
+
             // Create the appropriate preset first
             var preset = new AutomaticSpeechRecognitionConfiguration.ASRPreset
             {
                 DisplayName = "Default",
                 Id = "default",
+                RecognitionMode = isOnline ? RecognitionMode.Streaming : RecognitionMode.OfflineWithVad,
                 StreamingModelId = isOnline ? asrModel : string.Empty,
                 OfflineModelId = !isOnline ? asrModel : string.Empty,
                 VadModelId = !isOnline ? GetSelectedVadModel() : string.Empty

@@ -292,7 +292,6 @@ GameObject:
   - component: {fileID: 88841001}
   - component: {fileID: 88841000}
   - component: {fileID: 88840999}
-  - component: {fileID: 88841002}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -366,39 +365,85 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &88841002
+--- !u!1 &91230073
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 91230074}
+  - component: {fileID: 91230075}
+  m_Layer: 0
+  m_Name: VoiceMicrophone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &91230074
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 91230073}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 908.61707, y: 503.1172, z: -4.512537}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &91230075
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 88840998}
+  m_GameObject: {fileID: 91230073}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Script: {fileID: 11500000, guid: fcc30c5140eaf4895a0334f7ec08dc7e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_RenderShadows: 1
-  m_RequiresDepthTextureOption: 2
-  m_RequiresOpaqueTextureOption: 2
-  m_CameraType: 0
-  m_Cameras: []
-  m_RendererIndex: -1
-  m_VolumeLayerMask:
-    serializedVersion: 2
-    m_Bits: 1
-  m_VolumeTrigger: {fileID: 0}
-  m_VolumeFrameworkUpdateModeOption: 2
-  m_RenderPostProcessing: 0
-  m_Antialiasing: 0
-  m_AntialiasingQuality: 2
-  m_StopNaN: 0
-  m_Dithering: 0
-  m_ClearDepth: 1
-  m_AllowXRRendering: 1
-  m_RequiresDepthTexture: 0
-  m_RequiresColorTexture: 0
-  m_Version: 2
+  _microphoneOptions:
+    recordOnAwake: 0
+    autoFallback: 1
+  _deviceOptions:
+    DeviceName: "Eitan\u2019s AirPods Pro"
+    Channel: 1
+    SampleRate: 16000
+  _audioProcessingOptions:
+    EnableAEC: 1
+    EnableANS: 1
+    EnableAGC: 1
+  _asrConfig:
+    _presets:
+    - Id: default
+      DisplayName: Default
+      RecognitionMode: 0
+      StreamingModelId: sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+      OfflineModelId: sherpa-onnx-zipformer-zh-en-2023-11-22
+      VadModelId: silero-vad-v5
+      EnablePunctuation: 1
+      PunctuationModelId: sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
+      KeywordOptions:
+        Enabled: 0
+        ModelId: sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01
+        CustomKeywords: []
+        KeywordsScore: 2
+        KeywordsThreshold: 0.25
+        ContinuousConversation: 0
+        ContinuousConversationTimeoutSeconds: 8
+        UseTriggerSound: 0
+        TriggerSoundClip: {fileID: 0}
+      TurnDetectionOptions:
+        MinDelaySeconds: 0.12
+        MaxDelaySeconds: 0.65
+    _activePresetId: default
 --- !u!1 &190335904
 GameObject:
   m_ObjectHideFlags: 0
@@ -3868,22 +3913,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9973b163ce7a448e5bd724e2bc910d39, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _audioSource: {fileID: 2023209765}
-  _selectDeviceDropdown: {fileID: 505190811}
-  _asrModelsDropdown: {fileID: 1442489759}
-  _vadModelsDropdown: {fileID: 2135996701}
+  _voiceMicrophone: {fileID: 91230075}
+  _playbackSource: {fileID: 1812384904}
+  _deviceDropdown: {fileID: 505190811}
+  _asrModelDropdown: {fileID: 1442489759}
+  _vadModelDropdown: {fileID: 2135996701}
+  _vadDropdownContainer: {fileID: 1093702501}
   _loopbackToggle: {fileID: 1983119969}
   _refreshButton: {fileID: 1560107136}
-  _loadOrUnloadButton: {fileID: 48619277}
-  _vadDropdownLayoutContainer: {fileID: 1093702501}
+  _loadUnloadButton: {fileID: 48619277}
+  _recordingContainer: {fileID: 190335905}
   _recordButton: {fileID: 1782216910}
-  _recordingButtonContainer: {fileID: 190335905}
-  _stateImage: {fileID: 480202617}
+  _stateIndicator: {fileID: 480202617}
   _stateText: {fileID: 1977474725}
   _transcriptionText: {fileID: 1573541223}
   _resultPanel: {fileID: 1496447633}
-  _audioNameText: {fileID: 621024132}
-  _playOrStopButton: {fileID: 2108436360}
+  _audioClipNameText: {fileID: 621024132}
+  _playStopButton: {fileID: 2108436360}
   _saveButton: {fileID: 1678523287}
 --- !u!1 &1395129817
 GameObject:
@@ -5776,6 +5822,56 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 266.9858, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1812384903
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1812384905}
+  - component: {fileID: 1812384904}
+  m_Layer: 0
+  m_Name: Playback Audio Source
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1812384904
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1812384903}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a2acb743bbc32456a89a70b0b561b56d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _clip: {fileID: 0}
+  _playOnAwake: 1
+  _loop: 1
+  _volume: 1
+  _mute: 0
+  _solo: 0
+--- !u!4 &1812384905
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1812384903}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 4
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1853962776
 GameObject:
   m_ObjectHideFlags: 0

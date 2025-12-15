@@ -6,15 +6,15 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
-    using Eitan.EasyMic;
     using Eitan.EasyMic.Runtime;
-    using Eitan.EasyMic.Runtime.SherpaONNXUnity;
+    using Eitan.EasyMic.Runtime.Mono;
+    using Eitan.EasyMic.Runtime.Mono.ASR;
     using Eitan.SherpaONNXUnity.Runtime;
     using Eitan.SherpaONNXUnity.Runtime.Modules;
     using UnityEngine;
     using UnityEngine.UI;
 
-    public class EasyMicSherpaONNXUnityKWSExample : MonoBehaviour, ISherpaFeedbackHandler
+    public class EasyMicSherpaONNXUnityKWSExample : MonoBehaviour
     {
         #region UI Constants
         private const string STATE_NOT_LOADED = "Not Loaded";
@@ -23,6 +23,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         private const string STATE_READY = "Ready to Record";
         private const string STATE_RECORDING = "Recording...";
         private const string STATE_LISTENING = "Listening...";
+        private const string STATE_STOPPED = "Stopped";
 
         private const string BTN_LOAD_MODEL = "Load Model";
         private const string BTN_UNLOAD_MODEL = "Unload Model";
@@ -32,6 +33,10 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         #endregion
 
         #region Inspector UI Assignments
+        [Header("Core Components")]
+        [Tooltip("Optional; will be auto-created if missing.")]
+        [SerializeField] private VoiceMicrophone _voiceMicrophone;
+
         [Header("Model & Device Setup")]
         [Tooltip("Dropdown to select the Keyword Spotting (KWS) model.")]
         [SerializeField] private Dropdown _modelIDDropdown;
@@ -77,9 +82,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         #endregion
 
         #region Private Fields
-        private KeywordSpotting _keywordSpottingService;
-        private RecordingHandle _handle;
-        private AudioWorkerBlueprint _keywordDetectorBlueprint;
+        private MicDevice[] _devices = Array.Empty<MicDevice>();
 
         private AppState _currentState = AppState.NotLoaded;
         private Color _originLoadBtnColor;
@@ -97,24 +100,40 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         private const float DisplayDuration = 3f;
         private int _originalFontSize;
         private string _loadedMessage;
-        private static readonly string[] InterestingFeedback = {
+        private Coroutine _readyAfterInitCoroutine;
+
+        private static readonly string[] InterestingFeedback =
+        {
             "Double Kill!", "Triple Kill!", "Rampage!", "Godlike!", "Beyond Godlike!"
         };
 
-        private readonly int SampleRate = 16000;
-        private enum AppState { NotLoaded, Loading, Ready, Recording }
+        private enum AppState
+        {
+            NotLoaded,
+            Loading,
+            Ready,
+            Recording
+        }
         #endregion
 
-        #region MonoBehaviour Lifecycle
+        #region Unity Lifecycle
+        private void Awake()
+        {
+            EnsureVoiceMicrophone();
+            if (_voiceMicrophone != null)
+            {
+                _voiceMicrophone.ApplyMicrophoneOptions(new MicrophoneOptions(recordOnAwake: false, autoFallback: true), restartRecording: false);
+            }
+        }
+
         private void Start()
         {
-            Application.runInBackground = true;
-            Application.targetFrameRate = 30;
-
             BindUIEvents();
+            BindVoiceMicrophoneEvents();
 
             _keywordText.text = "Please click the button to load the keyword spotting model";
             _tipsText.text = string.Empty;
+            _loadedMessage = "Load a keyword spotting model.";
             _originLoadBtnColor = _modelLoadOrUnloadButton.GetComponent<Image>().color;
             if (_keywordText != null)
             {
@@ -124,22 +143,30 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             _ = InitDropdownAsync();
             InitKeywordsPanelUI();
             UpdateState(AppState.NotLoaded);
-            OnRefreshButtonPressed();
+            RefreshDeviceList();
         }
 
         private void OnDestroy()
         {
-            if (_handle.IsValid)
+            if (_voiceMicrophone != null && _voiceMicrophone.IsRecording)
             {
-                EasyMicAPI.StopRecording(_handle);
+                _voiceMicrophone.StopRecording();
             }
+
             UnloadModels();
+            UnbindVoiceMicrophoneEvents();
             UnbindUIEvents();
 
             if (_resetCoroutine != null)
             {
                 StopCoroutine(_resetCoroutine);
                 _resetCoroutine = null;
+            }
+
+            if (_readyAfterInitCoroutine != null)
+            {
+                StopCoroutine(_readyAfterInitCoroutine);
+                _readyAfterInitCoroutine = null;
             }
         }
         #endregion
@@ -155,50 +182,119 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
 
         private void UnbindUIEvents()
         {
-            _modelLoadOrUnloadButton.onClick.RemoveAllListeners();
-            _recordButton.onClick.RemoveAllListeners();
-            _registerKeywordButton.onClick.RemoveAllListeners();
-            _clearKeywordsBtn.onClick.RemoveAllListeners();
+            _modelLoadOrUnloadButton?.onClick.RemoveAllListeners();
+            _recordButton?.onClick.RemoveAllListeners();
+            _registerKeywordButton?.onClick.RemoveAllListeners();
+            _clearKeywordsBtn?.onClick.RemoveAllListeners();
+        }
+
+        private void EnsureVoiceMicrophone()
+        {
+            if (_voiceMicrophone != null)
+            {
+                return;
+            }
+
+            _voiceMicrophone = FindObjectOfType<VoiceMicrophone>();
+            if (_voiceMicrophone != null)
+            {
+                return;
+            }
+
+            var go = new GameObject("VoiceMicrophone");
+            _voiceMicrophone = go.AddComponent<VoiceMicrophone>();
+        }
+
+        private void BindVoiceMicrophoneEvents()
+        {
+            if (_voiceMicrophone == null)
+            {
+                return;
+            }
+
+            _voiceMicrophone.OnKeywordActivityChanged += HandleKeywordActivityChanged;
+            _voiceMicrophone.OnLoadingProgressFeedback += HandleLoadingProgress;
+            _voiceMicrophone.OnLoadingSucceededFeedback += HandleLoadingSucceeded;
+            _voiceMicrophone.OnLoadingFailedFeedback += HandleLoadingFailed;
+        }
+
+        private void UnbindVoiceMicrophoneEvents()
+        {
+            if (_voiceMicrophone == null)
+            {
+                return;
+            }
+
+            _voiceMicrophone.OnKeywordActivityChanged -= HandleKeywordActivityChanged;
+            _voiceMicrophone.OnLoadingProgressFeedback -= HandleLoadingProgress;
+            _voiceMicrophone.OnLoadingSucceededFeedback -= HandleLoadingSucceeded;
+            _voiceMicrophone.OnLoadingFailedFeedback -= HandleLoadingFailed;
         }
 
         private async Task InitDropdownAsync()
         {
-            _modelIDDropdown.options.Clear();
-            _modelIDDropdown.captionText.text = "Fetching model manifest from GitHub…";
+            _modelIDDropdown.ClearOptions();
+            _modelIDDropdown.captionText.text = "Fetching model manifest...";
             _modelLoadOrUnloadButton.gameObject.SetActive(false);
-            var manifest = await SherpaONNXModelRegistry.Instance.GetManifestAsync();
-            _modelLoadOrUnloadButton.gameObject.SetActive(true);
-            _modelIDDropdown.options.Clear();
-            if (manifest.models != null)
-            {
-                List<Dropdown.OptionData> modelOptions = manifest.Filter(m => m.moduleType == SherpaONNXModuleType.KeywordSpotting)
-                                                               .Select(m => new Dropdown.OptionData(m.modelId)).ToList();
-                _modelIDDropdown.AddOptions(modelOptions);
 
-                var defaultIndex = modelOptions.FindIndex(m => m.text == defaultModelID);
-                _modelIDDropdown.value = defaultIndex;
+            try
+            {
+                var modelIds = await SherpaONNXUnityAPI.GetModelIDByTypeAsync(SherpaONNXModuleType.KeywordSpotting);
+                _modelIDDropdown.AddOptions(modelIds.ToList());
+
+                var defaultIndex = _modelIDDropdown.options.FindIndex(o => o.text == defaultModelID);
+                _modelIDDropdown.value = Mathf.Max(0, defaultIndex);
+                _modelIDDropdown.RefreshShownValue();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Failed to fetch KWS models: {ex.Message}");
+                _modelIDDropdown.AddOptions(new List<string> { "Failed to load models" });
+                _modelIDDropdown.value = 0;
+                _modelIDDropdown.RefreshShownValue();
+            }
+            finally
+            {
+                _modelLoadOrUnloadButton.gameObject.SetActive(true);
             }
         }
         #endregion
 
-        #region Core Logic - Button Handlers
-        private void OnRefreshButtonPressed()
+        #region Device List
+        private void RefreshDeviceList()
         {
             EasyMicAPI.Refresh();
-            var devices = EasyMicAPI.Devices.ToList();
+            _devices = EasyMicAPI.Devices ?? Array.Empty<MicDevice>();
+
+            var deviceNames = _devices.Select(d => d.Name).ToList();
             _selectDeviceDropdown.ClearOptions();
-            if (devices.Any())
+            if (_devices.Length == 0)
             {
-                _selectDeviceDropdown.AddOptions(devices.Select(x => x.Name).ToList());
-                int defaultIndex = devices.FindIndex(m => m.IsDefault);
-                _selectDeviceDropdown.value = Mathf.Max(0, defaultIndex);
+                _selectDeviceDropdown.AddOptions(new List<string> { "No microphone devices found" });
+                _selectDeviceDropdown.interactable = false;
+                return;
             }
-            else
-            {
-                Debug.LogWarning("No microphone devices found.");
-            }
+
+            _selectDeviceDropdown.AddOptions(deviceNames);
+            _selectDeviceDropdown.interactable = true;
+
+            int defaultIndex = Array.FindIndex(_devices, d => d.IsDefault);
+            _selectDeviceDropdown.value = Mathf.Max(0, defaultIndex);
+            _selectDeviceDropdown.RefreshShownValue();
         }
 
+        private MicDevice GetSelectedDevice()
+        {
+            if (_devices.Length == 0 || _selectDeviceDropdown.value < 0 || _selectDeviceDropdown.value >= _devices.Length)
+            {
+                return default;
+            }
+
+            return _devices[_selectDeviceDropdown.value];
+        }
+        #endregion
+
+        #region Core Logic - Button Handlers
         private void HandleModelLoadOrUnloadButtonClick()
         {
             if (_currentState == AppState.NotLoaded)
@@ -227,90 +323,128 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         #region Core Logic - Model and Recording Flow
         private void StartLoadingModels()
         {
-            if (_keywordSpottingService != null)
+            EnsureVoiceMicrophone();
+            if (_voiceMicrophone == null)
             {
-                Debug.LogError("A model is already loaded. Please unload it first.");
                 return;
             }
+
+            if (_readyAfterInitCoroutine != null)
+            {
+                StopCoroutine(_readyAfterInitCoroutine);
+                _readyAfterInitCoroutine = null;
+            }
+
+            var modelId = GetSelectedModelId();
+            if (string.IsNullOrWhiteSpace(modelId))
+            {
+                Debug.LogError("No KWS model selected.");
+                return;
+            }
+
             UpdateState(AppState.Loading);
-            var reporter = new SherpaONNXFeedbackReporter(null, this);
-            _keywordSpottingService = new KeywordSpotting(_modelIDDropdown.captionText.text, SampleRate, 2.0f, 0.25f, kwsKeywords, reporter);
+
+            var config = BuildConfiguration(modelId);
+            if (!_voiceMicrophone.ApplyConfiguration(config))
+            {
+                Debug.LogError("Failed to apply VoiceMicrophone configuration.");
+                UpdateState(AppState.NotLoaded);
+                return;
+            }
+
+            var device = GetSelectedDevice();
+            if (!string.IsNullOrWhiteSpace(device.Name))
+            {
+                _voiceMicrophone.SwitchCaptureDevice(device, Channel.Mono, SampleRate.Hz16000, restartRecording: false);
+            }
+
+            if (_voiceMicrophone.IsInitializing)
+            {
+                return;
+            }
+
+            if (!_voiceMicrophone.Initialized || _voiceMicrophone.AreModelsDisposed)
+            {
+                _voiceMicrophone.Init();
+            }
+        }
+
+        private AutomaticSpeechRecognitionConfiguration BuildConfiguration(string keywordModelId)
+        {
+            var config = AutomaticSpeechRecognitionConfiguration.CreateDefault();
+            var preset = config.GetActivePreset();
+
+            preset.RecognitionMode = RecognitionMode.KeywordSpottingOnly;
+            preset.StreamingModelId = string.Empty;
+            preset.OfflineModelId = string.Empty;
+            preset.VadModelId = string.Empty;
+            preset.EnablePunctuation = false;
+            preset.PunctuationModelId = string.Empty;
+
+            var keywordOptions = preset.KeywordOptions;
+            keywordOptions.Enabled = true;
+            keywordOptions.ModelId = keywordModelId;
+            keywordOptions.CustomKeywords = _runtimeKeywords.ToArray();
+            keywordOptions.UseTriggerSound = wakeupSoundClip != null;
+            keywordOptions.TriggerSoundClip = wakeupSoundClip;
+
+            preset.KeywordOptions = keywordOptions;
+            config.UpdatePreset(preset);
+            return config;
         }
 
         private void UnloadModels()
         {
-            if (_keywordSpottingService == null)
+            if (_voiceMicrophone == null)
             {
+                UpdateState(AppState.NotLoaded);
                 return;
             }
 
-
-            if (_handle.IsValid)
+            if (_voiceMicrophone.IsRecording)
             {
                 StopRecordingFlow();
             }
-            _keywordSpottingService.Dispose();
-            _keywordSpottingService = null;
+
+            _voiceMicrophone.DisposeModels();
 
             if (_resetCoroutine != null)
             {
                 StopCoroutine(_resetCoroutine);
                 _resetCoroutine = null;
             }
+
             UpdateState(AppState.NotLoaded);
         }
 
         private void StartRecordingFlow()
         {
-            if (EasyMicAPI.Devices.Length == 0)
+            if (_voiceMicrophone == null || !_voiceMicrophone.IsOperational)
             {
-                Debug.LogError("No microphone devices available to start recording.");
+                Debug.LogError("Models are not ready. Load a model first.");
                 return;
             }
 
-            var selectedDeviceName = _selectDeviceDropdown.options[_selectDeviceDropdown.value].text;
-            _handle = EasyMicAPI.StartRecording(selectedDeviceName, (SampleRate)SampleRate, Channel.Mono);
-
-            if (!_handle.IsValid)
-            {
-                Debug.LogError("Failed to start recording. Please check device compatibility.");
-                return;
-            }
-
-            AddProcessorsToHandle();
+            _voiceMicrophone.StartRecording();
             UpdateState(AppState.Recording);
         }
 
         private void StopRecordingFlow()
         {
-            EasyMicAPI.StopRecording(_handle);
-            _handle = default;
+            _voiceMicrophone?.StopRecording();
             UpdateState(AppState.Ready);
+            _stateText.text = $"{STATE_STOPPED} - {STATE_READY}";
         }
 
-        private void AddProcessorsToHandle()
+        private string GetSelectedModelId()
         {
-            if (_keywordSpottingService == null)
+            if (_modelIDDropdown.options == null || _modelIDDropdown.options.Count == 0)
             {
-                return;
+                return string.Empty;
             }
 
-#if EASYMIC_APM_INTEGRATION
-            var bpApm = new AudioWorkerBlueprint(() => new EasyMic.Runtime.Apm.WebRtcApmModifier(), key: "webrtc-apm");
-            EasyMicAPI.AddProcessor(_handle, bpApm);
-#endif
-
-            var bpDownmixer = new AudioWorkerBlueprint(() => new Downmixer(), key: "downmixer");
-            EasyMicAPI.AddProcessor(_handle, bpDownmixer);
-
-
-            _keywordDetectorBlueprint ??= new AudioWorkerBlueprint(() =>
-            {
-                var detector = new SherpaKeywordDetector(_keywordSpottingService);
-                detector.OnKeywordDetected += HandleKeywordDetected;
-                return detector;
-            }, key: "kws-detector");
-            EasyMicAPI.AddProcessor(_handle, _keywordDetectorBlueprint);
+            int index = Mathf.Clamp(_modelIDDropdown.value, 0, _modelIDDropdown.options.Count - 1);
+            return _modelIDDropdown.options[index].text;
         }
         #endregion
 
@@ -335,7 +469,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                     _registerKeywordButton.interactable = false;
                 }
 
-
                 return;
             }
 
@@ -354,7 +487,10 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                         continue;
                     }
 
-                    _runtimeKeywords.Add(new KeywordSpotting.KeywordRegistration(registration.Keyword.Trim(), registration.BoostingScore, registration.TriggerThreshold));
+                    _runtimeKeywords.Add(new KeywordSpotting.KeywordRegistration(
+                        registration.Keyword.Trim(),
+                        registration.BoostingScore,
+                        registration.TriggerThreshold));
                 }
             }
 
@@ -369,6 +505,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                 Debug.LogWarning("[KeywordSpottingExample] Cannot clear keywords while a model is loaded.");
                 return;
             }
+
             _runtimeKeywords.Clear();
             SyncSerializedKeywords();
             RefreshKeywordsUI();
@@ -385,24 +522,27 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                 return;
             }
 
-
             TryAddCustomKeyword(_keywordInput.text);
         }
 
         private void TryAddCustomKeyword(string candidate)
         {
+            if (_currentState != AppState.NotLoaded)
+            {
+                Debug.LogWarning("[KeywordSpottingExample] Cannot edit keywords while a model is loaded.");
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(candidate))
             {
                 return;
             }
-
 
             var keyword = candidate.Trim();
             if (string.IsNullOrEmpty(keyword))
             {
                 return;
             }
-
 
             if (_runtimeKeywords.Any(k => string.Equals(k.Keyword, keyword, StringComparison.OrdinalIgnoreCase)))
             {
@@ -416,12 +556,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             CreateKeywordItem(registration);
             UpdateKeywordListLayout(forceScrollToLatest: true);
 
-            if (_keywordInput != null)
-            {
-                _keywordInput.text = string.Empty;
-            }
-
-            if (_keywordSpottingService != null && _tipsText != null)
+            if (_tipsText != null)
             {
                 _tipsText.text = "<color=yellow><b>Keywords updated.</b></color> Reload model to apply changes.";
             }
@@ -433,7 +568,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 return;
             }
-
 
             foreach (Transform child in _keywordsListScrollView.content)
             {
@@ -447,6 +581,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 CreateKeywordItem(registration);
             }
+
             UpdateKeywordListLayout(forceScrollToLatest: false);
         }
 
@@ -456,7 +591,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 return;
             }
-
 
             var item = Instantiate(_keywordTemplate, _keywordsListScrollView.content);
             item.name = $"Keyword_{registration.Keyword}";
@@ -479,12 +613,17 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
 
         private void RemoveCustomKeyword(string keyword, GameObject item)
         {
+            if (_currentState != AppState.NotLoaded)
+            {
+                Debug.LogWarning("[KeywordSpottingExample] Cannot edit keywords while a model is loaded.");
+                return;
+            }
+
             var index = _runtimeKeywords.FindIndex(k => string.Equals(k.Keyword, keyword, StringComparison.OrdinalIgnoreCase));
             if (index < 0)
             {
                 return;
             }
-
 
             _runtimeKeywords.RemoveAt(index);
             SyncSerializedKeywords();
@@ -493,9 +632,9 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 Destroy(item);
             }
-            UpdateKeywordListLayout(forceScrollToLatest: false);
 
-            if (_keywordSpottingService != null && _tipsText != null)
+            UpdateKeywordListLayout(forceScrollToLatest: false);
+            if (_tipsText != null)
             {
                 _tipsText.text = "<color=yellow><b>Keywords updated.</b></color> Reload model to apply changes.";
             }
@@ -512,7 +651,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 return;
             }
-
 
             Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(_keywordsListScrollView.content);
@@ -534,9 +672,18 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             _recordButton.interactable = _currentState == AppState.Ready || _currentState == AppState.Recording;
 
             bool canEditKeywords = _currentState == AppState.NotLoaded;
-            _keywordInput.interactable = canEditKeywords;
-            _registerKeywordButton.interactable = canEditKeywords;
-            _clearKeywordsBtn.interactable = canEditKeywords;
+            if (_keywordInput)
+            {
+                _keywordInput.interactable = canEditKeywords;
+            }
+            if (_registerKeywordButton)
+            {
+                _registerKeywordButton.interactable = canEditKeywords;
+            }
+            if (_clearKeywordsBtn)
+            {
+                _clearKeywordsBtn.interactable = canEditKeywords;
+            }
             UpdateKeywordsListDeleteBtnInteractable(canEditKeywords);
         }
 
@@ -558,6 +705,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                     _modelLoadOrUnloadButton.GetComponentInChildren<Text>().text = BTN_LOADING;
                     _stateText.text = STATE_LOADING;
                     _stateImage.color = Color.yellow;
+                    _keywordText.text = "Loading model...";
                     break;
                 case AppState.Ready:
                     _modelLoadOrUnloadButton.GetComponentInChildren<Text>().text = BTN_UNLOAD_MODEL;
@@ -575,6 +723,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                     _keywordText.text = STATE_LISTENING;
                     break;
             }
+
             SetUIInteractability();
         }
 
@@ -589,7 +738,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
                         continue;
                     }
 
-
                     var childBtn = child.GetComponentInChildren<Button>();
                     if (childBtn)
                     {
@@ -601,13 +749,22 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         #endregion
 
         #region Keyword Detection Handling
+        private void HandleKeywordActivityChanged(string keyword, bool isActive)
+        {
+            if (!isActive)
+            {
+                return;
+            }
+
+            HandleKeywordDetected(keyword);
+        }
+
         private void HandleKeywordDetected(string keyword)
         {
             if (string.IsNullOrEmpty(keyword))
             {
                 return;
             }
-
 
             if (_resetCoroutine != null)
             {
@@ -642,11 +799,6 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
 
             Debug.Log($"Wake-up word detected: {keyword}, combo: {_comboCount}");
             _resetCoroutine = StartCoroutine(ResetKeywordDisplayAfterDelay());
-
-            if (wakeupSoundClip)
-            {
-                AudioSource.PlayClipAtPoint(wakeupSoundClip, Camera.main.transform.position);
-            }
         }
 
         private IEnumerator ResetKeywordDisplayAfterDelay()
@@ -658,70 +810,79 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
             {
                 _keywordText.fontSize = _originalFontSize;
             }
+
             _comboCount = 0;
             _lastKeyword = string.Empty;
             _resetCoroutine = null;
         }
         #endregion
 
-        #region ISherpaFeedbackHandler Implementation
-        public void OnFeedback(PrepareFeedback feedback)
+        #region VoiceMicrophone Feedback
+        private void HandleLoadingProgress(string message, float progress)
         {
-            _tipsText.text = $"<b>[Loading]:</b> {feedback.Metadata.modelId} is preparing.";
-            _keywordText.text = "Preparing model...";
+            if (_currentState != AppState.Loading)
+            {
+                return;
+            }
+
+            int pct = Mathf.Clamp(Mathf.RoundToInt(progress * 100f), 0, 100);
+            _tipsText.text = $"<b>[Loading]</b> {pct}% {message}";
         }
 
-        public void OnFeedback(DownloadFeedback feedback)
+        private void HandleLoadingSucceeded(SuccessFeedback feedback)
         {
-            _keywordText.text = "Downloading model...";
-        }
-
-        public void OnFeedback(DecompressFeedback feedback)
-        {
-            _keywordText.text = "Uncompressing model...";
-        }
-
-        public void OnFeedback(VerifyFeedback feedback)
-        {
-            _keywordText.text = "Verifying model...";
-        }
-
-        public void OnFeedback(LoadFeedback feedback)
-        {
-            _tipsText.text = $"<b><color=cyan>[Loading]</color>:</b> {feedback.Metadata.modelId} is loading into memory.";
-            _keywordText.text = "Loading model into memory...";
-        }
-
-        public void OnFeedback(CancelFeedback feedback)
-        {
-            _tipsText.text = $"<b><color=yellow>Cancelled</color>:</b> {feedback.Message}";
-            _keywordText.text = "Model loading cancelled.";
-            UnloadModels();
-        }
-
-        public void OnFeedback(SuccessFeedback feedback)
-        {
-            _loadedMessage = $"<b><color=green>[Loaded]</color>:</b> {feedback.Metadata.modelId} is active. Ready to detect keywords.";
+            var modelId = feedback?.Metadata.modelId;
+            _loadedMessage = string.IsNullOrWhiteSpace(modelId)
+                ? "<b><color=green>[Loaded]</color></b> Ready to detect keywords."
+                : $"<b><color=green>[Loaded]</color></b> {modelId} is active. Ready to detect keywords.";
             _tipsText.text = _loadedMessage;
-            _keywordText.text = "Now you can click the record button and speak the keyword to test.";
-            UpdateState(AppState.Ready);
+            _keywordText.text = "Model loaded. Click record and speak the keyword to test.";
+
+            if (_voiceMicrophone != null && _voiceMicrophone.IsOperational)
+            {
+                UpdateState(AppState.Ready);
+                return;
+            }
+
+            if (_readyAfterInitCoroutine != null)
+            {
+                StopCoroutine(_readyAfterInitCoroutine);
+            }
+
+            _readyAfterInitCoroutine = StartCoroutine(WaitForOperationalAndReady());
         }
 
-        public void OnFeedback(FailedFeedback feedback)
+        private IEnumerator WaitForOperationalAndReady()
         {
-            Debug.LogError($"[Failed] : {feedback.Message}");
+            float deadline = Time.realtimeSinceStartup + 5f;
+            while (_voiceMicrophone != null &&
+                   !_voiceMicrophone.IsOperational &&
+                   Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            _readyAfterInitCoroutine = null;
+            if (_voiceMicrophone != null && _voiceMicrophone.IsOperational)
+            {
+                UpdateState(AppState.Ready);
+            }
+        }
+
+        private void HandleLoadingFailed(FailedFeedback feedback)
+        {
+            Debug.LogError($"[Failed] : {feedback?.Message ?? "Unknown error"}");
             _tipsText.text = "<b><color=red>[Failed]</color>:</b> Model loading failed.";
             _keywordText.text = "<color=red><b>Model loading failed</b></color>";
-            UnloadModels();
             UpdateState(AppState.NotLoaded);
             _stateText.text = STATE_LOADING_FAILED;
             _stateImage.color = Color.red;
-        }
 
-        public void OnFeedback(CleanFeedback feedback)
-        {
-            _tipsText.text = "Cleanup complete.";
-            _keywordText.text = "<color=yellow><b>Initialization cancelled or failed.</b></color>";
+            if (_readyAfterInitCoroutine != null)
+            {
+                StopCoroutine(_readyAfterInitCoroutine);
+                _readyAfterInitCoroutine = null;
+            }
         }
         #endregion
 
