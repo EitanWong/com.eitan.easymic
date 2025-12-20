@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Eitan.SherpaONNXUnity.Runtime;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Aggregates model loading progress feedback from Sherpa-ONNX services.

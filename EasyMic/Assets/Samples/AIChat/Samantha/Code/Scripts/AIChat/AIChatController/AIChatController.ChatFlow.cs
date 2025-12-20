@@ -101,8 +101,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _sentenceAssembler.Reset();
-            SetAssistantSpeakingState(false);
             _llmInFlight = false;
+            SetAssistantSpeakingState(false);
+            UpdateIdleState();
         }
 
         private async Task RunChatCompletionAsync(string userInput, CancellationToken token)

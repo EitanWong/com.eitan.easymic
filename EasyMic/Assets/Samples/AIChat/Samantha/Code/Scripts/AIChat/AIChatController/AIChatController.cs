@@ -1,15 +1,11 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
-using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Runtime.Mono.ASR;
+using Eitan.EasyMic.Runtime.Mono.Components.ASR;
+using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 using UnityEngine;
-using Debug = UnityEngine.Debug;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {

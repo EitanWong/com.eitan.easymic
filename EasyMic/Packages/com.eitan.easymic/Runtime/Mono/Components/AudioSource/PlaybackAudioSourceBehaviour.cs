@@ -2,7 +2,7 @@
 using System;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono
+namespace Eitan.EasyMic.Runtime.Mono.Components
 {
     /// <summary>
     /// Unity MonoBehaviour wrapper for <see cref="PlaybackAudioSession"/>.

@@ -86,7 +86,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             OnUserSpeakingStateChanged?.Invoke(isSpeaking);
 
-            if (isSpeaking && Config.InterruptAssistantOnUserSpeech)
+            if (isSpeaking &&
+                Config.InterruptAssistantOnUserSpeech &&
+                (_llmInFlight || _isAssistantSpeaking))
             {
                 await CancelActiveResponseAsync().ConfigureAwait(false);
             }

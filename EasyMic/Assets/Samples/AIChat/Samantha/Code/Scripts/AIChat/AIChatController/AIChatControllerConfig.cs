@@ -1,6 +1,6 @@
 using System;
-using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Runtime.Mono.ASR;
+using Eitan.EasyMic.Runtime.Mono.Components.ASR;
+using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha

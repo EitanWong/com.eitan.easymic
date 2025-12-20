@@ -1,5 +1,5 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Exposes the capabilities required for a particular speech recognition mode.

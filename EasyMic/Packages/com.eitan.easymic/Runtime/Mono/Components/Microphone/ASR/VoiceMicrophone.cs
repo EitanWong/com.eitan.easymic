@@ -1,5 +1,6 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,12 +8,15 @@ using Eitan.EasyMic.Runtime.SherpaONNXUnity;
 using Eitan.SherpaONNXUnity.Runtime;
 using Eitan.SherpaONNXUnity.Runtime.Core;
 using Eitan.SherpaONNXUnity.Runtime.Modules;
+using Eitan.SherpaONNXUnity.Runtime.Utilities;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Voice Microphone Component - Coordinates Sherpa-ONNX services and provides microphone-driven transcription events.
+    /// Owns model lifecycle and ensures worker callbacks are dispatched on the Unity main thread.
+    /// Changes here can affect readiness, ordering, and thread safety.
     /// 语音麦克风组件 - 协调 Sherpa-ONNX 服务并提供麦克风驱动的转录事件。
     /// </summary>
     [AddComponentMenu("Audio/Input/Voice Microphone")]
@@ -20,8 +24,11 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
     {
         #region Constants & Enums
 
-        private const SampleRate DEFAULT_SAMPLE_RATE = SampleRate.Hz16000;
-        private const string LOG_PREFIX = "[VoiceMicrophone]";
+        private const SampleRate DEFAULT_SAMPLE_RATE = SampleRate.Hz16000; // Default model sample rate / 默认模型采样率
+        private const string LOG_PREFIX = "[VoiceMicrophone]"; // Log tag for this component / 本组件日志前缀
+        private const int STREAMING_PUNCTUATION_DEBOUNCE_MS = 120; // Debounce for streaming punctuation / 流式标点防抖时间
+        private static readonly char[] PunctuationTerminators = { '.', '!', '?', '。', '！', '？' }; // Sentence terminators / 句末终止符
+        private static readonly char[] PunctuationTrailingClosers = { '"', '”', '’', '»', ')', '）' }; // Closing punctuation after terminator / 终止符后的闭合符
 
         /// <summary>
         /// Component lifecycle state. / 组件生命周期状态。
@@ -35,14 +42,43 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             Disposed
         }
 
+        private enum PendingCallbackType
+        {
+            StreamingRecognition,
+            OfflineRecognition,
+            KeywordDetected,
+            VoiceActivityChanged
+        }
+
+        private readonly struct PendingCallback
+        {
+            public readonly PendingCallbackType Type; // Callback category / 回调类型
+            public readonly string Text; // Payload text / 文本负载
+            public readonly bool Bool; // Payload boolean / 布尔负载
+
+            public PendingCallback(PendingCallbackType type, string text)
+            {
+                Type = type;
+                Text = text ?? string.Empty;
+                Bool = false;
+            }
+
+            public PendingCallback(PendingCallbackType type, bool value)
+            {
+                Type = type;
+                Text = string.Empty;
+                Bool = value;
+            }
+        }
+
         #endregion
 
         #region Static Strategies
 
-        private static readonly StreamingRecognitionStrategy StreamingStrategy = new();
-        private static readonly OfflineWithVadRecognitionStrategy OfflineStrategy = new();
-        private static readonly HybridRecognitionStrategy HybridStrategy = new();
-        private static readonly KeywordSpottingOnlyRecognitionStrategy KeywordSpottingOnlyStrategy = new();
+        private static readonly StreamingRecognitionStrategy StreamingStrategy = new(); // Shared streaming strategy / 共享流式策略
+        private static readonly OfflineWithVadRecognitionStrategy OfflineStrategy = new(); // Shared offline+VAD strategy / 共享离线+VAD策略
+        private static readonly HybridRecognitionStrategy HybridStrategy = new(); // Shared hybrid strategy / 共享混合策略
+        private static readonly KeywordSpottingOnlyRecognitionStrategy KeywordSpottingOnlyStrategy = new(); // Shared keyword-only strategy / 共享关键词策略
 
         #endregion
 
@@ -51,60 +87,102 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         [Header("ASR Configuration")]
         [SerializeField]
         [Tooltip("Automatic Speech Recognition Configuration")]
-        private AutomaticSpeechRecognitionConfiguration _asrConfig;
+        private AutomaticSpeechRecognitionConfiguration _asrConfig; // Inspector ASR config / Inspector中的ASR配置
 
         #endregion
 
         #region Service References
 
-        private SpeechRecognition _streamingService;
-        private SpeechRecognition _offlineService;
-        private VoiceActivityDetection _vadService;
-        private KeywordSpotting _keywordService;
-        private Punctuation _punctService;
+        private SpeechRecognition _streamingService; // Streaming recognition service / 流式识别服务
+        private SpeechRecognition _offlineService; // Offline recognition service / 离线识别服务
+        private VoiceActivityDetection _vadService; // Voice activity detection service / 语音活动检测服务
+        private KeywordSpotting _keywordService; // Keyword spotting service / 关键词检测服务
+        private Punctuation _punctService; // Punctuation service / 标点服务
 
         #endregion
 
         #region Service Wrappers
 
-        private SherpaVoiceFilter _voiceFilter;
-        private SherpaRealtimeSpeechRecognizer _realtimeRecognizer;
-        private SherpaOfflineSpeechRecognizer _offlineRecognizer;
-        private SherpaKeywordDetector _keywordDetector;
+        private SherpaVoiceFilter _voiceFilter; // Wrapper for VAD callbacks / VAD回调包装
+        private SherpaRealtimeSpeechRecognizer _realtimeRecognizer; // Wrapper for streaming recognizer / 流式识别包装
+        private SherpaOfflineSpeechRecognizer _offlineRecognizer; // Wrapper for offline recognizer / 离线识别包装
+        private SherpaKeywordDetector _keywordDetector; // Wrapper for keyword detector / 关键词检测包装
 
         #endregion
 
         #region Infrastructure
 
-        private SherpaONNXFeedbackReporter _feedbackReporter;
-        private SherpaServiceFactory _serviceFactory;
-        private ModelProgressAggregator _progressAggregator;
+        private SherpaONNXFeedbackReporter _feedbackReporter; // Routes Sherpa feedback / 路由Sherpa反馈
+        private SherpaServiceFactory _serviceFactory; // Creates Sherpa services / 创建Sherpa服务
+        private ModelProgressAggregator _progressAggregator; // Aggregates model load progress / 聚合模型加载进度
 
         #endregion
 
         #region State Management
 
-        private VoiceActivityMonitor _voiceActivity;
-        private KeywordGate _keywordGate;
-        private RecognitionBuffer _recognitionBuffer;
-        private TurnDetector _turnDetector;
-        private SilenceTurnRecognizer _silenceRecognizer;
-        private IRecognitionStrategy _recognitionStrategy;
-        private CancellationTokenSource _recognitionLifetimeCts;
+        #region Recognition Core
 
-        private AutomaticSpeechRecognitionConfiguration.ASRPreset _initializingPreset;
-        private TurnDetectionOptions _turnDetectionSettings;
-        private string _pendingStreamingResult = string.Empty;
-        private int _expectedModelLoads;
-        private int _completedModelLoads;
+        private VoiceActivityMonitor _voiceActivity; // Tracks voice activity state / 跟踪语音活动状态
+        private KeywordGate _keywordGate; // Manages keyword activation window / 管理关键词激活窗口
+        private RecognitionBuffer _recognitionBuffer; // Buffers partial/final transcripts / 缓冲部分与最终转录
+        private TurnDetector _turnDetector; // Detects turn boundaries / 检测语音轮次边界
+        private SilenceTurnRecognizer _silenceRecognizer; // Handles silence-based turn end / 处理静音结束
+        private IRecognitionStrategy _recognitionStrategy; // Selected recognition strategy / 选择的识别策略
+        private CancellationTokenSource _recognitionLifetimeCts; // Cancels recognition lifecycle / 取消识别生命周期
+        private readonly SemaphoreSlim _punctuationSemaphore = new(1, 1); // Serializes punctuation calls / 串行化标点调用
+
+        #endregion
+
+        #region Recognition State
+
+        private AutomaticSpeechRecognitionConfiguration.ASRPreset _initializingPreset; // Preset used during init / 初始化使用的预设
+        private TurnDetectionOptions _turnDetectionSettings; // Active turn detection options / 当前轮次检测配置
+        private bool _turnDetectionOverridden; // Whether custom settings were supplied / 是否有自定义设置
+        private string _pendingStreamingResult = string.Empty; // Latest streaming text snapshot / 最新流式文本快照
+        private int _expectedModelLoads; // Total model load count / 预计模型加载数
+        private int _completedModelLoads; // Completed load count / 已完成加载数
+        private int _failedRequiredModelLoads; // Failed required loads / 必需模型加载失败数
+        private int _failedOptionalModelLoads; // Failed optional loads / 可选模型加载失败数
+
+        #endregion
+
+        #region Pending Device State
 
         // Pending device options to apply on initialization / 待在初始化时应用的设备选项
-        private DeviceOptions? _pendingDeviceOptions;
-        private bool _pendingRestartRecording;
+        private DeviceOptions? _pendingDeviceOptions; // Pending device settings / 待应用设备设置
+        private bool _pendingRestartRecording; // Whether to restart after apply / 应用后是否重启录音
+
+        #endregion
+
+        #region Lifecycle State
 
         // Unified state management / 统一状态管理
-        private readonly object _stateLock = new();
-        private volatile LifecycleState _lifecycleState = LifecycleState.Uninitialized;
+        private readonly object _stateLock = new(); // Guards lifecycle transitions / 保护生命周期切换
+        private volatile LifecycleState _lifecycleState = LifecycleState.Uninitialized; // Current lifecycle state / 当前生命周期状态
+
+        #endregion
+
+        #region Unity Threading State
+
+        // Unity main-thread ownership: worker callbacks are queued and drained on Update.
+        private SynchronizationContext _unityContext; // Unity main-thread context / Unity主线程上下文
+        private int _unityThreadId; // Unity main thread id / Unity主线程ID
+        // Incremented on reload/dispose to invalidate in-flight async work.
+        private int _recognitionGeneration; // Generation for async invalidation / 异步失效代数
+        private readonly ConcurrentQueue<PendingCallback> _pendingCallbacks = new(); // Worker -> main thread queue / 工作者到主线程队列
+
+        #endregion
+
+        #region Streaming Punctuation State
+
+        // Streaming punctuation: a single debounced, cancelable pipeline for partial transcripts.
+        private CancellationTokenSource _streamingPreviewPunctuationCts; // Cancels preview punctuation / 取消预览标点任务
+        private int _streamingPreviewPunctuationRequestId; // Debounce request id / 防抖请求ID
+        private int _finalPunctuationRequestId; // Latest final punctuation request / 最新最终标点请求
+        private string _cachedPunctuationInput = string.Empty; // Last punctuate input / 上次标点输入
+        private string _cachedPunctuationOutput = string.Empty; // Last punctuate output / 上次标点输出
+
+        #endregion
 
         #endregion
 
@@ -135,11 +213,16 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public AutomaticSpeechRecognitionConfiguration.ASRPreset ActivePresetConfiguration =>
             AsrConfig.GetActivePreset();
 
-        public bool AreModelsLoaded => Initialized && _completedModelLoads >= _expectedModelLoads;
+        public bool AreModelsLoaded =>
+            Initialized &&
+            _completedModelLoads >= _expectedModelLoads &&
+            _failedRequiredModelLoads == 0;
+        public bool HasRequiredModelLoadFailures => _failedRequiredModelLoads > 0;
+        public bool HasOptionalModelLoadFailures => _failedOptionalModelLoads > 0;
         public bool AreModelsDisposed => _lifecycleState == LifecycleState.Disposed;
         public bool IsInitializing => _lifecycleState == LifecycleState.Initializing;
 
-        public bool IsOperational => Initialized && _lifecycleState == LifecycleState.Ready;
+        public bool IsOperational => Initialized && _lifecycleState == LifecycleState.Ready && _failedRequiredModelLoads == 0;
 
         private IRecognitionStrategy CurrentStrategy =>
             _recognitionStrategy ?? SelectStrategy(AsrConfig.RecognitionMode);
@@ -148,16 +231,16 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         #region Events
 
-        public event Action<string> OnASRTranscriptionStreaming;
-        public event Action<string> OnASRTranscriptionSubmit;
-        public event Action<bool> OnVoiceActivityChanged;
-        public event Action<bool> OnSpeakingChanged;
-        public event Action<string, bool> OnKeywordActivityChanged;
-        public event Action<string, float> OnLoadingProgressFeedback;
-        public event Action<FailedFeedback> OnLoadingFailedFeedback;
-        public event Action<SuccessFeedback> OnLoadingSucceededFeedback;
-        public event Action OnModelsDisposed;
-        public event Action OnModelsReloaded;
+        public event Action<string> OnASRTranscriptionStreaming; // Streaming transcript updates / 流式转录更新
+        public event Action<string> OnASRTranscriptionSubmit; // Final transcript submission / 最终转录提交
+        public event Action<bool> OnVoiceActivityChanged; // Voice activity state change / 语音活动状态变化
+        public event Action<bool> OnSpeakingChanged; // Alias of voice activity / 说话状态变化
+        public event Action<string, bool> OnKeywordActivityChanged; // Keyword active/inactive / 关键词激活状态
+        public event Action<string, float> OnLoadingProgressFeedback; // Model load progress / 模型加载进度
+        public event Action<FailedFeedback> OnLoadingFailedFeedback; // Model load failed / 模型加载失败
+        public event Action<SuccessFeedback> OnLoadingSucceededFeedback; // Model load success / 模型加载成功
+        public event Action OnModelsDisposed; // Models disposed event / 模型释放事件
+        public event Action OnModelsReloaded; // Models reloaded event / 模型重载事件
 
         #endregion
 
@@ -165,6 +248,8 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         protected override void OnInitialization()
         {
+            CaptureUnityThreadContext();
+            ThreadingUtils.PrimeUnityInfo();
             if (_lifecycleState == LifecycleState.Initializing)
             {
                 LogInfo("Initialize requested while initialization is already in progress.");
@@ -206,6 +291,8 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         protected override void OnMicrophoneUpdate()
         {
+            DrainPendingCallbacks();
+
             if (!IsOperational)
             {
                 return;
@@ -213,7 +300,10 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             float deltaTime = Time.deltaTime;
             _keywordGate?.Update(deltaTime, IsSpeaking, IsVoiceActivity);
-            _silenceRecognizer?.Update(deltaTime, _recognitionBuffer);
+            if (!CurrentStrategy.RequiresOffline)
+            {
+                _silenceRecognizer?.Update(deltaTime, _recognitionBuffer);
+            }
         }
 
         protected override void OnMicrophoneDispose()
@@ -279,11 +369,6 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             {
                 LogInfo("Reloading ASR models...");
 
-                if (currentState != LifecycleState.Disposed)
-                {
-                    DisposeServicesCore();
-                }
-
                 InitializeServices(preserveRecordingState: false);
                 InvokeEvent(OnModelsReloaded);
 
@@ -303,6 +388,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
         }
 
+        /// <summary>
+        /// Returns true when models can be disposed without interrupting initialization or disposal.
+        /// </summary>
         public bool CanDisposeModels() => _lifecycleState == LifecycleState.Ready;
 
         #endregion
@@ -397,6 +485,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public void ConfigureTurnDetection(TurnDetectionOptions settings)
         {
             _turnDetectionSettings = settings.EnsureValid();
+            _turnDetectionOverridden = true;
 
             // Can configure before initialization / 可以在初始化前配置
             if (!Initialized || _lifecycleState != LifecycleState.Ready)
@@ -410,8 +499,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 return;
             }
 
-            _turnDetector = new AdaptiveTurnDetector(_turnDetectionSettings);
-            _silenceRecognizer?.ConfigureDetector(_turnDetector);
+            EnsureTurnDetector(_turnDetectionSettings);
             ResetRecognitionState();
         }
 
@@ -446,6 +534,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             ApplyDeviceOptions(options, restartRecording);
         }
 
+        /// <summary>
+        /// Sets a GitHub proxy URL for model downloads when required by network policy.
+        /// </summary>
         public void SetGithubProxy(string url) => SherpaONNXUnityAPI.SetGithubProxy(url);
 
         /// <summary>
@@ -496,15 +587,41 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private void EnsureInfrastructure()
         {
+            CaptureUnityThreadContext();
             _progressAggregator ??= new ModelProgressAggregator();
-            _turnDetectionSettings = AsrConfig.ActiveTurnDetectionOptions;
-            _turnDetector ??= new AdaptiveTurnDetector(_turnDetectionSettings);
+            // Turn detection underpins both streaming/offline commit behavior; keep it consistent across reloads.
+            var effectiveTurnDetection = _turnDetectionOverridden
+                ? _turnDetectionSettings
+                : AsrConfig.ActiveTurnDetectionOptions;
+            EnsureTurnDetector(effectiveTurnDetection);
 
             InitializeVoiceActivityMonitor();
             InitializeKeywordGate();
             InitializeRecognitionBuffer();
+        }
+
+        private void EnsureTurnDetector(TurnDetectionOptions settings)
+        {
+            settings = settings.EnsureValid();
+
+            bool needsNewDetector = _turnDetector == null ||
+                                    !AreTurnDetectionOptionsEqual(_turnDetectionSettings, settings);
+
+            _turnDetectionSettings = settings;
+
+            if (needsNewDetector)
+            {
+                _turnDetector = new AdaptiveTurnDetector(_turnDetectionSettings);
+            }
+
             _silenceRecognizer ??= new SilenceTurnRecognizer(_turnDetector);
             _silenceRecognizer.ConfigureDetector(_turnDetector);
+        }
+
+        private static bool AreTurnDetectionOptionsEqual(TurnDetectionOptions left, TurnDetectionOptions right)
+        {
+            return left.MinDelaySeconds.Equals(right.MinDelaySeconds) &&
+                   left.MaxDelaySeconds.Equals(right.MaxDelaySeconds);
         }
 
         private void InitializeVoiceActivityMonitor()
@@ -548,14 +665,63 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _recognitionBuffer = new RecognitionBuffer(
                 _keywordGate,
-                streaming => InvokeEvent(() => OnASRTranscriptionStreaming?.Invoke(streaming)));
+                HandleStreamingPreview,
+                synchronizationContext: null);
 
             _recognitionBuffer.BufferAmended += HandleBufferAmended;
             _recognitionBuffer.Finalized += HandleFinalizedTranscript;
         }
 
+        private void HandleStreamingPreview(string streaming)
+        {
+            if (!IsOperational)
+            {
+                return;
+            }
+
+            streaming ??= string.Empty;
+
+            if (!RequiresPunctuation || _punctService == null)
+            {
+                PublishStreamingPreview(streaming);
+                return;
+            }
+
+            if (TryGetCachedPunctuation(streaming, out string cached))
+            {
+                PublishStreamingPreview(cached);
+                return;
+            }
+
+            ScheduleStreamingPreviewPunctuation(streaming);
+        }
+
+        private void PublishStreamingPreview(string streaming)
+        {
+            if (!IsOperational)
+            {
+                return;
+            }
+
+            var handler = OnASRTranscriptionStreaming;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                handler(streaming);
+            }
+            catch (Exception ex)
+            {
+                LogError($"Event invocation failed: {ex.Message}");
+            }
+        }
+
         private void InitializeServices(bool preserveRecordingState = true)
         {
+            // Rebuild services in a fixed order so recognition state is reset deterministically.
             bool wasRecording = preserveRecordingState && IsRecording;
             if (wasRecording)
             {
@@ -568,6 +734,8 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _recognitionStrategy = SelectStrategy(AsrConfig.RecognitionMode);
             _recognitionLifetimeCts = new CancellationTokenSource();
+            _recognitionGeneration++;
+            ClearPendingCallbacks();
 
             var config = AsrConfig;
             var preset = config.GetActivePreset();
@@ -595,9 +763,12 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             _expectedModelLoads = 0;
             _completedModelLoads = 0;
+            _failedRequiredModelLoads = 0;
+            _failedOptionalModelLoads = 0;
 
             CreateServiceIfNeeded(
                 _recognitionStrategy.RequiresStreaming,
+                required: true,
                 () => _serviceFactory.CreateSpeechRecognition(
                     preset.StreamingModelId,
                     defaults.StreamingModelId,
@@ -615,6 +786,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             CreateServiceIfNeeded(
                 _recognitionStrategy.RequiresOffline,
+                required: true,
                 () => _serviceFactory.CreateSpeechRecognition(preset.OfflineModelId, defaults.OfflineModelId, "offline"),
                 result =>
                 {
@@ -626,6 +798,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             CreateServiceIfNeeded(
                 _recognitionStrategy.RequiresVoiceActivity,
+                required: true,
                 () => _serviceFactory.CreateVoiceActivityDetection(preset.VadModelId, defaults.VadModelId),
                 result =>
                 {
@@ -635,11 +808,13 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             CreateServiceIfNeeded(
                 RequiresPunctuation,
+                required: false,
                 () => _serviceFactory.CreatePunctuation(preset.PunctuationModelId, defaults.PunctuationModelId),
                 result => _punctService = result.Service);
 
             CreateServiceIfNeeded(
                 RequiresKeywordSpotting,
+                required: _recognitionStrategy.Mode == RecognitionMode.KeywordSpottingOnly,
                 () => _serviceFactory.CreateKeywordSpotting(AsrConfig.ActiveKeywordOptions, KeywordOptions.Default.ModelId),
                 result =>
                 {
@@ -674,6 +849,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private void CreateServiceIfNeeded<T>(
             bool condition,
+            bool required,
             Func<ServiceCreationResult<T>> creator,
             Action<ServiceCreationResult<T>> assigner) where T : class
         {
@@ -689,12 +865,45 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 _expectedModelLoads++;
             }
 
+            if (!result.IsSuccess)
+            {
+                if (required)
+                {
+                    _failedRequiredModelLoads++;
+                }
+                else
+                {
+                    _failedOptionalModelLoads++;
+                }
+            }
+
             assigner(result);
         }
 
         private void DisposeServicesCore()
         {
+            if (!Initialized &&
+                _recognitionLifetimeCts == null &&
+                _streamingService == null &&
+                _offlineService == null &&
+                _vadService == null &&
+                _keywordService == null &&
+                _punctService == null &&
+                _serviceFactory == null &&
+                _feedbackReporter == null &&
+                _voiceFilter == null &&
+                _realtimeRecognizer == null &&
+                _offlineRecognizer == null &&
+                _keywordDetector == null)
+            {
+                return;
+            }
+
             OnBeforeServicesDisposed();
+
+            _recognitionGeneration++;
+            ClearPendingCallbacks();
+            CancelStreamingPreviewPunctuation();
 
             // CRITICAL: Dispose wrappers BEFORE CTS to avoid ObjectDisposedException
             DisposeServiceWrappers();
@@ -748,12 +957,21 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             _serviceFactory = null;
             _expectedModelLoads = 0;
             _completedModelLoads = 0;
+            _failedRequiredModelLoads = 0;
+            _failedOptionalModelLoads = 0;
             _pendingStreamingResult = string.Empty;
+            _cachedPunctuationInput = string.Empty;
+            _cachedPunctuationOutput = string.Empty;
+            InvalidateFinalPunctuationRequests();
         }
 
         private void ResetRecognitionStateCore()
         {
+            CancelStreamingPreviewPunctuation();
+            InvalidateFinalPunctuationRequests();
             _pendingStreamingResult = string.Empty;
+            _cachedPunctuationInput = string.Empty;
+            _cachedPunctuationOutput = string.Empty;
             _voiceActivity?.Reset();
             _keywordGate?.Reset(clearStreamingHistory: true);
             _recognitionBuffer?.Reset();
@@ -763,13 +981,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private void DisposeAllResources()
         {
-            if (!TryTransitionState(_lifecycleState, LifecycleState.Disposing))
+            if (!TryTransitionToDisposing())
             {
-                // Force dispose if already disposing or in bad state
-                if (_lifecycleState == LifecycleState.Disposing)
-                {
-                    return;
-                }
+                return;
             }
 
             try
@@ -890,65 +1104,20 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         #region Recognition Processing
 
         private void HandleStreamingRecognition(string content) =>
-            ProcessRecognition(content, isStreaming: true);
+            EnqueueCallback(new PendingCallback(PendingCallbackType.StreamingRecognition, content));
 
         private void HandleOfflineRecognition(string content) =>
-            ProcessRecognition(content, isStreaming: false);
+            EnqueueCallback(new PendingCallback(PendingCallbackType.OfflineRecognition, content));
 
-        private async void ProcessRecognition(string content, bool isStreaming)
-        {
-            if (!IsOperational)
-            {
-                return;
-            }
-
-            var token = _recognitionLifetimeCts?.Token ?? CancellationToken.None;
-            if (token.IsCancellationRequested)
-            {
-                return;
-            }
-
-            content ??= string.Empty;
-
-            try
-            {
-                if (isStreaming)
-                {
-                    content ??= string.Empty;
-                    if (content.Length != 0)
-                    {
-                        // Keep streaming path as low-latency as possible; punctuation is applied only when committing.
-                        ProcessStreamingResult(content, token);
-                        return;
-                    }
-
-                    await ProcessStreamingEndMarkerAsync(token);
-                }
-                else
-                {
-                    content = await ApplyPunctuationAsync(content, token);
-                    if (token.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    ProcessOfflineResult(content, token);
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                LogError($"Recognition pipeline failed: {ex.Message}");
-            }
-        }
-
-        private async Task ProcessStreamingEndMarkerAsync(CancellationToken token)
+        private void ProcessStreamingEndMarkerMainThread(CancellationToken token)
         {
             if (token.IsCancellationRequested)
             {
                 return;
             }
 
+            // Empty streaming results signal end-of-utterance; finalize punctuation on the main thread.
+            CancelStreamingPreviewPunctuation();
             _recognitionBuffer?.EmitPartial(string.Empty);
 
             var strategy = CurrentStrategy;
@@ -966,30 +1135,175 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 return;
             }
 
-            string pending = pendingSnapshot;
-            if (strategy.AllowsStreamingFinalCommit && _punctService != null)
-            {
-                string punctuated = await ApplyPunctuationAsync(pending, token);
-                if (!token.IsCancellationRequested && !string.IsNullOrWhiteSpace(punctuated))
-                {
-                    pending = punctuated;
-                }
-            }
+            // Clear before async punctuation to avoid committing stale content after reload/dispose.
+            _pendingStreamingResult = string.Empty;
 
-            if (token.IsCancellationRequested)
+            if (!strategy.AllowsStreamingFinalCommit)
             {
                 return;
             }
 
-            if (strategy.AllowsStreamingFinalCommit)
+            if (RequiresPunctuation && _punctService != null)
             {
-                CommitResult(pending);
+                CommitResult(pendingSnapshot);
+                int requestId = Interlocked.Increment(ref _finalPunctuationRequestId);
+                _ = CommitWithOptionalPunctuationAsync(pendingSnapshot, token, _recognitionGeneration, requestId, false);
+                return;
             }
 
-            if (hadSpeech &&
-                string.Equals(_pendingStreamingResult, pendingSnapshot, StringComparison.Ordinal))
+            CommitResult(pendingSnapshot);
+        }
+
+        private void ProcessOfflineResultWithOptionalPunctuationMainThread(string content, CancellationToken token, int generation)
+        {
+            if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(content))
             {
-                _pendingStreamingResult = string.Empty;
+                return;
+            }
+
+            // Offline results close the turn; voice activity is cleared before final commit.
+            SetVoiceActivity(false);
+            _silenceRecognizer?.Reset();
+
+            if (RequiresPunctuation && _punctService != null)
+            {
+                CommitResult(content);
+                int requestId = Interlocked.Increment(ref _finalPunctuationRequestId);
+                _ = CommitWithOptionalPunctuationAsync(content, token, generation, requestId, true);
+                return;
+            }
+
+            CommitResult(content);
+            _recognitionBuffer?.FinalPush();
+        }
+
+        #region Punctuation
+
+        private void CancelStreamingPreviewPunctuation()
+        {
+            Interlocked.Increment(ref _streamingPreviewPunctuationRequestId);
+
+            if (_streamingPreviewPunctuationCts == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!_streamingPreviewPunctuationCts.IsCancellationRequested)
+                {
+                    _streamingPreviewPunctuationCts.Cancel();
+                }
+            }
+            catch (ObjectDisposedException) { }
+
+            SafeDispose(ref _streamingPreviewPunctuationCts);
+        }
+
+        private void ScheduleStreamingPreviewPunctuation(string streaming)
+        {
+            CancelStreamingPreviewPunctuation();
+            _streamingPreviewPunctuationCts = new CancellationTokenSource();
+
+            int requestId = Interlocked.Increment(ref _streamingPreviewPunctuationRequestId);
+            int generation = _recognitionGeneration;
+            CancellationToken requestToken = _streamingPreviewPunctuationCts.Token;
+
+            _ = PunctuateAndPublishStreamingPreviewAsync(streaming, requestId, generation, requestToken);
+        }
+
+        private async Task PunctuateAndPublishStreamingPreviewAsync(
+            string streaming,
+            int requestId,
+            int generation,
+            CancellationToken token)
+        {
+            try
+            {
+                if (STREAMING_PUNCTUATION_DEBOUNCE_MS > 0)
+                {
+                    await Task.Delay(STREAMING_PUNCTUATION_DEBOUNCE_MS, token).ConfigureAwait(false);
+                }
+
+                if (token.IsCancellationRequested || generation != _recognitionGeneration ||
+                    requestId != _streamingPreviewPunctuationRequestId)
+                {
+                    return;
+                }
+
+                string punctuated = await ApplyPunctuationAsync(streaming, token).ConfigureAwait(false);
+
+                if (token.IsCancellationRequested || generation != _recognitionGeneration ||
+                    requestId != _streamingPreviewPunctuationRequestId)
+                {
+                    return;
+                }
+
+                PostToUnityThread(() => PublishStreamingPreview(punctuated));
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                LogWarning($"Streaming punctuation pipeline failed: {ex.Message}");
+                if (token.IsCancellationRequested || generation != _recognitionGeneration ||
+                    requestId != _streamingPreviewPunctuationRequestId)
+                {
+                    return;
+                }
+
+                PostToUnityThread(() => PublishStreamingPreview(streaming));
+            }
+        }
+
+        private async Task CommitWithOptionalPunctuationAsync(
+            string content,
+            CancellationToken token,
+            int generation,
+            int requestId,
+            bool finalizeAfterCommit)
+        {
+            try
+            {
+                string text = await ApplyPunctuationAsync(content, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested || generation != _recognitionGeneration ||
+                    requestId != _finalPunctuationRequestId)
+                {
+                    return;
+                }
+
+                PostToUnityThread(() =>
+                {
+                    if (requestId != _finalPunctuationRequestId)
+                    {
+                        return;
+                    }
+
+                    CommitResult(text);
+                    if (finalizeAfterCommit)
+                    {
+                        _recognitionBuffer?.FinalPush();
+                    }
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                LogWarning($"Punctuation pipeline failed: {ex.Message}");
+                if (!finalizeAfterCommit)
+                {
+                    return;
+                }
+
+                PostToUnityThread(() =>
+                {
+                    if (token.IsCancellationRequested || generation != _recognitionGeneration ||
+                        requestId != _finalPunctuationRequestId)
+                    {
+                        return;
+                    }
+
+                    _recognitionBuffer?.FinalPush();
+                });
             }
         }
 
@@ -1004,15 +1318,113 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
             try
             {
-                return await _punctService.AddPunctuationAsync(content) ?? string.Empty;
+                if (TryGetCachedPunctuation(content, out string cached))
+                {
+                    return cached;
+                }
+
+                await _punctuationSemaphore.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (TryGetCachedPunctuation(content, out cached))
+                    {
+                        return cached;
+                    }
+
+                    string punctuated = await _punctService.AddPunctuationAsync(content, token).ConfigureAwait(false) ?? string.Empty;
+                    _cachedPunctuationInput = content;
+                    _cachedPunctuationOutput = punctuated;
+                    return punctuated;
+                }
+                finally
+                {
+                    _punctuationSemaphore.Release();
+                }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 LogWarning($"Punctuation failed: {ex.Message}");
-                return content ?? string.Empty;
+                return content;
             }
         }
+
+        private bool TryGetCachedPunctuation(string content, out string cached)
+        {
+            if (string.IsNullOrEmpty(content))
+            {
+                cached = string.Empty;
+                return true;
+            }
+
+            if (string.Equals(content, _cachedPunctuationOutput, StringComparison.Ordinal))
+            {
+                cached = content;
+                return true;
+            }
+
+            if (string.Equals(content, _cachedPunctuationInput, StringComparison.Ordinal))
+            {
+                cached = _cachedPunctuationOutput;
+                return true;
+            }
+
+            if (EndsWithPunctuation(content))
+            {
+                cached = content;
+                return true;
+            }
+
+            cached = null;
+            return false;
+        }
+
+        private static bool EndsWithPunctuation(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return false;
+            }
+
+            int index = content.Length - 1;
+            while (index >= 0 && char.IsWhiteSpace(content[index]))
+            {
+                index--;
+            }
+
+            if (index < 0)
+            {
+                return false;
+            }
+
+            char last = content[index];
+            if (IsPunctuationTerminator(last))
+            {
+                return true;
+            }
+
+            if (IsTrailingCloser(last))
+            {
+                index--;
+                while (index >= 0 && char.IsWhiteSpace(content[index]))
+                {
+                    index--;
+                }
+
+                return index >= 0 && IsPunctuationTerminator(content[index]);
+            }
+
+            return false;
+        }
+
+        private static bool IsPunctuationTerminator(char ch) => Array.IndexOf(PunctuationTerminators, ch) >= 0;
+
+        private static bool IsTrailingCloser(char ch) => Array.IndexOf(PunctuationTrailingClosers, ch) >= 0;
+
+        #endregion
+
+        private void InvalidateFinalPunctuationRequests() =>
+            Interlocked.Increment(ref _finalPunctuationRequestId);
 
         private void ProcessStreamingResult(string content, CancellationToken token)
         {
@@ -1044,17 +1456,6 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
 
             // Empty results are handled by ProcessStreamingEndMarkerAsync to keep ordering predictable (e.g., punctuation).
-        }
-
-        private void ProcessOfflineResult(string content, CancellationToken token)
-        {
-            if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(content))
-            {
-                return;
-            }
-
-            SetVoiceActivity(false);
-            CommitResult(content);
         }
 
         private void CommitResult(string text)
@@ -1144,22 +1545,17 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         private void HandleKeywordDetected(string keyword)
         {
-            if (!IsOperational || string.IsNullOrWhiteSpace(keyword))
+            if (string.IsNullOrWhiteSpace(keyword))
             {
                 return;
             }
 
-            _keywordGate?.Activate(keyword);
+            EnqueueCallback(new PendingCallback(PendingCallbackType.KeywordDetected, keyword));
         }
 
         private void HandleVoiceActivityFromFilter(bool isActive)
         {
-            if (!IsOperational)
-            {
-                return;
-            }
-
-            SetVoiceActivity(isActive);
+            EnqueueCallback(new PendingCallback(PendingCallbackType.VoiceActivityChanged, isActive));
         }
 
         private void SetVoiceActivity(bool isActive) => _voiceActivity?.SetVoiceActivity(isActive);
@@ -1197,6 +1593,20 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         #region Progress & Feedback
 
+        private void PostProgress(Action<ModelProgressAggregator> register, string message)
+        {
+            PostToUnityThread(() =>
+            {
+                var aggregator = _progressAggregator;
+                if (aggregator != null)
+                {
+                    register?.Invoke(aggregator);
+                }
+
+                PublishProgress(message);
+            });
+        }
+
         private void PublishProgress(string message)
         {
             if (_progressAggregator == null)
@@ -1214,60 +1624,79 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
 
         public void OnFeedback(PrepareFeedback feedback)
         {
-            _progressAggregator?.RegisterPrepare(feedback?.Metadata, feedback?.Message);
-            PublishProgress(feedback?.Message);
+            PostProgress(
+                aggregator => aggregator.RegisterPrepare(feedback?.Metadata, feedback?.Message),
+                feedback?.Message);
         }
 
         public void OnFeedback(DownloadFeedback feedback)
         {
-            _progressAggregator?.RegisterDownload(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
-            PublishProgress(feedback?.Message);
+            PostProgress(
+                aggregator => aggregator.RegisterDownload(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message),
+                feedback?.Message);
         }
 
         public void OnFeedback(DecompressFeedback feedback)
         {
-            _progressAggregator?.RegisterDecompress(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
-            PublishProgress(feedback?.Message);
+            PostProgress(
+                aggregator => aggregator.RegisterDecompress(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message),
+                feedback?.Message);
         }
 
         public void OnFeedback(VerifyFeedback feedback)
         {
-            _progressAggregator?.RegisterVerify(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message);
-            PublishProgress(feedback?.Message);
+            PostProgress(
+                aggregator => aggregator.RegisterVerify(feedback?.Metadata, feedback?.Progress ?? 0, feedback?.Message),
+                feedback?.Message);
         }
 
         public void OnFeedback(LoadFeedback feedback)
         {
-            _progressAggregator?.RegisterLoad(feedback?.Metadata, feedback?.Message);
-            PublishProgress(feedback?.Message);
+            PostProgress(
+                aggregator => aggregator.RegisterLoad(feedback?.Metadata, feedback?.Message),
+                feedback?.Message);
         }
 
-        public void OnFeedback(CancelFeedback feedback) => PublishProgress(feedback?.Message);
-        public void OnFeedback(CleanFeedback feedback) => PublishProgress(feedback?.Message);
+        public void OnFeedback(CancelFeedback feedback) => PostProgress(null, feedback?.Message);
+        public void OnFeedback(CleanFeedback feedback) => PostProgress(null, feedback?.Message);
 
         public void OnFeedback(SuccessFeedback feedback)
         {
-            _progressAggregator?.RegisterSuccess(feedback?.Metadata, feedback?.Message);
-            _completedModelLoads++;
-            PublishProgress(feedback?.Message);
-            OnServiceLoadingSucceeded(feedback);
-            InvokeEvent(() => OnLoadingSucceededFeedback?.Invoke(feedback));
-            FinalizeInitializationIfReady();
+            PostToUnityThread(() =>
+            {
+                _progressAggregator?.RegisterSuccess(feedback?.Metadata, feedback?.Message);
+                _completedModelLoads++;
+                PublishProgress(feedback?.Message);
+                OnServiceLoadingSucceeded(feedback);
+                InvokeEvent(() => OnLoadingSucceededFeedback?.Invoke(feedback));
+                FinalizeInitializationIfReady();
+            });
         }
 
         public void OnFeedback(FailedFeedback feedback)
         {
-            _completedModelLoads++;
-            string modelId = feedback?.Metadata?.modelId;
-            string moduleType = feedback?.Metadata?.moduleType.ToString();
-            string detail = !string.IsNullOrWhiteSpace(modelId)
-                ? $" (modelId={modelId}{(string.IsNullOrWhiteSpace(moduleType) ? string.Empty : $", moduleType={moduleType}")})"
-                : string.Empty;
-            LogError($"Model load failed{detail}: {feedback?.Message ?? "unknown error"}");
-            PublishProgress(feedback?.Message);
-            OnServiceLoadingFailed(feedback);
-            InvokeEvent(() => OnLoadingFailedFeedback?.Invoke(feedback));
-            FinalizeInitializationIfReady();
+            PostToUnityThread(() =>
+            {
+                _completedModelLoads++;
+                if (IsLoadFailureRequired(feedback?.Metadata))
+                {
+                    _failedRequiredModelLoads++;
+                }
+                else
+                {
+                    _failedOptionalModelLoads++;
+                }
+                string modelId = feedback?.Metadata?.modelId;
+                string moduleType = feedback?.Metadata?.moduleType.ToString();
+                string detail = !string.IsNullOrWhiteSpace(modelId)
+                    ? $" (modelId={modelId}{(string.IsNullOrWhiteSpace(moduleType) ? string.Empty : $", moduleType={moduleType}")})"
+                    : string.Empty;
+                LogError($"Model load failed{detail}: {feedback?.Message ?? "unknown error"}");
+                PublishProgress(feedback?.Message);
+                OnServiceLoadingFailed(feedback);
+                InvokeEvent(() => OnLoadingFailedFeedback?.Invoke(feedback));
+                FinalizeInitializationIfReady();
+            });
         }
 
         #endregion
@@ -1286,6 +1715,40 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private SherpaONNXFeedbackReporter EnsureFeedbackReporter() =>
             _feedbackReporter ??= new SherpaONNXFeedbackReporter(null, this);
 
+        private bool IsLoadFailureRequired(SherpaONNXModelMetadata metadata)
+        {
+            if (metadata == null)
+            {
+                return true;
+            }
+
+            string moduleType = metadata.moduleType.ToString();
+            if (string.IsNullOrWhiteSpace(moduleType))
+            {
+                return true;
+            }
+
+            string normalized = moduleType.Trim().ToLowerInvariant();
+            if (normalized.Contains("punct"))
+            {
+                return false;
+            }
+
+            if (normalized.Contains("keyword"))
+            {
+                // Keyword spotting is only fatal when it's the only configured recognition mode.
+                return CurrentStrategy.Mode == RecognitionMode.KeywordSpottingOnly;
+            }
+
+            if (normalized.Contains("vad") || normalized.Contains("voice"))
+            {
+                return CurrentStrategy.RequiresVoiceActivity;
+            }
+
+            // Speech recognition models are required when they are part of the selected strategy.
+            return true;
+        }
+
         private void EnsureRecordingStopped()
         {
             if (!IsRecording)
@@ -1294,13 +1757,10 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
 
             LogInfo("Ensuring recording is stopped...");
-            for (int i = 0; i < 3 && IsRecording; i++)
+            StopRecordingSafely();
+            if (IsRecording)
             {
-                StopRecordingSafely();
-                if (IsRecording)
-                {
-                    Thread.Sleep(50);
-                }
+                LogWarning("Recording did not stop immediately; continuing without blocking the Unity main thread.");
             }
         }
 
@@ -1414,6 +1874,156 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             }
         }
 
+        private bool TryTransitionToDisposing()
+        {
+            lock (_stateLock)
+            {
+                if (_lifecycleState == LifecycleState.Disposing || _lifecycleState == LifecycleState.Disposed)
+                {
+                    return false;
+                }
+
+                _lifecycleState = LifecycleState.Disposing;
+                return true;
+            }
+        }
+
+        #endregion
+
+        #region Threading Helpers
+
+        private void CaptureUnityThreadContext()
+        {
+            if (_unityThreadId != 0)
+            {
+                return;
+            }
+
+            _unityThreadId = Thread.CurrentThread.ManagedThreadId;
+            _unityContext = SynchronizationContext.Current;
+        }
+
+        private bool IsOnUnityThread =>
+            _unityThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _unityThreadId;
+
+        private void PostToUnityThread(Action action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            var context = _unityContext;
+            if (context == null)
+            {
+                // Unity context is expected to be captured during initialization. Avoid invoking Unity-facing
+                // work on a worker thread if feedback arrives unexpectedly early.
+                if (IsOnUnityThread)
+                {
+                    action();
+                }
+
+                return;
+            }
+
+            if (IsOnUnityThread)
+            {
+                action();
+                return;
+            }
+
+            context.Post(static state => ((Action)state)(), action);
+        }
+
+        private void EnqueueCallback(PendingCallback callback)
+        {
+            var cts = _recognitionLifetimeCts;
+            if (cts == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            _pendingCallbacks.Enqueue(callback);
+        }
+
+        private void ClearPendingCallbacks()
+        {
+            while (_pendingCallbacks.TryDequeue(out _))
+            {
+            }
+        }
+
+        private void DrainPendingCallbacks()
+        {
+            // Drain on main thread to preserve ordering and avoid Unity API calls from worker threads.
+            while (_pendingCallbacks.TryDequeue(out var callback))
+            {
+                if (!IsOperational)
+                {
+                    continue;
+                }
+
+                CancellationToken token;
+                var cts = _recognitionLifetimeCts;
+                if (cts == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    token = cts.Token;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                switch (callback.Type)
+                {
+                    case PendingCallbackType.StreamingRecognition:
+                        if (callback.Text.Length != 0)
+                        {
+                            ProcessStreamingResult(callback.Text, token);
+                        }
+                        else
+                        {
+                            ProcessStreamingEndMarkerMainThread(token);
+                        }
+                        break;
+
+                    case PendingCallbackType.OfflineRecognition:
+                        ProcessOfflineResultWithOptionalPunctuationMainThread(callback.Text, token, _recognitionGeneration);
+                        break;
+
+                    case PendingCallbackType.KeywordDetected:
+                        _keywordGate?.Activate(callback.Text);
+                        break;
+
+                    case PendingCallbackType.VoiceActivityChanged:
+                        SetVoiceActivity(callback.Bool);
+                        break;
+                }
+            }
+        }
+
         #endregion
 
         #region Dispose Helpers
@@ -1466,7 +2076,23 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         {
             try
             {
-                action?.Invoke();
+                if (action == null)
+                {
+                    return;
+                }
+
+                if (!IsOnUnityThread && _unityContext != null)
+                {
+                    _unityContext.Post(static state => ((Action)state)(), action);
+                    return;
+                }
+
+                if (!IsOnUnityThread && _unityContext == null)
+                {
+                    return;
+                }
+
+                action.Invoke();
             }
             catch (Exception ex)
             {

@@ -27,6 +27,7 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
         private AudioBuffer _audioAccumulator;
 
         private int _isProcessing; // 0 = idle, 1 = processing
+        private int _disposed; // 0 = active, 1 = disposed
 
         public SherpaOfflineSpeechRecognizer(SpeechRecognition service) : base(capacitySeconds: 4)
         {
@@ -51,7 +52,21 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
         // This method is called on a background thread by the audio reader.
         protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
         {
-            if (_cts.IsCancellationRequested)
+            if (Volatile.Read(ref _disposed) == 1)
+            {
+                return;
+            }
+
+            CancellationToken token;
+            try
+            {
+                token = _cts.Token;
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+            }
+            catch (ObjectDisposedException)
             {
                 return;
             }
@@ -65,13 +80,13 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
                     // If the accumulator is saturated, trigger processing immediately.
                     if (_audioAccumulator.IsFull && Interlocked.Exchange(ref _isProcessing, 1) == 0)
                     {
-                        ProcessAccumulatedAudio();
+                        ProcessAccumulatedAudio(token);
                     }
                 }
                 else if (_audioAccumulator.ReadableCount > 0 && Interlocked.Exchange(ref _isProcessing, 1) == 0)
                 {
                     // No new audio in this callback, flush what we have.
-                    ProcessAccumulatedAudio();
+                    ProcessAccumulatedAudio(token);
                 }
             }
             catch (Exception ex)
@@ -80,7 +95,7 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
             }
         }
 
-        private void ProcessAccumulatedAudio()
+        private void ProcessAccumulatedAudio(CancellationToken token)
         {
             int count = _audioAccumulator.ReadableCount;
             if (count == 0)
@@ -98,10 +113,16 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
             {
                 try
                 {
-                    var text = await _svc.SpeechTranscriptionAsync(dataForTask, _sampleRate, _cts.Token).ConfigureAwait(false);
-                    if (!_cts.IsCancellationRequested)
+                    var text = await _svc.SpeechTranscriptionAsync(dataForTask, _sampleRate, token).ConfigureAwait(false);
+                    if (Volatile.Read(ref _disposed) == 0 && !token.IsCancellationRequested)
                     {
-                        _main?.Post(_ => OnRecognitionResult?.Invoke(text ?? string.Empty), null);
+                        _main?.Post(_ =>
+                        {
+                            if (Volatile.Read(ref _disposed) == 0)
+                            {
+                                OnRecognitionResult?.Invoke(text ?? string.Empty);
+                            }
+                        }, null);
                     }
                 }
                 catch (OperationCanceledException) { /* Expected on dispose */ }
@@ -118,8 +139,23 @@ namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
 
         public override void Dispose()
         {
-            _cts.Cancel();
-            _cts.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                _cts.Cancel();
+            }
+            catch (ObjectDisposedException) { }
+
+            try
+            {
+                _cts.Dispose();
+            }
+            catch (ObjectDisposedException) { }
+
             base.Dispose();
             OnRecognitionResult = null;
         }

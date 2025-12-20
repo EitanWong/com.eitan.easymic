@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Mono;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEngine;
 using UnityEngine.UI;
 

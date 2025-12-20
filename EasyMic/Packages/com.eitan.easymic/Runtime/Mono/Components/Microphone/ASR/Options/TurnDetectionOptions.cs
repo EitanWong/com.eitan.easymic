@@ -1,7 +1,7 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Serialized settings controlling silence delays before finalizing turns.

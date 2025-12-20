@@ -13,6 +13,7 @@ namespace Eitan.EasyMic.Runtime
     {
         public delegate void MixedFrameHandler(ReadOnlySpan<float> interleaved, int channels, int sampleRate);
         public event MixedFrameHandler OnMixedFrame;
+        internal event MixedFrameHandler OnMixedFrameRaw;
 
         private static readonly object s_lock = new object();
         private static AudioSystem s_instance;
@@ -179,6 +180,7 @@ namespace Eitan.EasyMic.Runtime
                 // Clear event handlers to avoid leaks to user delegates
 
                 OnMixedFrame = null;
+                OnMixedFrameRaw = null;
                 // Dispose mixer and release references to sources/pipelines
                 try { _masterMixer?.Dispose(); } catch { }
                 _masterMixer = null;
@@ -231,6 +233,12 @@ namespace Eitan.EasyMic.Runtime
 
                 // Update meters
                 UpdateMeters(outSpan, (int)_channels);
+
+                var rawHandler = OnMixedFrameRaw;
+                if (rawHandler != null)
+                {
+                    try { rawHandler(outSpan, (int)_channels, (int)_sampleRate); } catch { }
+                }
 
                 if (OnMixedFrame != null)
                 {

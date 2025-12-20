@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Buffers recognition output, coordinates keyword gating, and exposes aggregated transcripts.
@@ -19,6 +19,9 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private readonly Action<string> _onStreaming;
         private readonly SynchronizationContext _synchronizationContext;
         private readonly StringBuilder _builder;
+
+        // Cached committed transcript to avoid repeated StringBuilder.ToString() allocations in hot paths.
+        private string _committedSnapshot = string.Empty;
 
         private string _lastStreamingPartial = string.Empty;
         private string _lastEmittedStreaming = string.Empty;
@@ -38,7 +41,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         #region Properties
 
         public string LastStreamingPartial => _lastStreamingPartial;
-        public string CurrentTranscript => _builder.ToString();
+        public string CurrentTranscript => _committedSnapshot;
 
         #endregion
 
@@ -88,15 +91,27 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 return CurrentTranscript;
             }
 
-            string delta = ExtractDelta(normalized);
+            bool appendOnly = TryGetAppendDelta(normalized, out string delta);
             if (delta.Length == 0)
             {
                 return CurrentTranscript;
             }
 
+            if (!appendOnly)
+            {
+                // Replace the buffer when upstream edits earlier content (e.g., punctuation).
+                _builder.Clear();
+                _lastStreamingSuffix = string.Empty;
+                _lastEmittedStreaming = string.Empty;
+            }
+
             _builder.Append(delta);
-            ConsumeStreamingSuffix(delta);
-            string current = _builder.ToString();
+            if (appendOnly)
+            {
+                ConsumeStreamingSuffix(delta);
+            }
+            _committedSnapshot = _builder.ToString();
+            string current = _committedSnapshot;
             RaiseBufferAmended(current);
 
             if (_keywordGate != null)
@@ -143,6 +158,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         public void ResetConversation()
         {
             _builder.Clear();
+            _committedSnapshot = string.Empty;
             _lastSnapshot = string.Empty;
         }
 
@@ -184,7 +200,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         private string ComposeStreamingPreview(string streamingPayload, out string committedSnapshot)
         {
             streamingPayload ??= string.Empty;
-            committedSnapshot = _builder.ToString();
+            committedSnapshot = _committedSnapshot ?? string.Empty;
 
             if (string.IsNullOrEmpty(committedSnapshot))
             {
@@ -292,33 +308,31 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
             _lastStreamingSuffix = _lastStreamingSuffix.Substring(prefixLength);
         }
 
-        private string ExtractDelta(string text)
+        private bool TryGetAppendDelta(string text, out string delta)
         {
             if (string.IsNullOrEmpty(_lastSnapshot))
             {
                 _lastSnapshot = text;
-                return text;
+                delta = text;
+                return true;
             }
 
             if (string.Equals(text, _lastSnapshot, StringComparison.Ordinal))
             {
-                return string.Empty;
+                delta = string.Empty;
+                return true;
             }
 
-            int prefixLength = GetCommonPrefixLength(_lastSnapshot, text);
+            if (text.StartsWith(_lastSnapshot, StringComparison.Ordinal))
+            {
+                delta = text.Substring(_lastSnapshot.Length);
+                _lastSnapshot = text;
+                return true;
+            }
+
             _lastSnapshot = text;
-
-            if (prefixLength <= 0)
-            {
-                return text;
-            }
-
-            if (prefixLength >= text.Length)
-            {
-                return string.Empty;
-            }
-
-            return text.Substring(prefixLength);
+            delta = text;
+            return false;
         }
 
         private static int GetCommonPrefixLength(string previous, string current)
@@ -435,7 +449,11 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
         #region Testing Hooks
 
 #if UNITY_INCLUDE_TESTS
-        internal string DebugExtractDelta(string text) => ExtractDelta(text);
+        internal string DebugExtractDelta(string text)
+        {
+            TryGetAppendDelta(text, out string delta);
+            return delta;
+        }
         internal int DebugCountSegments(string transcript) => CountSegmentsStatic(transcript);
         internal bool DebugEndsWithTerminator(string transcript) => EndsWithTerminatorStatic(transcript);
 #endif

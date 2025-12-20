@@ -2,7 +2,7 @@
 using System;
 using Eitan.EasyMic.Runtime.SherpaONNXUnity;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Centralizes the wiring of Sherpa workers into the audio pipeline.

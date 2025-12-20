@@ -1,6 +1,6 @@
 using System;
 using System.Collections;
-using Eitan.EasyMic.Runtime.Mono;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -275,4 +275,3 @@ namespace Eitan.EasyMic.Samples.Playback
         }
     }
 }
-

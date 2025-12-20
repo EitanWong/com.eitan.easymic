@@ -450,6 +450,7 @@ GameObject:
   - component: {fileID: 1276574528}
   - component: {fileID: 1276574527}
   - component: {fileID: 1276574530}
+  - component: {fileID: 1276574532}
   m_Layer: 0
   m_Name: Samantha
   m_TagString: Untagged
@@ -488,8 +489,8 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
-    Channel: 2
+    DeviceName: MacBook Pro Microphone
+    Channel: 1
     SampleRate: 48000
   _audioProcessingOptions:
     EnableAEC: 1
@@ -501,8 +502,8 @@ MonoBehaviour:
       DisplayName: Default
       RecognitionMode: 0
       StreamingModelId: sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
-      OfflineModelId: sherpa-onnx-zipformer-zh-en-2023-11-22
-      VadModelId: silero-vad-v5
+      OfflineModelId: sherpa-onnx-paraformer-zh-small-2024-03-09
+      VadModelId: silero_vad_v5
       EnablePunctuation: 1
       PunctuationModelId: sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
       KeywordOptions:
@@ -516,8 +517,8 @@ MonoBehaviour:
         UseTriggerSound: 0
         TriggerSoundClip: {fileID: 0}
       TurnDetectionOptions:
-        MinDelaySeconds: 0.7
-        MaxDelaySeconds: 1.9
+        MinDelaySeconds: 0.5
+        MaxDelaySeconds: 2.4
     _activePresetId: default
 --- !u!114 &1276574528
 MonoBehaviour:
@@ -570,6 +571,9 @@ MonoBehaviour:
       speed: 1
       sampleRates: 44100
     _activePresetId: default
+  _playbackSource: {fileID: 1276574532}
+  _targetBufferedSeconds: 0.12
+  _maxParallelSynthesis: 2
 --- !u!114 &1276574531
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -584,6 +588,24 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   uIView: {fileID: 514372640}
   chatController: {fileID: 1276574528}
+--- !u!114 &1276574532
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1276574525}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a2acb743bbc32456a89a70b0b561b56d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _clip: {fileID: 0}
+  _playOnAwake: 0
+  _loop: 1
+  _volume: 1
+  _mute: 0
+  _solo: 0
 --- !u!1 &1303221418
 GameObject:
   m_ObjectHideFlags: 0

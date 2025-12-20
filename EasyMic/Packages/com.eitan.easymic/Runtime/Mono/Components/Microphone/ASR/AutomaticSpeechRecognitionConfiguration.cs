@@ -2,10 +2,10 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.Scripting.APIUpdating;
+using UnityEngine.Serialization;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     #region Nested Types
 
@@ -105,7 +105,7 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
                 KeywordOptions.Default,
                 "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20",
                 "sherpa-onnx-zipformer-zh-en-2023-11-22",
-                "silero-vad-v5",
+                "silero_vad_v5",
                 true,
                 "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
                 TurnDetectionOptions.Default);

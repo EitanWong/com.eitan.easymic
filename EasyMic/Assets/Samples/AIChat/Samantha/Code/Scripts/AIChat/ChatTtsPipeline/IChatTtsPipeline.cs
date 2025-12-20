@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
