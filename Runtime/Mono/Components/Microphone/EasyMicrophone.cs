@@ -40,6 +40,8 @@ namespace Eitan.EasyMic.Runtime.Mono
         private StreamingWavWriter _streamingWriter;
         private string _activeTempFilePath;
         private string _latestRecordingTempPath;
+        private Coroutine _pendingStartRecordingRoutine;
+        private bool _pendingStartRecording;
 
 
         #endregion
@@ -161,6 +163,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                 OnMicrophoneDispose();
             }
             catch { }
+            CancelPendingStartRecording();
             EasyMicAPI.StopAllRecordings();
             if (_streamingWriter != null)
             {
@@ -281,7 +284,12 @@ namespace Eitan.EasyMic.Runtime.Mono
         /// </summary>
         public void StartRecording()
         {
-            InternalStartRecordingHandler();
+            if (IsRecording)
+            {
+                UnityEngine.Debug.LogWarning("A recording session is already active. Stop it before starting a new one.");
+                return;
+            }
+            RequestStartRecording();
         }
         /// <summary>
         /// Starts recording using a specific microphone device and optional channel override.
@@ -314,7 +322,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
             _deviceOptions = new DeviceOptions(device.Name, channelToUse, sampleRateToUse);
 
-            InternalStartRecordingHandler();
+            RequestStartRecording();
 
             return true;
 
@@ -323,7 +331,11 @@ namespace Eitan.EasyMic.Runtime.Mono
         /// <summary>
         /// Stops the active recording session and clears pending recognition buffers.
         /// </summary>
-        public void StopRecording() => InternalStopRecordingHandler();
+        public void StopRecording()
+        {
+            CancelPendingStartRecording();
+            InternalStopRecordingHandler();
+        }
 
         /// <summary>
         /// Hot-inserts an additional audio worker into the active pipeline.
@@ -401,8 +413,69 @@ namespace Eitan.EasyMic.Runtime.Mono
             InternalBuildAudioPipelineBlueprint();
             OnInitialization();
         }
+
+        private void RequestStartRecording()
+        {
+            if (!Initialized)
+            {
+                QueueStartRecording();
+                InternalMicrophoneInitialization();
+                return;
+            }
+
+            InternalStartRecordingHandler();
+        }
+
+        private void QueueStartRecording()
+        {
+            if (_pendingStartRecording)
+            {
+                return;
+            }
+
+            _pendingStartRecording = true;
+            if (_pendingStartRecordingRoutine != null)
+            {
+                StopCoroutine(_pendingStartRecordingRoutine);
+            }
+            _pendingStartRecordingRoutine = StartCoroutine(WaitForInitializationAndStart());
+        }
+
+        private IEnumerator WaitForInitializationAndStart()
+        {
+            while (!Initialized)
+            {
+                if (this == null || !isActiveAndEnabled)
+                {
+                    _pendingStartRecording = false;
+                    _pendingStartRecordingRoutine = null;
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            _pendingStartRecording = false;
+            _pendingStartRecordingRoutine = null;
+            InternalStartRecordingHandler();
+        }
+
+        private void CancelPendingStartRecording()
+        {
+            _pendingStartRecording = false;
+            if (_pendingStartRecordingRoutine != null)
+            {
+                StopCoroutine(_pendingStartRecordingRoutine);
+                _pendingStartRecordingRoutine = null;
+            }
+        }
         private void InternalStartRecordingHandler()
         {
+            if (_pipelineBlueprint == null)
+            {
+                InternalBuildAudioPipelineBlueprint();
+            }
+
             EasyMicAPI.Refresh();
             if (!TryResolveCurrentDevice(out var device))
             {

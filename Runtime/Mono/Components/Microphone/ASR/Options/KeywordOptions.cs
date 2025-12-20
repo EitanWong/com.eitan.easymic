@@ -1,9 +1,9 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
-using UnityEngine;
 using Eitan.SherpaONNXUnity.Runtime.Modules;
+using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Serialized keyword spotting configuration shared by the microphone and keyword gate.

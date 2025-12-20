@@ -2,7 +2,7 @@
 using System;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Controls whether recognition results should be surfaced based on keyword spotting activity.

@@ -63,7 +63,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Utilities
                 }
             }
 
-            return Path.Combine(baseDirectory, $"EasyMic_{instanceId:X8}_active.wav");
+            string sessionId = Guid.NewGuid().ToString("N");
+            return Path.Combine(baseDirectory, $"EasyMic_{instanceId:X8}_{sessionId}_active.wav");
         }
 
         public static string EnsureWavExtension(string path)

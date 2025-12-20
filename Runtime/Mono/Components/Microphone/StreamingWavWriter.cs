@@ -22,6 +22,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
         private byte[] _scratch;
         private bool _headerInitialized;
         private bool _finalized;
+        private bool _reportedOpenFailure;
 
         private int _sampleRate;
         private int _channels;
@@ -41,6 +42,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
 
         public void OnSamples(ReadOnlySpan<float> samples, int sampleRate, int channels)
         {
+            if (_finalized)
+            {
+                return;
+            }
+
             EnsureStream(sampleRate, channels);
 
             if (samples.IsEmpty || _stream == null)
@@ -69,7 +75,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
 
         private void EnsureStream(int sampleRate, int channels)
         {
-            if (_headerInitialized)
+            if (_headerInitialized || _finalized)
             {
                 return;
             }
@@ -83,7 +89,20 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
                 Directory.CreateDirectory(directory);
             }
 
-            _stream = new FileStream(_filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
+            try
+            {
+                _stream = new FileStream(_filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
+            }
+            catch (IOException ex)
+            {
+                if (!_reportedOpenFailure)
+                {
+                    Debug.LogWarning($"StreamingWavWriter: Unable to open '{_filePath}' for writing. {ex.Message}");
+                    _reportedOpenFailure = true;
+                }
+                return;
+            }
+
             WriteInitialHeader(_stream, _sampleRate, _channels);
             _headerInitialized = true;
         }
@@ -127,11 +146,21 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
                 return _filePath;
             }
 
+            if (_stream == null && !_headerInitialized && _dataBytesWritten == 0)
+            {
+                _finalized = true;
+                return null;
+            }
+
             try
             {
                 if (_stream == null)
                 {
                     EnsureStream(_sampleRate > 0 ? _sampleRate : 48000, _channels > 0 ? _channels : 1);
+                    if (_stream == null)
+                    {
+                        return null;
+                    }
                 }
 
                 UpdateHeader();

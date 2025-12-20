@@ -1,8 +1,9 @@
+﻿#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Advanced turn detector using statistical analysis of speech patterns
@@ -279,3 +280,4 @@ namespace Eitan.EasyMic.Runtime.Mono.ASR
     }
 
 }
+#endif

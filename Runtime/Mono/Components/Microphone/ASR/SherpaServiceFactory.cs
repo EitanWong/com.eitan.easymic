@@ -5,7 +5,7 @@ using Eitan.SherpaONNXUnity.Runtime.Core;
 using Eitan.SherpaONNXUnity.Runtime.Modules;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Creates Sherpa-ONNX services with consistent fallback and logging behaviour.

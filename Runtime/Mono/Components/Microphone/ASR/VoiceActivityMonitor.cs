@@ -1,7 +1,7 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 
-namespace Eitan.EasyMic.Runtime.Mono.ASR
+namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 {
     /// <summary>
     /// Lightweight voice activity monitor that surfaces speaking transitions without silence heuristics.

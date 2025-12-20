@@ -34,20 +34,35 @@ namespace Eitan.EasyMic.Tests
         }
 
         [Test]
-        public void HeuristicTurnDetectorHonoursPunctuation()
+        public void AdaptiveTurnDetectorRespectsMaxDelayAndStrongEndingFastPath()
         {
-            var settings = new TurnDetectionSettings
-            {
-                MinDelaySeconds = 0f,
-                MaxDelaySeconds = 0.5f
-            };
+            var settings = new TurnDetectionOptions(0.5f, 2.4f);
 
-            var detector = new HeuristicTurnDetector(settings);
-            var context = new TurnDetectionContext("Hello world.", 1, true);
-            Assert.That(detector.EvaluateDelay(in context), Is.EqualTo(0.5f).Within(0.001f));
+            var detector = new AdaptiveTurnDetector(settings);
 
-            var quickContext = new TurnDetectionContext("Hello", 1, false);
-            Assert.That(detector.EvaluateDelay(in quickContext), Is.EqualTo(0f).Within(0.001f));
+            // When silence exceeds max delay, detector should immediately allow finalization.
+            var maxContext = new TurnDetectionContext(
+                silenceSeconds: 3.0f,
+                segmentCount: 1,
+                characterCount: 5,
+                endsWithPunctuation: false,
+                endsWithConjunction: false,
+                hasOpenParentheses: false,
+                hasOpenQuotes: false,
+                lastCharacter: 'o');
+            Assert.That(detector.EvaluateDelay(in maxContext), Is.EqualTo(0f).Within(0.001f));
+
+            // Strong sentence ending after 60% of min delay should follow the fast-path to "minDelay - silence".
+            var strongEndingContext = new TurnDetectionContext(
+                silenceSeconds: 0.4f,
+                segmentCount: 1,
+                characterCount: 12,
+                endsWithPunctuation: true,
+                endsWithConjunction: false,
+                hasOpenParentheses: false,
+                hasOpenQuotes: false,
+                lastCharacter: '.');
+            Assert.That(detector.EvaluateDelay(in strongEndingContext), Is.EqualTo(0.1f).Within(0.05f));
         }
     }
 
@@ -106,7 +121,7 @@ namespace Eitan.EasyMic.Tests
         [Test]
         public void ContinuousConversationTimeoutClosesGate()
         {
-            var settings = new KeywordSettings
+            var settings = new KeywordOptions
             {
                 Enabled = true,
                 ModelId = "model",
@@ -129,7 +144,7 @@ namespace Eitan.EasyMic.Tests
         [Test]
         public void TriggerSoundExtendsSilenceHold()
         {
-            var settings = new KeywordSettings
+            var settings = new KeywordOptions
             {
                 Enabled = true,
                 ModelId = "model",
