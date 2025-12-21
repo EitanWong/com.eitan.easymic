@@ -42,23 +42,116 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private static bool TryDecodeAudioPayload(byte[] payload, out float[] samples, out int channels, out int sampleRate)
+        private static bool TryDecodeAudioPayload(
+            byte[] payload,
+            int expectedChannels,
+            int expectedSampleRate,
+            out float[] samples,
+            out int channels,
+            out int sampleRate)
         {
             samples = Array.Empty<float>();
-            channels = RemoteDefaultChannels;
-            sampleRate = RemoteDefaultSampleRate;
+            channels = expectedChannels > 0 ? expectedChannels : RemoteDefaultChannels;
+            sampleRate = expectedSampleRate > 0 ? expectedSampleRate : RemoteDefaultSampleRate;
 
             if (payload == null || payload.Length < 2)
             {
                 return false;
             }
 
-            if (payload.Length >= 44 && payload[0] == 'R' && payload[1] == 'I')
+            if (LooksLikeWav(payload))
             {
-                return TryParseWavFormat(payload, out samples, out channels, out sampleRate);
+                if (TryParseWavFormat(payload, out samples, out channels, out sampleRate))
+                {
+                    return true;
+                }
             }
 
-            return TryParseRawPcm16(payload, out samples, out channels, out sampleRate);
+            return TryParseRawPcm16(payload, channels, sampleRate, out samples, out channels, out sampleRate);
+        }
+
+        private static bool TryDecodeAudioPayloadStreaming(
+            byte[] payload,
+            int expectedChannels,
+            int expectedSampleRate,
+            ref byte[] remainder,
+            out float[] samples,
+            out int channels,
+            out int sampleRate)
+        {
+            samples = Array.Empty<float>();
+            channels = expectedChannels > 0 ? expectedChannels : RemoteDefaultChannels;
+            sampleRate = expectedSampleRate > 0 ? expectedSampleRate : RemoteDefaultSampleRate;
+
+            if (payload == null || payload.Length == 0)
+            {
+                return false;
+            }
+
+            if (LooksLikeWav(payload))
+            {
+                remainder = Array.Empty<byte>();
+                if (TryParseWavFormat(payload, out samples, out channels, out sampleRate))
+                {
+                    return true;
+                }
+            }
+
+            if (remainder != null && remainder.Length > 0)
+            {
+                byte[] combined = new byte[remainder.Length + payload.Length];
+                Buffer.BlockCopy(remainder, 0, combined, 0, remainder.Length);
+                Buffer.BlockCopy(payload, 0, combined, remainder.Length, payload.Length);
+                payload = combined;
+                remainder = Array.Empty<byte>();
+            }
+
+            if (payload.Length < 2)
+            {
+                remainder = payload;
+                return false;
+            }
+
+            int alignedLength = payload.Length - (payload.Length % 2);
+            if (alignedLength <= 0)
+            {
+                remainder = payload;
+                return false;
+            }
+
+            if (alignedLength != payload.Length)
+            {
+                int remainderLength = payload.Length - alignedLength;
+                remainder = new byte[remainderLength];
+                Buffer.BlockCopy(payload, alignedLength, remainder, 0, remainderLength);
+
+                byte[] aligned = new byte[alignedLength];
+                Buffer.BlockCopy(payload, 0, aligned, 0, alignedLength);
+                payload = aligned;
+            }
+            else
+            {
+                remainder = Array.Empty<byte>();
+            }
+
+            return TryParseRawPcm16(payload, channels, sampleRate, out samples, out channels, out sampleRate);
+        }
+
+        private static bool LooksLikeWav(byte[] payload)
+        {
+            if (payload == null || payload.Length < 12)
+            {
+                return false;
+            }
+
+            return payload[0] == 'R' &&
+                   payload[1] == 'I' &&
+                   payload[2] == 'F' &&
+                   payload[3] == 'F' &&
+                   payload[8] == 'W' &&
+                   payload[9] == 'A' &&
+                   payload[10] == 'V' &&
+                   payload[11] == 'E';
         }
 
         private static bool TryParseWavFormat(byte[] data, out float[] samples, out int channels, out int sampleRate)
@@ -172,11 +265,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private static bool TryParseRawPcm16(byte[] data, out float[] samples, out int channels, out int sampleRate)
+        private static bool TryParseRawPcm16(
+            byte[] data,
+            int expectedChannels,
+            int expectedSampleRate,
+            out float[] samples,
+            out int channels,
+            out int sampleRate)
         {
             samples = Array.Empty<float>();
-            channels = RemoteDefaultChannels;
-            sampleRate = RemoteDefaultSampleRate;
+            channels = expectedChannels > 0 ? expectedChannels : RemoteDefaultChannels;
+            sampleRate = expectedSampleRate > 0 ? expectedSampleRate : RemoteDefaultSampleRate;
 
             if (data == null || data.Length < 2)
             {

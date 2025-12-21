@@ -112,7 +112,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 byte[] audioBytes = await client.CreateSpeechAsync(request, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
 
-                if (!TryDecodeAudioPayload(audioBytes, out var samples, out int channels, out int sampleRate))
+                int expectedChannels = RemoteDefaultChannels;
+                int expectedSampleRate = request.SampleRate > 0 ? request.SampleRate : RemoteDefaultSampleRate;
+
+                if (!TryDecodeAudioPayload(audioBytes, expectedChannels, expectedSampleRate, out var samples, out int channels, out int sampleRate))
                 {
                     throw new InvalidOperationException("Failed to decode audio response");
                 }
@@ -145,6 +148,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             bool started = false;
 
+            int expectedChannels = RemoteDefaultChannels;
+            int expectedSampleRate = request.SampleRate > 0 ? request.SampleRate : RemoteDefaultSampleRate;
+            byte[] remainder = Array.Empty<byte>();
+
             try
             {
                 await foreach (byte[] chunk in client.StreamSpeechAsync(request, token))
@@ -156,10 +163,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         continue;
                     }
 
-                    if (!TryDecodeAudioPayload(chunk, out var samples, out int channels, out int sampleRate))
+                    if (!TryDecodeAudioPayloadStreaming(
+                        chunk,
+                        expectedChannels,
+                        expectedSampleRate,
+                        ref remainder,
+                        out var samples,
+                        out int channels,
+                        out int sampleRate))
                     {
                         continue;
                     }
+
+                    expectedChannels = channels;
+                    expectedSampleRate = sampleRate;
 
                     if (!started)
                     {

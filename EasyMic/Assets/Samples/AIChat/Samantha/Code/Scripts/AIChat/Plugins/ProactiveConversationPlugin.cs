@@ -36,6 +36,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private bool _lastRequestWasProactive;
         private float _currentWaitSeconds;
         private bool _wasUserSpeaking;
+        private bool _conversationStarted;
         public bool IsEnabled => _enabled && isActiveAndEnabled;
 
         public void Initialize(IAIChatPluginContext context)
@@ -51,6 +52,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _lastRequestWasProactive = false;
             _currentWaitSeconds = GetNextWaitSeconds();
             _wasUserSpeaking = false;
+            _conversationStarted = _context != null && _context.HasConversationHistory;
         }
 
         public void Tick(float deltaTime)
@@ -98,7 +100,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (!_context.HasConversationHistory)
+            if (!_context.HasConversationHistory && !_conversationStarted)
             {
                 return;
             }
@@ -142,6 +144,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void OnConversationStarted(bool isProactive)
         {
+            _conversationStarted = true;
         }
 
         public void OnUserMessageSubmitted(string message, bool isProactive)
@@ -151,6 +154,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _greetingSent = true;
                 _scheduledGreetingTime = 0f;
             }
+            _conversationStarted = true;
 
         }
 

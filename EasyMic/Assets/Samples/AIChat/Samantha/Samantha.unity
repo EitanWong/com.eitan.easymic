@@ -543,9 +543,9 @@ MonoBehaviour:
     SystemPromptProfile: {fileID: 11400000, guid: 6f96afdd81aaa4ba29b81c9310d5e1cd, type: 2}
     LogStreamingChunks: 1
     MaxHistoryTurns: 6
-    UseLocalTts: 1
-    TtsModel: gpt-4o-mini-tts
-    TtsVoice: alloy
+    UseLocalTts: 0
+    TtsModel: FunAudioLLM/CosyVoice2-0.5B
+    TtsVoice: FunAudioLLM/CosyVoice2-0.5B:diana
     UseStreamingTts: 1
     StreamingPlaybackBufferSeconds: 0.18
     InterruptAssistantOnUserSpeech: 1
@@ -628,7 +628,7 @@ MonoBehaviour:
   _sendGreetingOnReady: 1
   _greetingDelaySeconds: 0.25
   _minProactiveWaitSeconds: 3
-  _maxProactiveWaitSeconds: 6
+  _maxProactiveWaitSeconds: 12
 --- !u!1 &1303221418
 GameObject:
   m_ObjectHideFlags: 0

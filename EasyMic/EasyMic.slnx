@@ -1,10 +1,10 @@
 ﻿<Solution>
   <Project Path="Eitan.SherpaONNXUnity.Runtime.Native.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.csproj" />
   <Project Path="UnityEngine.TestRunner.csproj" />
   <Project Path="UnityEngine.UI.csproj" />
   <Project Path="Eitan.EasyMic.Samples.SherpaONNX.KWS.csproj" />
   <Project Path="Eitan.SherpaONNXUnity.csproj" />
-  <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.csproj" />
   <Project Path="Eitan.EasyMic.csproj" />
   <Project Path="Eitan.SherpaONNXUnity.Runtime.Utilities.Pinyin.csproj" />
   <Project Path="Eitan.EasyMic.Mono.csproj" />
