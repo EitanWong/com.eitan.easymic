@@ -4,6 +4,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
+        private string GetSystemPrompt()
+        {
+            return _systemPromptCache;
+        }
+
+        private void RefreshSystemPromptCache()
+        {
+            _systemPromptCache = ReadSystemPromptFromProfile();
+        }
+
+        private string ReadSystemPromptFromProfile()
+        {
+            var profile = Config.SystemPromptProfile;
+            if (profile == null)
+            {
+                return string.Empty;
+            }
+
+            return profile.GetCombinedText("\n");
+        }
+
         private string GetRawResponse()
         {
             lock (_stateLock)

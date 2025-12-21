@@ -73,11 +73,17 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
 
         private string _logPrefix;
         private string LogPrefix => !string.IsNullOrEmpty(_logPrefix) ? _logPrefix : "[SpeechSynthesizer] ";
+
+        private int _unityThreadId;
+        private SynchronizationContext _unityContext;
+        private int _processorCount = 1;
         #endregion
 
         #region Unity Lifecycle
         private void Awake()
         {
+            CaptureUnityThreadContext();
+            _processorCount = Math.Max(1, SystemInfo.processorCount);
             _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
             _modelLoadProgress = new ModelLoadProgressRouter();
             _logPrefix = $"[SpeechSynthesizer:{name}] ";
@@ -95,6 +101,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
 
         private void OnEnable()
         {
+            CaptureUnityThreadContext();
             EnsurePlaybackSource(_sessionId);
             if (_speechSynthesis != null && _ttsPumpCoroutine == null)
             {
@@ -223,7 +230,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             }
 
             // 停止当前playback
-            StopAndResetCurrentPlayback(oldSessionId);
+            PostToUnityThread(() => StopAndResetCurrentPlayback(oldSessionId));
 
             // 更新状态
             UpdateTtsState(false);
@@ -310,11 +317,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
 
         private int GetAdaptiveMaxParallel()
         {
-            int hardMax = Mathf.Clamp(Mathf.Max(1, SystemInfo.processorCount - 1), 1, MaxParallelCap);
+            int hardMax = ClampInt(Math.Max(1, _processorCount - 1), 1, MaxParallelCap);
             int maxParallel = _adaptiveScheduler != null
                 ? Volatile.Read(ref _adaptiveMaxParallel)
                 : _maxParallelSynthesis;
-            return Mathf.Clamp(maxParallel, 1, hardMax);
+            return ClampInt(maxParallel, 1, hardMax);
         }
 
         private float GetAdaptiveBufferedSeconds()
@@ -322,7 +329,27 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             float bufferedSeconds = _adaptiveScheduler != null
                 ? Volatile.Read(ref _adaptiveBufferedSeconds)
                 : _targetBufferedSeconds;
-            return Mathf.Clamp(bufferedSeconds, MinBufferedSeconds, MaxBufferedSeconds);
+            return ClampFloat(bufferedSeconds, MinBufferedSeconds, MaxBufferedSeconds);
+        }
+
+        private static int ClampInt(int value, int min, int max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            return value > max ? max : value;
+        }
+
+        private static float ClampFloat(float value, float min, float max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            return value > max ? max : value;
         }
         #endregion
 
@@ -523,6 +550,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                     }
 
                     if (string.IsNullOrWhiteSpace(sentence))
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(SpeechTextPreprocessor.CleanForTts(sentence)))
                     {
                         continue;
                     }
@@ -878,22 +910,58 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
 
         private void SafeInvokeOnMainThread(Action action)
         {
+            PostToUnityThread(() =>
+            {
+                try
+                {
+                    action?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"{LogPrefix}Callback error: {ex.Message}");
+                }
+            });
+        }
+
+        private void CaptureUnityThreadContext()
+        {
+            if (_unityThreadId != 0)
+            {
+                return;
+            }
+
+            _unityThreadId = Thread.CurrentThread.ManagedThreadId;
+            _unityContext = SynchronizationContext.Current;
+        }
+
+        private bool IsOnUnityThread =>
+            _unityThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _unityThreadId;
+
+        private void PostToUnityThread(Action action)
+        {
             if (action == null)
             {
                 return;
             }
 
+            var context = _unityContext;
+            if (context == null)
+            {
+                if (IsOnUnityThread)
+                {
+                    action();
+                }
 
-            try
+                return;
+            }
+
+            if (IsOnUnityThread)
             {
-                // 如果需要确保在主线程执行，可以使用UnityMainThreadDispatcher
-                // 这里简化处理，直接调用
                 action();
+                return;
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"{LogPrefix}Callback error: {ex.Message}");
-            }
+
+            context.Post(static state => ((Action)state)(), action);
         }
         #endregion
     }

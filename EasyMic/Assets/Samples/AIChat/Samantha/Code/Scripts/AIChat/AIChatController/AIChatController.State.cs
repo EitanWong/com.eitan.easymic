@@ -1,9 +1,20 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
+        private void MarkUserActivity()
+        {
+            _lastUserActivityTime = _lastMainThreadTime;
+        }
+
+        private void MarkAssistantResponse()
+        {
+            _lastAssistantResponseTime = _lastMainThreadTime;
+        }
+
         private void UpdateIdleState()
         {
             bool newIdle = !_llmInFlight && !_isAssistantSpeaking;
@@ -15,6 +26,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _lastIdleState = newIdle;
             OnIdleStateChanged?.Invoke(newIdle);
+            _pluginHost?.NotifyIdleStateChanged(newIdle);
 
             if (newIdle)
             {

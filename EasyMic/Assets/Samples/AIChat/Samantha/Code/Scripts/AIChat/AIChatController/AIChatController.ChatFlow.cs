@@ -11,7 +11,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
-        private async void BeginAssistantResponse(string userInput)
+        private async void BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
         {
             if (string.IsNullOrWhiteSpace(userInput))
             {
@@ -45,7 +45,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _responseCts = new CancellationTokenSource();
             var token = _responseCts.Token;
 
-            _ = RunChatCompletionAsync(userInput, token);
+            if (!_conversationStarted)
+            {
+                _conversationStarted = true;
+                _pluginHost?.NotifyConversationStarted(isProactive);
+            }
+
+            if (recordUserMessage)
+            {
+                _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive);
+            }
+
+            _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive);
+
+            _ = RunChatCompletionAsync(userInput, token, recordUserMessage, isProactive);
         }
 
         private async Task CancelActiveResponseAsync()
@@ -106,10 +119,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             UpdateIdleState();
         }
 
-        private async Task RunChatCompletionAsync(string userInput, CancellationToken token)
+        private async Task RunChatCompletionAsync(string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
         {
             var stopwatch = Stopwatch.StartNew();
             bool firstChunkReceived = false;
+            bool responseSucceeded = false;
+            string errorMessage = null;
+            string finalResponse = null;
 
             try
             {
@@ -162,9 +178,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 FlushPendingSentences();
 
-                string finalResponse = GetCleanedResponse();
+                finalResponse = GetCleanedResponse();
+                if (recordUserMessage)
+                {
+                    AppendConversationHistory(userInput, GetRawResponse());
+                }
+                else
+                {
+                    AppendConversationHistory(null, GetRawResponse());
+                }
+
+                MarkAssistantResponse();
                 OnChatStateChanged?.Invoke(ChatState.AssistantResponseFinish, finalResponse);
                 ExtractAndNotifyWebLinks(GetRawResponse());
+                responseSucceeded = true;
             }
             catch (OperationCanceledException)
             {
@@ -176,18 +203,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _networkHandler.RecordTimeout();
                 Debug.LogError($"[AIChat] Request timeout: {ex.Message}");
                 OnChatStateChanged?.Invoke(ChatState.Failed, "Request timeout");
+                errorMessage = "Request timeout";
             }
             catch (Exception ex)
             {
                 _failedRequestCount++;
                 Debug.LogError($"[AIChat] Chat completion failed: {ex.Message}");
                 OnChatStateChanged?.Invoke(ChatState.Failed, ex.Message);
+                errorMessage = ex.Message;
             }
             finally
             {
                 stopwatch.Stop();
                 _llmInFlight = false;
                 UpdateIdleState();
+                PostToUnityThread(() =>
+                    _pluginHost?.NotifyAssistantResponseFinished(
+                        responseSucceeded ? finalResponse : null,
+                        responseSucceeded,
+                        errorMessage));
 
                 if (_ttsPipeline != null)
                 {
@@ -207,13 +241,118 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             var messages = new List<OpenAIChatMessage>();
 
-            if (!string.IsNullOrWhiteSpace(Config.SystemPrompt))
+            string systemPrompt = GetSystemPrompt();
+            if (!string.IsNullOrWhiteSpace(systemPrompt))
             {
-                messages.Add(new OpenAIChatMessage("system", Config.SystemPrompt.Trim()));
+                messages.Add(new OpenAIChatMessage("system", systemPrompt.Trim()));
             }
 
-            messages.Add(new OpenAIChatMessage("user", transcript));
+            int maxHistoryMessages = GetHistoryMessageLimit();
+            if (maxHistoryMessages > 0)
+            {
+                var history = GetConversationHistorySnapshot(maxHistoryMessages);
+                if (history != null && history.Count > 0)
+                {
+                    messages.AddRange(history);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(transcript))
+            {
+                messages.Add(new OpenAIChatMessage("user", transcript));
+            }
+
             return messages;
+        }
+
+        private int GetHistoryMessageLimit()
+        {
+            int turns = Math.Max(0, Config.MaxHistoryTurns);
+            return turns * 2;
+        }
+
+        private List<OpenAIChatMessage> GetConversationHistorySnapshot(int maxMessages)
+        {
+            if (maxMessages <= 0)
+            {
+                return null;
+            }
+
+            lock (_stateLock)
+            {
+                if (_conversationHistory.Count == 0)
+                {
+                    return null;
+                }
+
+                int startIndex = Math.Max(0, _conversationHistory.Count - maxMessages);
+                var snapshot = new List<OpenAIChatMessage>(_conversationHistory.Count - startIndex);
+
+                for (int i = startIndex; i < _conversationHistory.Count; i++)
+                {
+                    var message = _conversationHistory[i];
+                    if (message == null || string.IsNullOrWhiteSpace(message.Content))
+                    {
+                        continue;
+                    }
+
+                    snapshot.Add(new OpenAIChatMessage(message.Role, message.Content));
+                }
+
+                return snapshot;
+            }
+        }
+
+        private void AppendConversationHistory(string userMessage, string assistantMessage)
+        {
+            int maxMessages = GetHistoryMessageLimit();
+            if (maxMessages <= 0)
+            {
+                return;
+            }
+
+            string userContent = NormalizeHistoryContent(userMessage);
+            string assistantContent = NormalizeHistoryContent(assistantMessage);
+
+            if (string.IsNullOrEmpty(userContent) && string.IsNullOrEmpty(assistantContent))
+            {
+                return;
+            }
+
+            lock (_stateLock)
+            {
+                if (!string.IsNullOrEmpty(userContent))
+                {
+                    _conversationHistory.Add(OpenAIChatMessage.User(userContent));
+                }
+
+                if (!string.IsNullOrEmpty(assistantContent))
+                {
+                    _conversationHistory.Add(OpenAIChatMessage.Assistant(assistantContent));
+                }
+
+                TrimConversationHistoryLocked(maxMessages);
+            }
+        }
+
+        private void TrimConversationHistoryLocked(int maxMessages)
+        {
+            if (maxMessages <= 0)
+            {
+                _conversationHistory.Clear();
+                return;
+            }
+
+            int excess = _conversationHistory.Count - maxMessages;
+            if (excess > 0)
+            {
+                _conversationHistory.RemoveRange(0, excess);
+            }
+        }
+
+        private static string NormalizeHistoryContent(string content)
+        {
+            return string.IsNullOrWhiteSpace(content) ? string.Empty : content.Trim();
         }
 
         private void ProcessStreamingChunk(string chunk)

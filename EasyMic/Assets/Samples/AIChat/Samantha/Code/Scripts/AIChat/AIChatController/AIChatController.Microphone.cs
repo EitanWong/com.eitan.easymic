@@ -27,6 +27,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _isChatActive = true;
+            _pluginHost?.NotifyChatActivated();
         }
 
         private void OnMicrophoneLoadingProgressFeedbackHandler(string message, float progress)
@@ -57,6 +58,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             string trimmed = utterance.Trim();
+            MarkUserActivity();
 
             lock (_stateLock)
             {
@@ -85,6 +87,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private async void OnSpeakingChangedHandler(bool isSpeaking)
         {
             OnUserSpeakingStateChanged?.Invoke(isSpeaking);
+
+            if (isSpeaking)
+            {
+                MarkUserActivity();
+            }
 
             if (isSpeaking &&
                 Config.InterruptAssistantOnUserSpeech &&

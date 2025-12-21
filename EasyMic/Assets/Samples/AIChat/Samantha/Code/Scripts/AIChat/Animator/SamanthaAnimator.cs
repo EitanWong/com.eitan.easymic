@@ -24,7 +24,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         #endregion
 
-        #region  EventHandler 
+        #region  EventHandler
         private void OnChatControllerLoadingHandler(float progress)
         {
             uIView.UpdateProgress(progress);

@@ -448,6 +448,7 @@ GameObject:
   - component: {fileID: 1276574526}
   - component: {fileID: 1276574531}
   - component: {fileID: 1276574528}
+  - component: {fileID: 1276574533}
   - component: {fileID: 1276574527}
   - component: {fileID: 1276574530}
   - component: {fileID: 1276574532}
@@ -489,8 +490,8 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    DeviceName: MacBook Pro Microphone
-    Channel: 1
+    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
+    Channel: 2
     SampleRate: 48000
   _audioProcessingOptions:
     EnableAEC: 1
@@ -537,11 +538,11 @@ MonoBehaviour:
     SpeechSynthesizer: {fileID: 1276574530}
     ApiBaseUrl: https://api.siliconflow.cn/v1/
     ApiKey: sk-eskcypxrqbycupuvaqbwttmcoxbedgfuycpyloedzsqlwkzk
-    LlmModel: Qwen/Qwen2.5-7B-Instruct
+    LlmModel: Qwen/Qwen3-Omni-30B-A3B-Instruct
     LlmTemperature: 0.7
-    SystemPrompt: You are Samantha, an empathetic AI companion. Keep answers concise,
-      warm, and natural.
+    SystemPromptProfile: {fileID: 11400000, guid: 6f96afdd81aaa4ba29b81c9310d5e1cd, type: 2}
     LogStreamingChunks: 1
+    MaxHistoryTurns: 6
     UseLocalTts: 1
     TtsModel: gpt-4o-mini-tts
     TtsVoice: alloy
@@ -549,6 +550,7 @@ MonoBehaviour:
     StreamingPlaybackBufferSeconds: 0.18
     InterruptAssistantOnUserSpeech: 1
     MicStartupDelay: 13
+  _pluginBehaviours: []
 --- !u!114 &1276574530
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -606,6 +608,27 @@ MonoBehaviour:
   _volume: 1
   _mute: 0
   _solo: 0
+--- !u!114 &1276574533
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1276574525}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 72f6c8bb72c8a480fa5b3c15172c6824, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _enabled: 1
+  _recordPromptAsUserMessage: 0
+  _requireChatActive: 1
+  _greetingPrompts: {fileID: 11400000, guid: 1db3321e36c28430890ea7b2ba507306, type: 2}
+  _idlePrompts: {fileID: 11400000, guid: da2caaab1d9fb492ab315771128cdf3e, type: 2}
+  _sendGreetingOnReady: 1
+  _greetingDelaySeconds: 0.25
+  _minProactiveWaitSeconds: 3
+  _maxProactiveWaitSeconds: 6
 --- !u!1 &1303221418
 GameObject:
   m_ObjectHideFlags: 0

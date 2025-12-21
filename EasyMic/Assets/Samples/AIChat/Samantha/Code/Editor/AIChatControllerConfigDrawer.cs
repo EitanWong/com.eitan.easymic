@@ -57,7 +57,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.ApiKey)), "API Key");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LlmModel)), "Model");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LlmTemperature)), "Temperature");
-            y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.SystemPrompt)), "System Prompt", includeChildren: true);
+            y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.SystemPromptProfile)), "System Prompt Profile");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LogStreamingChunks)), "Verbose Streaming Log");
             y += SectionSpacing;
 
@@ -145,7 +145,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     height += AddProp(nameof(AIChatControllerConfig.ApiKey));
                     height += AddProp(nameof(AIChatControllerConfig.LlmModel));
                     height += AddProp(nameof(AIChatControllerConfig.LlmTemperature));
-                    height += AddProp(nameof(AIChatControllerConfig.SystemPrompt), includeChildren: true);
+                    height += AddProp(nameof(AIChatControllerConfig.SystemPromptProfile));
                     height += AddProp(nameof(AIChatControllerConfig.LogStreamingChunks));
                     break;
 

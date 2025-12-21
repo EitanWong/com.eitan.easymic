@@ -24,12 +24,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             new MediaTypeWithQualityHeaderValue("application/octet-stream");
         private static readonly MediaTypeWithQualityHeaderValue JsonHeader =
             new MediaTypeWithQualityHeaderValue("application/json");
+        private static readonly TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(30);
 
         private readonly HttpClient _httpClient;
         private readonly bool _baseIncludesVersion;
         private readonly string _chatEndpoint;
         private readonly string _responsesEndpoint;
         private readonly string _ttsEndpoint;
+        private readonly IOpenAIProviderAdapter _providerAdapter;
 
         /// <summary>
         /// 是否强制使用 Chat Completions API（跳过 Responses API）
@@ -67,6 +69,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Timeout = timeout ?? TimeSpan.FromSeconds(120)
             };
 
+            _providerAdapter = OpenAIProviderAdapterResolver.Resolve(normalized);
             UpdateCredentials(apiKey);
         }
 
@@ -113,7 +116,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             // 如果强制使用 Chat Completions 或已知不支持 Responses API，直接使用 Chat Completions
 
-            if (ForceChatCompletions || _responsesApiNotSupported)
+            if (ForceChatCompletions || _responsesApiNotSupported || !_providerAdapter.SupportsResponsesApi)
             {
                 await foreach (string chunk in StreamChatCompletionsApiAsync(request, cancellationToken))
                 {
@@ -161,7 +164,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             // 如果强制使用 Chat Completions 或已知不支持 Responses API
 
-            if (ForceChatCompletions || _responsesApiNotSupported)
+            if (ForceChatCompletions || _responsesApiNotSupported || !_providerAdapter.SupportsResponsesApi)
             {
                 return await ChatCompletionsApiAsync(request, cancellationToken);
             }
@@ -193,7 +196,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(EventStreamHeader);
 
-            string payload = JsonUtility.ToJson(responseRequest);
+            string payload = _providerAdapter.BuildResponsesPayload(responseRequest);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             HttpResponseMessage response;
@@ -259,7 +262,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(JsonHeader);
 
-            string payload = JsonUtility.ToJson(responseRequest);
+            string payload = _providerAdapter.BuildResponsesPayload(responseRequest);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             HttpResponseMessage response;
@@ -323,7 +326,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    string line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    string line = await ReadLineWithTimeoutAsync(reader, cancellationToken).ConfigureAwait(false);
                     if (line == null)
                     {
                         break;
@@ -347,6 +350,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         continue;
                     }
 
+                    payloadLine = _providerAdapter.NormalizeResponsesStreamEventJson(payloadLine);
+                    if (string.IsNullOrWhiteSpace(payloadLine))
+                    {
+                        continue;
+                    }
 
                     OpenAIResponseStreamEvent envelope;
                     try
@@ -400,6 +408,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 yield break;
             }
 
+            json = _providerAdapter.NormalizeResponsesResponseJson(json);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                yield break;
+            }
 
             OpenAIResponseObject response;
             try
@@ -468,7 +481,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(EventStreamHeader);
 
-            string payload = JsonUtility.ToJson(request);
+            string payload = _providerAdapter.BuildChatCompletionsPayload(request);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             var response = await _httpClient
@@ -487,7 +500,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        string line = await reader.ReadLineAsync().ConfigureAwait(false);
+                        string line = await ReadLineWithTimeoutAsync(reader, cancellationToken).ConfigureAwait(false);
                         if (line == null)
                         {
                             break;
@@ -511,6 +524,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             continue;
                         }
 
+                        payloadLine = _providerAdapter.NormalizeChatCompletionChunkJson(payloadLine);
+                        if (string.IsNullOrWhiteSpace(payloadLine))
+                        {
+                            continue;
+                        }
 
                         OpenAIChatCompletionChunk chunk;
                         try
@@ -530,8 +548,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                         foreach (var choice in chunk.choices)
                         {
-                            // 优先返回 reasoning_content（用于推理模型如 QwQ、o1）
-                            string delta = choice?.delta?.content;
+                            string delta = _providerAdapter.SelectChatCompletionDeltaText(choice);
                             if (!string.IsNullOrEmpty(delta))
                             {
                                 yield return delta;
@@ -540,6 +557,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                 }
             }
+        }
+
+        private static async Task<string> ReadLineWithTimeoutAsync(
+            StreamReader reader,
+            CancellationToken cancellationToken)
+        {
+            var readTask = reader.ReadLineAsync();
+            var timeoutTask = Task.Delay(StreamIdleTimeout, cancellationToken);
+            var completed = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
+            if (completed == timeoutTask)
+            {
+                throw new TimeoutException("Stream idle timeout.");
+            }
+
+            return await readTask.ConfigureAwait(false);
         }
 
         private async Task<OpenAIChatResult> ChatCompletionsApiAsync(
@@ -552,7 +584,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(JsonHeader);
 
-            string payload = JsonUtility.ToJson(request);
+            string payload = _providerAdapter.BuildChatCompletionsPayload(request);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             var response = await _httpClient
@@ -564,6 +596,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 response.EnsureSuccessStatusCode();
 
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                json = _providerAdapter.NormalizeChatCompletionResponseJson(json);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return new OpenAIChatResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Empty response payload"
+                    };
+                }
 
                 OpenAIChatCompletionResponse result;
                 try
@@ -582,10 +623,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 if (result?.choices != null && result.choices.Count > 0)
                 {
                     var message = result.choices[0]?.message;
+                    string content = _providerAdapter.SelectChatCompletionMessageText(message);
                     return new OpenAIChatResult
                     {
                         Success = true,
-                        Content = message?.content ?? string.Empty,
+                        Content = content ?? string.Empty,
                         ReasoningContent = message?.reasoning_content
                     };
                 }
@@ -619,7 +661,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(AudioHeader);
 
-            string payload = JsonUtility.ToJson(request);
+            string payload = _providerAdapter.BuildTtsPayload(request);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             var response = await _httpClient
@@ -652,7 +694,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             httpRequest.Headers.Accept.Clear();
             httpRequest.Headers.Accept.Add(AudioHeader);
 
-            string payload = JsonUtility.ToJson(request);
+            string payload = _providerAdapter.BuildTtsPayload(request);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
             var response = await _httpClient

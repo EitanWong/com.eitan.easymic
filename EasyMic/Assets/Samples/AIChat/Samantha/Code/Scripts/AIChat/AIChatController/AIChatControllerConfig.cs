@@ -20,9 +20,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public string ApiKey = string.Empty;
         public string LlmModel = "gpt-4o-mini";
         [Range(0f, 1.5f)] public float LlmTemperature = 0.7f;
-        [TextArea(3, 8)]
-        public string SystemPrompt = "You are Samantha, an empathetic AI companion. Keep answers concise, warm, and natural.";
+        public PromptProfile SystemPromptProfile;
         public bool LogStreamingChunks;
+
+        [Header("Conversation")]
+        [Min(0)]
+        public int MaxHistoryTurns = 6;
 
         [Header("Speech Output")]
         public bool UseLocalTts = true;

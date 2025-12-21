@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 33e9c6e4e94c64a1baa4e39444eb7656, type: 3}
+  m_Name: Samantha_IdlePromptProfile
+  m_EditorClassIdentifier: 
+  Prompts:
+  - {fileID: 4900000, guid: 5d089e9ebc6d04fcd944155c7d64b22b, type: 3}
+  - {fileID: 4900000, guid: bffa3dda743d3450dab401f64529a990, type: 3}
+  - {fileID: 4900000, guid: 982ded082dcaa4a5d8d87e2716539172, type: 3}
+  - {fileID: 4900000, guid: 854b0fcffb43d4bb8bd0d9033efd8639, type: 3}
+  - {fileID: 4900000, guid: cf41e2902d0364b06b0353b17a8dc14e, type: 3}
+  - {fileID: 4900000, guid: 87a231c62ce64460bb454dd3e9f9f039, type: 3}
+  - {fileID: 4900000, guid: 58743bc3fed674ed9b8c0307c87f3e55, type: 3}
+  - {fileID: 4900000, guid: daa28a87865984ce2a7061249f2312f8, type: 3}

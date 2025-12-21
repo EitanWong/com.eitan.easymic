@@ -23,7 +23,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _userInputBuffer.Clear();
             }
 
-            BeginAssistantResponse(payload);
+            BeginAssistantResponse(payload, recordUserMessage: true, isProactive: false);
             return true;
         }
 
@@ -34,7 +34,24 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            BeginAssistantResponse(message.Trim());
+            MarkUserActivity();
+            BeginAssistantResponse(message.Trim(), recordUserMessage: true, isProactive: false);
+        }
+
+        public bool TrySendProactiveMessage(string prompt, bool recordUserMessage = false)
+        {
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                return false;
+            }
+
+            if (!IsIdle)
+            {
+                return false;
+            }
+
+            BeginAssistantResponse(prompt.Trim(), recordUserMessage, isProactive: true);
+            return true;
         }
 
         public async Task CancelResponseAsync()
@@ -68,5 +85,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 NetworkQuality = CurrentNetworkQuality
             };
         }
+
     }
 }
