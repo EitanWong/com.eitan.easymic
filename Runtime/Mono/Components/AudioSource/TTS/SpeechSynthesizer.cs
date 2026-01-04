@@ -39,6 +39,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         public event Action<bool> OnTTSStateChanged;
         public event Action<string> OnSentenceStarted;
         public event Action<string> OnSentenceFinished;
+        public PlaybackAudioSourceBehaviour PlaybackSource => _playbackSource;
         #endregion
 
         #region Private Fields
