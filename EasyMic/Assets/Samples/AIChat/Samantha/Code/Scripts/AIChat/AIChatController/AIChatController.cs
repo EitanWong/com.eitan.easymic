@@ -88,6 +88,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly StringBuilder _responseBuffer = new StringBuilder(1024);
         private readonly StringBuilder _userInputBuffer = new StringBuilder(256);
         private readonly List<OpenAIChatMessage> _conversationHistory = new List<OpenAIChatMessage>();
+        private string _streamedResponseSnapshot = string.Empty;
 
         private StreamingSentenceAssembler _sentenceAssembler;
         private NetworkAdaptiveHandler _networkHandler;

@@ -159,12 +159,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 UseLocalTts = Config.UseLocalTts && SpeechSynthesizer != null,
                 LocalSynthesizer = SpeechSynthesizer,
+                PlaybackSource = SpeechSynthesizer != null ? SpeechSynthesizer.PlaybackSource : null,
                 ClientProvider = GetOrCreateOpenAiClient,
                 RemoteModel = Config.TtsModel,
                 RemoteVoice = Config.TtsVoice,
                 EnableStreamingTts = Config.UseStreamingTts,
                 StreamingBufferSeconds = Mathf.Clamp(Config.StreamingPlaybackBufferSeconds, 0.05f, 0.4f),
-                LogSentences = Config.LogStreamingChunks
+                LogSentences = Config.LogStreamingChunks,
+                MainThreadDispatcher = PostToUnityThread
             };
 
             _ttsPipeline.Configure(pipelineConfig);

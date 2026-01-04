@@ -12,6 +12,42 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _completedJobs.Clear();
             System.Threading.Interlocked.Exchange(ref _nextSequenceNumber, 0);
             System.Threading.Interlocked.Exchange(ref _nextPlaybackSequence, 0);
+            ClearInFlightSentences();
+        }
+
+        private bool TryRegisterInFlightSentence(string sentence)
+        {
+            lock (_inFlightLock)
+            {
+                if (_inFlightSentences.Contains(sentence))
+                {
+                    return false;
+                }
+
+                _inFlightSentences.Add(sentence);
+                return true;
+            }
+        }
+
+        private void ReleaseInFlightSentence(string sentence)
+        {
+            if (string.IsNullOrEmpty(sentence))
+            {
+                return;
+            }
+
+            lock (_inFlightLock)
+            {
+                _inFlightSentences.Remove(sentence);
+            }
+        }
+
+        private void ClearInFlightSentences()
+        {
+            lock (_inFlightLock)
+            {
+                _inFlightSentences.Clear();
+            }
         }
 
         private void NotifySpeakingState(bool speaking)
@@ -25,10 +61,34 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             SafeInvoke(() => OnSpeakingStateChanged?.Invoke(speaking));
         }
 
-        private static void SafeInvoke(Action action)
+        private void SafeInvoke(Action action)
         {
             if (action == null)
             {
+                return;
+            }
+
+            if (_mainThreadDispatcher != null)
+            {
+                try
+                {
+                    _mainThreadDispatcher(() =>
+                    {
+                        try
+                        {
+                            action();
+                        }
+                        catch (Exception ex)
+                        {
+                            UnityEngine.Debug.LogWarning($"[ParallelTtsPipeline] Callback error: {ex.Message}");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning($"[ParallelTtsPipeline] Callback dispatch error: {ex.Message}");
+                }
+
                 return;
             }
 
@@ -293,5 +353,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             return true;
         }
+
     }
 }

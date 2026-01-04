@@ -42,7 +42,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _isAssistantSpeaking = isSpeaking;
-            UpdateIdleState();
+            if (IsOnUnityThread)
+            {
+                UpdateIdleState();
+                return;
+            }
+
+            PostToUnityThread(UpdateIdleState);
         }
 
         private void UpdateServiceLoading(string key, float progress)

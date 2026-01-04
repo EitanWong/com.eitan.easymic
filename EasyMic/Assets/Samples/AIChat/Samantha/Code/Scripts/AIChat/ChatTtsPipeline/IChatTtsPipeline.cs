@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -31,6 +32,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         public bool UseLocalTts;
         public SpeechSynthesizer LocalSynthesizer;
+        public PlaybackAudioSourceBehaviour PlaybackSource;
         public Func<OpenAICompatibleClient> ClientProvider;
         public string RemoteModel;
         public string RemoteVoice;
@@ -39,6 +41,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public bool LogSentences;
         public int MaxParallelGenerations;
         public float PlaybackVolume;
+        public Action<Action> MainThreadDispatcher;
 
         public static TtsPipelineConfig Default => new TtsPipelineConfig
         {
@@ -46,7 +49,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             EnableStreamingTts = true,
             StreamingBufferSeconds = 0.18f,
             MaxParallelGenerations = 0,
-            PlaybackVolume = 1f
+            PlaybackVolume = 1f,
+            MainThreadDispatcher = null
         };
     }
 }

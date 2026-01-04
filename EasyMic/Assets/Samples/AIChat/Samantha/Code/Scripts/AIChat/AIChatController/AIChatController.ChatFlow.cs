@@ -35,6 +35,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_stateLock)
             {
                 _responseBuffer.Clear();
+                _streamedResponseSnapshot = string.Empty;
             }
             _sentenceAssembler.Reset();
 
@@ -163,16 +164,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             Debug.Log($"[AIChat][LLM] {chunk}");
                         }
 
+                        string normalizedChunk;
                         lock (_stateLock)
                         {
-                            if (_responseBuffer.Length + chunk.Length <= MaxResponseBufferSize)
+                            normalizedChunk = NormalizeStreamingChunkLocked(chunk);
+                            if (!string.IsNullOrEmpty(normalizedChunk) &&
+                                _responseBuffer.Length + normalizedChunk.Length <= MaxResponseBufferSize)
                             {
-                                _responseBuffer.Append(chunk);
+                                _responseBuffer.Append(normalizedChunk);
                             }
                         }
 
-                        ProcessStreamingChunk(chunk);
-                        OnChatStateChanged?.Invoke(ChatState.AssistantResponseStreaming, chunk);
+                        if (!string.IsNullOrEmpty(normalizedChunk))
+                        {
+                            ProcessStreamingChunk(normalizedChunk);
+                            OnChatStateChanged?.Invoke(ChatState.AssistantResponseStreaming, normalizedChunk);
+                        }
                     }
                 }
 

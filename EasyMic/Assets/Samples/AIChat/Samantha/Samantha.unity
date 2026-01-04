@@ -323,7 +323,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   loadingProgress: {fileID: 1744837150}
   stripe: {fileID: 2130704790}
+  speakerAudioSource: {fileID: 1276574532}
   Speed: 1
+  baseScale: 1
+  maxScale: 1.6
+  noAudioResetDelay: 0.15
+  speechIntensity: 1
+  speechExpressiveness: 0.55
   loadingCompleteSound: {fileID: 8300000, guid: ea7d108a21332458d91ec85a12db1057, type: 3}
 --- !u!1 &683628246
 GameObject:
@@ -545,7 +551,7 @@ MonoBehaviour:
     MaxHistoryTurns: 6
     UseLocalTts: 0
     TtsModel: FunAudioLLM/CosyVoice2-0.5B
-    TtsVoice: FunAudioLLM/CosyVoice2-0.5B:diana
+    TtsVoice: speech:Samantha:cm17p9u4u00d0ejhoz6300irm:itdbtzhnnbngfahhvdba
     UseStreamingTts: 1
     StreamingPlaybackBufferSeconds: 0.18
     InterruptAssistantOnUserSpeech: 1

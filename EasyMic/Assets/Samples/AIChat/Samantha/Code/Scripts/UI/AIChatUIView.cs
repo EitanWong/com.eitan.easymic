@@ -1,5 +1,9 @@
+using System;
 using System.Collections;
+using System.Diagnostics;
+using System.Threading;
 using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using Radishmouse;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,21 +17,84 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [Header("UI")]
         [SerializeField] private Slider loadingProgress;
         [SerializeField] private UIMobiusStripe stripe;
+        [SerializeField] private PlaybackAudioSourceBehaviour speakerAudioSource;
         [SerializeField] private float Speed = 1;
 
+        [Header("Speaker Visualization")]
+        [SerializeField] private float baseScale = 1f;
+        [SerializeField] private float maxScale = 1.6f;
+        [SerializeField] private float noAudioResetDelay = 0.15f;
+
+        [Header("Speech Visualization")]
+        [SerializeField] private float speechIntensity = 1f;
+        [SerializeField] private float speechExpressiveness = 0.55f;
 
         [Header("Sound")]
 
         [SerializeField] private AudioClip loadingCompleteSound;
 
         private const int HALF_DEGRESS = 180;
+        private const float ScaleSmooth = 10f;
+        private const float Epsilon = 0.00001f;
 
         private Coroutine _animCor;
+        private volatile float _audioLevel;
+        private volatile float _vowelLevel;
+        private volatile float _consonantLevel;
+        private volatile float _speechPulse;
+        private volatile float _vowelScale;
+        private volatile float _consonantScale;
+        private volatile float _pulseScale;
+        private volatile float _noiseFloor;
+        private volatile float _signalPeak;
+        private float _prevNorm;
+        private float _lastSample;
+        private float _currentScale = 1f;
+        private long _lastAudioReadTicks;
+        private int _hasAudioRead;
 
         #region MonoBehaviour
         private void Start()
         {
             ResetStripeGraphic();
+            SubscribeEvents();
+            _currentScale = baseScale;
+        }
+
+        private void OnDestroy()
+        {
+            UnsubscribeEvents();
+        }
+
+        private void Update()
+        {
+            if (!stripe)
+            {
+                return;
+            }
+
+            bool isPlaying = speakerAudioSource && speakerAudioSource.IsPlaying;
+            bool hasRecentAudio = IsAudioRecent();
+
+            if (!isPlaying || !hasRecentAudio)
+            {
+                _audioLevel = 0f;
+                _vowelLevel = 0f;
+                _consonantLevel = 0f;
+                _speechPulse = 0f;
+                _noiseFloor = 0f;
+                _signalPeak = 0f;
+                _prevNorm = 0f;
+                _lastSample = 0f;
+            }
+
+            float vowel = Mathf.Sqrt(Mathf.Max(0f, _vowelLevel));
+            float consonant = Mathf.Sqrt(Mathf.Max(0f, _consonantLevel));
+            float targetScale = (isPlaying && hasRecentAudio)
+                ? Mathf.Clamp(baseScale + (_vowelScale * vowel) + (_consonantScale * consonant) + (_pulseScale * _speechPulse), baseScale, maxScale)
+                : baseScale;
+            _currentScale = Mathf.Lerp(_currentScale, targetScale, ScaleSmooth * Time.deltaTime);
+            stripe.transform.localScale = new Vector3(_currentScale, _currentScale, 1f);
         }
         #endregion
 
@@ -56,6 +123,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         #region  PrivateMethod
 
+        private void SubscribeEvents()
+        {
+            if (speakerAudioSource)
+            {
+                speakerAudioSource.OnAudioPlaybackRead += SpeakerAudioPlaybackHandler;
+            }
+        }
+
+        private void UnsubscribeEvents()
+        {
+            if (speakerAudioSource)
+            {
+                speakerAudioSource.OnAudioPlaybackRead -= SpeakerAudioPlaybackHandler;
+            }
+        }
 
         private void ResetStripeGraphic()
         {
@@ -85,6 +167,113 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 stripe.perspectiveEuler += Vector3.left * HALF_DEGRESS;
             }
         }
+        #endregion
+
+        #region  Private Methods
+
+        private void SpeakerAudioPlaybackHandler(float[] sample, int channels, int sampleRate)
+        {
+            if (sample == null || sample.Length == 0 || channels <= 0 || sampleRate <= 0)
+            {
+                return;
+            }
+
+            Interlocked.Exchange(ref _lastAudioReadTicks, Stopwatch.GetTimestamp());
+            Interlocked.Exchange(ref _hasAudioRead, 1);
+
+            double sumSquares = 0.0;
+            int zeroCross = 0;
+            int count = sample.Length;
+            float prevSample = _lastSample;
+            for (int i = 0; i < count; i++)
+            {
+                float v = sample[i];
+                sumSquares += v * v;
+
+                if (i > 0 && (v > 0f) != (prevSample > 0f))
+                {
+                    zeroCross++;
+                }
+                prevSample = v;
+            }
+
+            float rms = Mathf.Sqrt((float)(sumSquares / count));
+
+            int frames = Mathf.Max(1, count / channels);
+            float dt = (float)frames / sampleRate;
+
+            if (_noiseFloor <= 0f)
+            {
+                _noiseFloor = rms;
+                _signalPeak = rms + Epsilon;
+            }
+
+            float noiseRiseSec = dt * 30f;
+            float noiseFallSec = dt * 6f;
+            float noiseAlpha = 1f - Mathf.Exp(-dt / (rms > _noiseFloor ? noiseRiseSec : noiseFallSec));
+            _noiseFloor += (rms - _noiseFloor) * noiseAlpha;
+
+            float peakDecaySec = dt * 12f;
+            float peakDecay = Mathf.Exp(-dt / peakDecaySec);
+            _signalPeak = Mathf.Max(rms, _signalPeak * peakDecay);
+
+            float denom = Mathf.Max(Epsilon, _signalPeak - _noiseFloor);
+            float norm = Mathf.Clamp01((rms - _noiseFloor) / denom);
+
+            float attackSec = dt * 2f;
+            float releaseSec = dt * 8f;
+            float envAlpha = 1f - Mathf.Exp(-dt / (norm > _audioLevel ? attackSec : releaseSec));
+            _audioLevel += (norm - _audioLevel) * envAlpha;
+
+            float zcr = count > 1 ? (float)zeroCross / (count - 1) : 0f;
+            float expressiveness = Mathf.Clamp01(speechExpressiveness);
+            float intensity = Mathf.Max(0f, speechIntensity);
+            float zcrMax = Mathf.Lerp(0.1f, 0.22f, expressiveness);
+            float zcrNorm = Mathf.Clamp01(zcr / zcrMax);
+
+            float vowelScale = intensity * Mathf.Lerp(0.55f, 0.35f, expressiveness);
+            float consonantScale = intensity * Mathf.Lerp(0.2f, 0.4f, expressiveness);
+            float pulseScale = intensity * Mathf.Lerp(0.12f, 0.22f, expressiveness);
+            _vowelScale = vowelScale;
+            _consonantScale = consonantScale;
+            _pulseScale = pulseScale;
+
+            float consonantBias = Mathf.Clamp01(zcrNorm * 1.2f);
+            float vowelTarget = norm * (1f - consonantBias);
+            float consonantTarget = norm * consonantBias;
+            float pulseTarget = Mathf.Clamp01(Mathf.Max(0f, norm - _prevNorm) * Mathf.Lerp(2f, 4f, expressiveness));
+
+            float vowelAttack = Mathf.Lerp(0.1f, 0.03f, expressiveness);
+            float vowelRelease = Mathf.Lerp(0.24f, 0.08f, expressiveness);
+            float vowelAlpha = 1f - Mathf.Exp(-dt / (vowelTarget > _vowelLevel ? vowelAttack : vowelRelease));
+            _vowelLevel += (vowelTarget - _vowelLevel) * vowelAlpha;
+
+            float consonantAttack = Mathf.Lerp(0.08f, 0.02f, expressiveness);
+            float consonantRelease = Mathf.Lerp(0.16f, 0.05f, expressiveness);
+            float consonantAlpha = 1f - Mathf.Exp(-dt / (consonantTarget > _consonantLevel ? consonantAttack : consonantRelease));
+            _consonantLevel += (consonantTarget - _consonantLevel) * consonantAlpha;
+
+            float pulseDecay = Mathf.Exp(-dt / Mathf.Lerp(0.14f, 0.05f, expressiveness));
+            _speechPulse = Mathf.Max(pulseTarget, _speechPulse * pulseDecay);
+            _speechPulse = Mathf.Min(1f, _speechPulse);
+
+            _prevNorm = norm;
+            _lastSample = prevSample;
+        }
+
+        private bool IsAudioRecent()
+        {
+            if (Interlocked.CompareExchange(ref _hasAudioRead, 0, 0) == 0)
+            {
+                return false;
+            }
+
+            long nowTicks = Stopwatch.GetTimestamp();
+            long lastTicks = Interlocked.Read(ref _lastAudioReadTicks);
+            double elapsedSec = (nowTicks - lastTicks) / (double)Stopwatch.Frequency;
+            return elapsedSec <= Math.Max(0.0, noAudioResetDelay);
+        }
+
         #endregion
 
 

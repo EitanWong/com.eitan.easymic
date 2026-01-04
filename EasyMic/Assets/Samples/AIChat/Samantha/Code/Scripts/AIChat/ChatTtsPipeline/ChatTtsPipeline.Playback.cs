@@ -2,12 +2,91 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using Debug = UnityEngine.Debug;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     internal sealed partial class ChatTtsPipeline
     {
+        private struct PlaybackSink
+        {
+            public PlaybackHandle Handle;
+            public PlaybackAudioSourceBehaviour Behaviour;
+            public bool UseBehaviour;
+
+            public bool IsValid => UseBehaviour ? Behaviour != null : Handle.IsValid;
+
+            public double BufferedSeconds => UseBehaviour ? Behaviour.BufferedSeconds : Handle.BufferedSeconds;
+
+            public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
+            {
+                if (UseBehaviour)
+                {
+                    Behaviour.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+                }
+                else
+                {
+                    Handle.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+                }
+            }
+
+            public void CompleteStream()
+            {
+                if (UseBehaviour)
+                {
+                    Behaviour.CompleteStream();
+                }
+                else
+                {
+                    Handle.CompleteStream();
+                }
+            }
+
+            public void Stop()
+            {
+                if (UseBehaviour)
+                {
+                    Behaviour.Stop();
+                }
+                else
+                {
+                    Handle.Stop();
+                }
+            }
+
+            public void Dispose()
+            {
+                if (!UseBehaviour && Handle.IsValid)
+                {
+                    Handle.Dispose();
+                }
+            }
+        }
+
+        private void ConfigurePlayback(TtsPipelineConfig config)
+        {
+            lock (_playbackLock)
+            {
+                _playbackSource = config.PlaybackSource;
+                DisposePlaybackUnsafe();
+            }
+
+            if (_playbackSource == null)
+            {
+                return;
+            }
+
+            if (_mainThreadDispatcher != null)
+            {
+                _mainThreadDispatcher(() => PreparePlaybackSource(_playbackSource));
+            }
+            else
+            {
+                PreparePlaybackSource(_playbackSource);
+            }
+        }
+
         private async Task RunPlaybackWorkerAsync(long sessionId, CancellationToken token)
         {
             int stagnantCycles = 0;
@@ -37,6 +116,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             Debug.LogWarning($"[ParallelTtsPipeline] Skipping failed job: {job.Error?.Message}");
                         }
 
+                        ReleaseInFlightSentence(job.Sentence);
                         SafeInvoke(() => OnSentenceCompleted?.Invoke(job.Sentence));
                     }
                     else
@@ -75,22 +155,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async Task PlayJobAudioAsync(long sessionId, TtsJob job, CancellationToken token)
         {
-            var handle = EnsurePlaybackHandle(sessionId);
-            if (!handle.IsValid)
+            var sink = EnsurePlaybackHandle(sessionId);
+            if (!sink.IsValid)
             {
                 Debug.LogWarning("[ParallelTtsPipeline] Invalid playback handle, skipping audio");
                 return;
             }
 
-            handle.Enqueue(job.AudioSamples, job.AudioSamples.Length, job.Channels, job.SampleRate, false);
+            sink.Enqueue(job.AudioSamples, job.AudioSamples.Length, job.Channels, job.SampleRate, false);
 
             await WaitForBufferDrainAsync(sessionId, token).ConfigureAwait(false);
         }
 
         private async Task PlayStreamingJobAsync(long sessionId, TtsJob job, CancellationToken token)
         {
-            var handle = EnsurePlaybackHandle(sessionId);
-            if (!handle.IsValid)
+            var sink = EnsurePlaybackHandle(sessionId);
+            if (!sink.IsValid)
             {
                 Debug.LogWarning("[ParallelTtsPipeline] Invalid playback handle for streaming audio, skipping.");
                 return;
@@ -112,8 +192,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (job.TryDequeueStreamChunk(out var samples))
                 {
-                    await WaitForBufferBudgetAsync(handle, bufferBudget, token).ConfigureAwait(false);
-                    handle.Enqueue(samples, samples.Length, channels, sampleRate, false);
+                    await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
+                    sink.Enqueue(samples, samples.Length, channels, sampleRate, false);
                     idleCycles = 0;
                     continue;
                 }
@@ -143,25 +223,53 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             await WaitForBufferDrainAsync(sessionId, token).ConfigureAwait(false);
         }
 
-        private PlaybackHandle EnsurePlaybackHandle(long sessionId)
+        private PlaybackSink EnsurePlaybackHandle(long sessionId)
         {
             lock (_playbackLock)
             {
-                if (_playbackInitialized && _playbackHandle.IsValid && _playbackSessionId == sessionId)
+                if (_playbackInitialized && _playbackSink.IsValid && _playbackSessionId == sessionId)
                 {
-                    return _playbackHandle;
+                    return _playbackSink;
                 }
 
                 DisposePlaybackUnsafe();
 
                 try
                 {
-                    float volume = _config.PlaybackVolume > 0 ? _config.PlaybackVolume : 1f;
-                    _playbackHandle = AudioPlayback.CreateStream(volume: volume);
-                    _playbackInitialized = _playbackHandle.IsValid;
+                    if (_playbackSource != null)
+                    {
+                        if (_mainThreadDispatcher != null)
+                        {
+                            _mainThreadDispatcher(() => PreparePlaybackSource(_playbackSource));
+                        }
+                        else
+                        {
+                            PreparePlaybackSource(_playbackSource);
+                        }
+
+                        _playbackSink = new PlaybackSink
+                        {
+                            Behaviour = _playbackSource,
+                            Handle = default,
+                            UseBehaviour = true
+                        };
+                    }
+                    else
+                    {
+                        float volume = _config.PlaybackVolume > 0 ? _config.PlaybackVolume : 1f;
+                        var handle = AudioPlayback.CreateStream(volume: volume);
+                        _playbackSink = new PlaybackSink
+                        {
+                            Behaviour = null,
+                            Handle = handle,
+                            UseBehaviour = false
+                        };
+                    }
+
+                    _playbackInitialized = _playbackSink.IsValid;
                     _playbackSessionId = sessionId;
 
-                    if (!_playbackHandle.IsValid)
+                    if (!_playbackSink.IsValid)
                     {
                         Debug.LogError("[ParallelTtsPipeline] Failed to create valid playback stream");
                     }
@@ -169,11 +277,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 catch (System.Exception ex)
                 {
                     Debug.LogError($"[ParallelTtsPipeline] Playback creation failed: {ex.Message}");
-                    _playbackHandle = default;
+                    _playbackSink = default;
                     _playbackInitialized = false;
                 }
 
-                return _playbackHandle;
+                return _playbackSink;
+            }
+        }
+
+        private static void PreparePlaybackSource(PlaybackAudioSourceBehaviour source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            source.Loop = false;
+            if (!source.IsPlaying)
+            {
+                source.Play();
             }
         }
 
@@ -185,22 +307,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             while (!token.IsCancellationRequested)
             {
-                PlaybackHandle handle;
                 lock (_playbackLock)
                 {
                     if (_playbackSessionId != sessionId || !_playbackInitialized)
                     {
                         break;
                     }
-                    handle = _playbackHandle;
                 }
 
-                if (!handle.IsValid)
+                if (!_playbackSink.IsValid)
                 {
                     break;
                 }
 
-                double buffered = handle.BufferedSeconds;
+                double buffered = _playbackSink.BufferedSeconds;
                 SafeInvoke(() => OnBufferProgress?.Invoke((float)buffered));
 
                 if (buffered <= PlaybackDrainEpsilon)
@@ -234,16 +354,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private async Task WaitForBufferBudgetAsync(PlaybackHandle handle, double budgetSeconds, CancellationToken token)
+        private async Task WaitForBufferBudgetAsync(PlaybackSink sink, double budgetSeconds, CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
-                if (!handle.IsValid)
+                if (!sink.IsValid)
                 {
                     break;
                 }
 
-                if (handle.BufferedSeconds <= budgetSeconds)
+                if (sink.BufferedSeconds <= budgetSeconds)
                 {
                     break;
                 }
@@ -270,9 +390,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 try
                 {
-                    if (_playbackHandle.IsValid)
+                    if (_playbackSink.IsValid)
                     {
-                        _playbackHandle.CompleteStream();
+                        _playbackSink.CompleteStream();
                     }
                 }
                 catch (System.Exception ex)
@@ -293,19 +413,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
-                if (_playbackHandle.IsValid)
-                {
-                    _playbackHandle.Stop();
-                    _playbackHandle.CompleteStream();
-                    _playbackHandle.Dispose();
-                }
+                _playbackSink.Stop();
+                _playbackSink.CompleteStream();
+                _playbackSink.Dispose();
             }
             catch (System.Exception ex)
             {
                 Debug.LogWarning($"[ParallelTtsPipeline] Dispose playback error: {ex.Message}");
             }
 
-            _playbackHandle = default;
+            _playbackSink = default;
             _playbackInitialized = false;
             _playbackSessionId = -1;
         }

@@ -7,6 +7,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     internal sealed partial class ChatTtsPipeline
     {
+        private enum StreamTtsResult
+        {
+            None,
+            Streamed,
+            BufferedComplete
+        }
+
         private async Task RunGenerationWorkerAsync(long sessionId, CancellationToken token)
         {
             while (!token.IsCancellationRequested)
@@ -101,10 +108,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (_config.EnableStreamingTts)
                 {
-                    bool streamed = await TryStreamTtsForJobAsync(job, client, request, token).ConfigureAwait(false);
-                    if (streamed)
+                    StreamTtsResult streamed = await TryStreamTtsForJobAsync(job, client, request, token).ConfigureAwait(false);
+                    if (streamed == StreamTtsResult.Streamed)
                     {
                         return false;
+                    }
+
+                    if (streamed == StreamTtsResult.BufferedComplete)
+                    {
+                        return true;
                     }
                 }
 
@@ -140,13 +152,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private async Task<bool> TryStreamTtsForJobAsync(
+        private async Task<StreamTtsResult> TryStreamTtsForJobAsync(
             TtsJob job,
             OpenAICompatibleClient client,
             OpenAITtsRequest request,
             CancellationToken token)
         {
             bool started = false;
+            var buffered = new System.IO.MemoryStream();
+            byte[] lastChunk = null;
 
             int expectedChannels = RemoteDefaultChannels;
             int expectedSampleRate = request.SampleRate > 0 ? request.SampleRate : RemoteDefaultSampleRate;
@@ -163,8 +177,40 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         continue;
                     }
 
+                    var currentChunk = chunk;
+
+                    if (lastChunk != null)
+                    {
+                        int overlap = FindOverlapLength(lastChunk, currentChunk);
+                        int frameBytes = 2 * Math.Max(1, expectedChannels);
+                        if (frameBytes > 1)
+                        {
+                            overlap = (overlap / frameBytes) * frameBytes;
+                        }
+                        if (overlap == currentChunk.Length)
+                        {
+                            lastChunk = chunk;
+                            continue;
+                        }
+
+                        if (overlap > 0)
+                        {
+                            int deltaLength = currentChunk.Length - overlap;
+                            var delta = new byte[deltaLength];
+                            Buffer.BlockCopy(currentChunk, overlap, delta, 0, deltaLength);
+                            currentChunk = delta;
+                        }
+                    }
+
+                    lastChunk = chunk;
+
+                    if (!started)
+                    {
+                        buffered.Write(currentChunk, 0, currentChunk.Length);
+                    }
+
                     if (!TryDecodeAudioPayloadStreaming(
-                        chunk,
+                        currentChunk,
                         expectedChannels,
                         expectedSampleRate,
                         ref remainder,
@@ -190,11 +236,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (!started)
                 {
-                    return false;
+                    if (buffered.Length > 0)
+                    {
+                        byte[] payload = buffered.ToArray();
+                        if (TryDecodeAudioPayload(payload, expectedChannels, expectedSampleRate, out var samples, out int channels, out int sampleRate))
+                        {
+                            job.MarkComplete(samples, channels, sampleRate);
+                            return StreamTtsResult.BufferedComplete;
+                        }
+                    }
+
+                    return StreamTtsResult.None;
                 }
 
                 job.MarkStreamingCompleted();
-                return true;
+                return StreamTtsResult.Streamed;
             }
             catch (OperationCanceledException)
             {
@@ -207,14 +263,51 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (!started)
                 {
-                    return false;
+                    return StreamTtsResult.None;
                 }
 
                 job.MarkFailed(ex);
                 job.MarkStreamingCompleted();
                 RegisterStreamingJob(job);
-                return true;
+                return StreamTtsResult.Streamed;
             }
+            finally
+            {
+                buffered.Dispose();
+            }
+        }
+
+        private static int FindOverlapLength(byte[] previous, byte[] current)
+        {
+            if (previous == null || current == null)
+            {
+                return 0;
+            }
+
+            int max = Math.Min(previous.Length, current.Length);
+            for (int len = max; len > 0; len--)
+            {
+                if (SuffixEquals(previous, current, len))
+                {
+                    return len;
+                }
+            }
+
+            return 0;
+        }
+
+        private static bool SuffixEquals(byte[] previous, byte[] current, int length)
+        {
+            int start = previous.Length - length;
+            for (int i = 0; i < length; i++)
+            {
+                if (previous[start + i] != current[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private void RegisterStreamingJob(TtsJob job)

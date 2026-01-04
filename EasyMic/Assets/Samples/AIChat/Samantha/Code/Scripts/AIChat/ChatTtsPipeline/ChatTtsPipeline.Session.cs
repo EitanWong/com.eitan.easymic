@@ -45,6 +45,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 playbackTask = RunPlaybackWorkerAsync(sessionId, token);
 
                 int parallelism = _resourceMonitor.CurrentParallelism;
+                if (!_config.UseLocalTts)
+                {
+                    parallelism = 1;
+                }
+
                 for (int i = 0; i < parallelism; i++)
                 {
                     generationTasks.Add(RunGenerationWorkerAsync(sessionId, token));
@@ -61,6 +66,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     _resourceMonitor.AdjustBasedOnLoad();
                     int targetParallelism = _resourceMonitor.CurrentParallelism;
+                    if (!_config.UseLocalTts)
+                    {
+                        targetParallelism = 1;
+                    }
 
                     generationTasks.RemoveAll(t => t.IsCompleted);
 

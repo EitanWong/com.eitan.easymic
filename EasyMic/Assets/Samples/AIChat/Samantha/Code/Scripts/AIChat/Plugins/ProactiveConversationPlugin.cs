@@ -1,9 +1,15 @@
+using System;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public sealed class ProactiveConversationPlugin : MonoBehaviour, IAIChatPlugin, IAIChatLifecycleListener
     {
+        private static readonly Stopwatch s_clock = Stopwatch.StartNew();
+        private static readonly object s_randomLock = new object();
+        private static readonly System.Random s_random = new System.Random();
+
         [Header("General")]
         [SerializeField]
         private bool _enabled = true;
@@ -47,7 +53,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _lastProactiveTime = -9999f;
             if (_context != null && _context.IsChatActive && _sendGreetingOnReady)
             {
-                _scheduledGreetingTime = Time.realtimeSinceStartup + Mathf.Max(0f, _greetingDelaySeconds);
+                _scheduledGreetingTime = NowSeconds() + Mathf.Max(0f, _greetingDelaySeconds);
             }
             _lastRequestWasProactive = false;
             _currentWaitSeconds = GetNextWaitSeconds();
@@ -62,7 +68,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            float now = Time.realtimeSinceStartup;
+            float now = NowSeconds();
 
             bool isSpeaking = _context.IsUserSpeaking;
             if (isSpeaking)
@@ -138,7 +144,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 float delay = Mathf.Max(0f, _greetingDelaySeconds);
                 delay += Mathf.Max(0f, _context != null ? _context.MicStartupDelaySeconds : 0f);
-                _scheduledGreetingTime = Time.realtimeSinceStartup + delay;
+                _scheduledGreetingTime = NowSeconds() + delay;
             }
         }
 
@@ -180,6 +186,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void OnIdleStateChanged(bool isIdle)
         {
+            if (isIdle)
+            {
+                float now = NowSeconds();
+                _lastProactiveTime = now;
+                _currentWaitSeconds = GetNextWaitSeconds();
+            }
+        }
+
+        private static float NowSeconds()
+        {
+            return (float)s_clock.Elapsed.TotalSeconds;
         }
 
         private float GetActiveWaitSeconds()
@@ -191,7 +208,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             float min = Mathf.Max(0f, _minProactiveWaitSeconds);
             float max = Mathf.Max(min, _maxProactiveWaitSeconds);
-            float random = Random.Range(min, max);
+            float random = NextFloat(min, max);
             return Clamp(random, min, max);
         }
 
@@ -214,6 +231,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private string GetGreetingPrompt()
         {
             return _greetingPrompts != null ? _greetingPrompts.GetRandomText() : string.Empty;
+        }
+
+        private static float NextFloat(float min, float max)
+        {
+            if (max <= min)
+            {
+                return min;
+            }
+
+            lock (s_randomLock)
+            {
+                return (float)(s_random.NextDouble() * (max - min) + min);
+            }
         }
 
         private void HandleUserSpeakingStart(float now)

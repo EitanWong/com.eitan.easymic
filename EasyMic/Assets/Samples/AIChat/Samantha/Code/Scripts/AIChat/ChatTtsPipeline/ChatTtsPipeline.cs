@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -30,6 +32,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly object _sessionLock = new object();
         private readonly object _playbackLock = new object();
         private readonly object _stateLock = new object();
+        private readonly object _inFlightLock = new object();
+        private readonly HashSet<string> _inFlightSentences = new HashSet<string>(StringComparer.Ordinal);
+        private Action<Action> _mainThreadDispatcher;
 
         private TtsPipelineConfig _config;
         private double _targetBufferedSeconds;
@@ -41,7 +46,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private volatile bool _disposed;
         private volatile bool _isSpeaking;
 
-        private PlaybackHandle _playbackHandle;
+        private PlaybackSink _playbackSink;
+        private PlaybackAudioSourceBehaviour _playbackSource;
         private bool _playbackInitialized;
         private long _playbackSessionId;
 
@@ -81,6 +87,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 DetachLocalSynthCallbacks();
 
                 _config = config;
+                _mainThreadDispatcher = config.MainThreadDispatcher;
+                ConfigurePlayback(config);
 
                 if (config.MaxParallelGenerations > 0)
                 {
@@ -118,6 +126,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (_pendingJobs.Count >= MaxQueuedJobs)
             {
                 Debug.LogWarning("[ParallelTtsPipeline] Queue full, dropping sentence.");
+                return;
+            }
+
+            if (!TryRegisterInFlightSentence(trimmed))
+            {
                 return;
             }
 

@@ -33,6 +33,35 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        private string NormalizeStreamingChunkLocked(string chunk)
+        {
+            if (string.IsNullOrEmpty(chunk))
+            {
+                return string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(_streamedResponseSnapshot))
+            {
+                _streamedResponseSnapshot = chunk;
+                return chunk;
+            }
+
+            if (chunk.StartsWith(_streamedResponseSnapshot, System.StringComparison.Ordinal))
+            {
+                string delta = chunk.Substring(_streamedResponseSnapshot.Length);
+                _streamedResponseSnapshot = chunk;
+                return delta;
+            }
+
+            if (_streamedResponseSnapshot.EndsWith(chunk, System.StringComparison.Ordinal))
+            {
+                return string.Empty;
+            }
+
+            _streamedResponseSnapshot += chunk;
+            return chunk;
+        }
+
         private string GetCleanedResponse()
         {
             return CleanText(GetRawResponse());
