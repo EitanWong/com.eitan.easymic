@@ -1,11 +1,81 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
+using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     internal sealed partial class ChatTtsPipeline
     {
+        private const int WavHeaderSize = 44;
+
+        private void CacheMainThreadContext()
+        {
+            var context = SynchronizationContext.Current;
+            if (context != null)
+            {
+                _mainThreadContext = context;
+                _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+                return;
+            }
+
+            if (_mainThreadId == 0)
+            {
+                _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+            }
+        }
+
+        private bool IsMainThread
+        {
+            get
+            {
+                if (_mainThreadContext != null)
+                {
+                    return SynchronizationContext.Current == _mainThreadContext;
+                }
+
+                return _mainThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _mainThreadId;
+            }
+        }
+
+        private void DispatchToMainThread(Action action, bool waitForCompletion)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            if (_mainThreadDispatcher == null)
+            {
+                action();
+                return;
+            }
+
+            if (!waitForCompletion || IsMainThread)
+            {
+                _mainThreadDispatcher(action);
+                return;
+            }
+
+            using (var completed = new ManualResetEventSlim(false))
+            {
+                _mainThreadDispatcher(() =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    finally
+                    {
+                        completed.Set();
+                    }
+                });
+
+                completed.Wait();
+            }
+        }
+
         private void ClearQueues()
         {
             while (_pendingJobs.TryDequeue(out _)) { }
@@ -352,6 +422,101 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             return true;
+        }
+
+        private void TrySaveTtsWav(TtsJob job, float[] samples, int channels, int sampleRate)
+        {
+            if (!_config.EnableDiagnostics || samples == null || samples.Length == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                string rootBase = string.IsNullOrWhiteSpace(_projectRootPath)
+                    ? Environment.CurrentDirectory
+                    : _projectRootPath;
+                string root = Path.Combine(rootBase, "TtsDiagnostics");
+                Directory.CreateDirectory(root);
+
+                string safeSentence = MakeSafeFileName(job?.Sentence, 48);
+                string fileName = $"tts_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_seq{job?.SequenceNumber ?? 0}_{safeSentence}.wav";
+                string path = Path.Combine(root, fileName);
+
+                WriteWav(path, samples, channels, sampleRate);
+                UnityEngine.Debug.Log($"[TTS][Diag] Saved WAV: {path}");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning($"[TTS][Diag] Failed to save WAV: {ex.Message}");
+            }
+        }
+
+        private static void WriteWav(string path, float[] samples, int channels, int sampleRate)
+        {
+            channels = Math.Max(1, channels);
+            sampleRate = Math.Max(8000, sampleRate);
+
+            int totalSamples = samples.Length;
+            int dataSize = totalSamples * 2;
+            int fileSize = WavHeaderSize + dataSize - 8;
+
+            using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            using var writer = new BinaryWriter(stream);
+
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(fileSize);
+            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+            writer.Write(Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)channels);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channels * 2);
+            writer.Write((short)(channels * 2));
+            writer.Write((short)16);
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataSize);
+
+            for (int i = 0; i < totalSamples; i++)
+            {
+                float clamped = Mathf.Clamp(samples[i], -1f, 1f);
+                short value = (short)Mathf.RoundToInt(clamped * 32767f);
+                writer.Write(value);
+            }
+        }
+
+        private static string MakeSafeFileName(string input, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return "empty";
+            }
+
+            var builder = new StringBuilder(input.Length);
+            foreach (char c in input)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
+                {
+                    builder.Append(c);
+                }
+                else if (char.IsWhiteSpace(c))
+                {
+                    builder.Append('_');
+                }
+            }
+
+            if (builder.Length == 0)
+            {
+                return "text";
+            }
+
+            if (builder.Length > maxLength)
+            {
+                builder.Length = maxLength;
+            }
+
+            return builder.ToString();
         }
 
     }

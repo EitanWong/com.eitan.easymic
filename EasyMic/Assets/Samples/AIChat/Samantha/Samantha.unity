@@ -551,9 +551,10 @@ MonoBehaviour:
     MaxHistoryTurns: 6
     UseLocalTts: 0
     TtsModel: FunAudioLLM/CosyVoice2-0.5B
-    TtsVoice: speech:Samantha:cm17p9u4u00d0ejhoz6300irm:itdbtzhnnbngfahhvdba
+    TtsVoice: speech:Samantha:cm17p9u4u00d0ejhoz6300irm:dfugmmzghrkkahkofjjr
     UseStreamingTts: 1
     StreamingPlaybackBufferSeconds: 0.18
+    EnableTtsDiagnostics: 0
     InterruptAssistantOnUserSpeech: 1
     MicStartupDelay: 13
   _pluginBehaviours: []

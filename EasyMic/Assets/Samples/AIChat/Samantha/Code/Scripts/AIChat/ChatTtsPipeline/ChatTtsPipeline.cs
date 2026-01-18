@@ -35,9 +35,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly object _inFlightLock = new object();
         private readonly HashSet<string> _inFlightSentences = new HashSet<string>(StringComparer.Ordinal);
         private Action<Action> _mainThreadDispatcher;
+        private SynchronizationContext _mainThreadContext;
+        private int _mainThreadId;
 
         private TtsPipelineConfig _config;
         private double _targetBufferedSeconds;
+        private string _projectRootPath;
         private CancellationTokenSource _sessionCts;
         private Task _orchestratorTask = Task.CompletedTask;
         private long _sessionId;
@@ -88,6 +91,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 _config = config;
                 _mainThreadDispatcher = config.MainThreadDispatcher;
+                CacheMainThreadContext();
+                CacheProjectRootPath();
                 ConfigurePlayback(config);
 
                 if (config.MaxParallelGenerations > 0)
@@ -101,6 +106,28 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 _targetBufferedSeconds = Mathf.Clamp(config.StreamingBufferSeconds, 0.05f, 0.4f);
+            }
+        }
+
+        private void CacheProjectRootPath()
+        {
+            if (!string.IsNullOrEmpty(_projectRootPath))
+            {
+                return;
+            }
+
+            try
+            {
+                _projectRootPath = System.IO.Directory.GetParent(UnityEngine.Application.dataPath)?.FullName;
+            }
+            catch
+            {
+                _projectRootPath = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(_projectRootPath))
+            {
+                _projectRootPath = System.Environment.CurrentDirectory;
             }
         }
 

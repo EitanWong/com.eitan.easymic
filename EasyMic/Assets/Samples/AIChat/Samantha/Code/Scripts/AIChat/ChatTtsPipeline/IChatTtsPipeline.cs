@@ -39,6 +39,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public bool EnableStreamingTts;
         public float StreamingBufferSeconds;
         public bool LogSentences;
+        public bool EnableDiagnostics;
         public int MaxParallelGenerations;
         public float PlaybackVolume;
         public Action<Action> MainThreadDispatcher;

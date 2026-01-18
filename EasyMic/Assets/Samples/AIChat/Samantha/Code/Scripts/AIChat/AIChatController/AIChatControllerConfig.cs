@@ -33,6 +33,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public string TtsVoice = "alloy";
         public bool UseStreamingTts = true;
         [Range(0.05f, 0.4f)] public float StreamingPlaybackBufferSeconds = 0.18f;
+        public bool EnableTtsDiagnostics = false;
 
         [Header("Experience")]
         public bool InterruptAssistantOnUserSpeech = true;

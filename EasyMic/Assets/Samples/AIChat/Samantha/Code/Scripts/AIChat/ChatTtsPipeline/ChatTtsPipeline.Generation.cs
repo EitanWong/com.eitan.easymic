@@ -133,6 +133,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 job.MarkComplete(samples, channels, sampleRate);
+                TrySaveTtsWav(job, samples, channels, sampleRate);
 
                 if (_config.LogSentences)
                 {
@@ -242,6 +243,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         if (TryDecodeAudioPayload(payload, expectedChannels, expectedSampleRate, out var samples, out int channels, out int sampleRate))
                         {
                             job.MarkComplete(samples, channels, sampleRate);
+                            TrySaveTtsWav(job, samples, channels, sampleRate);
                             return StreamTtsResult.BufferedComplete;
                         }
                     }

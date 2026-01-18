@@ -39,6 +39,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public bool ForceChatCompletions { get; set; } = false;
 
         /// <summary>
+        /// 是否保存 TTS 请求 payload 调试文件
+        /// </summary>
+        public bool EnableTtsDiagnostics { get; set; } = false;
+
+        /// <summary>
         /// 是否已知服务器不支持 Responses API（运行时自动检测）
         /// </summary>
         private bool _responsesApiNotSupported = false;
@@ -656,6 +661,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return Array.Empty<byte>();
             }
 
+            TryDumpTtsPayload(request);
 
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
             httpRequest.Headers.Accept.Clear();
@@ -687,8 +693,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 yield break;
             }
 
-
             request.stream = true;
+            TryDumpTtsPayload(request);
 
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
             httpRequest.Headers.Accept.Clear();
@@ -725,6 +731,55 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public void Dispose()
         {
             _httpClient?.Dispose();
+        }
+
+        private void TryDumpTtsPayload(OpenAITtsRequest request)
+        {
+            if (!EnableTtsDiagnostics)
+            {
+                return;
+            }
+
+            try
+            {
+                string projectRoot = ResolveProjectRoot();
+                string root = Path.Combine(projectRoot, "TtsDiagnostics");
+                Directory.CreateDirectory(root);
+
+                string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff");
+                string filePath = Path.Combine(root, $"tts_payload_{timestamp}.json");
+                File.WriteAllText(filePath, _providerAdapter.BuildTtsPayload(request), Encoding.UTF8);
+
+                string metaPath = Path.Combine(root, $"tts_payload_{timestamp}.meta.txt");
+                string endpoint = new Uri(_httpClient.BaseAddress, _ttsEndpoint).ToString();
+                File.WriteAllText(metaPath, $"endpoint: {endpoint}", Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[TTS][Diag] Failed to save payload: {ex.Message}");
+            }
+        }
+
+        private static string ResolveProjectRoot()
+        {
+            string current = Environment.CurrentDirectory;
+            string dir = current;
+            for (int i = 0; i < 5; i++)
+            {
+                if (string.IsNullOrEmpty(dir))
+                {
+                    break;
+                }
+
+                if (Directory.Exists(Path.Combine(dir, "Assets")))
+                {
+                    return dir;
+                }
+
+                dir = Directory.GetParent(dir)?.FullName;
+            }
+
+            return current;
         }
     }
 

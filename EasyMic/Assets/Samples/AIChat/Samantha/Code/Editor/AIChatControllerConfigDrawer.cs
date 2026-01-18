@@ -76,6 +76,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.TtsModel)), "Remote Model");
                 y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.TtsVoice)), "Remote Voice");
+                var useStreamingProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.UseStreamingTts));
+                y = DrawProperty(position, y, useStreamingProp, "Stream TTS");
+                if (useStreamingProp != null && useStreamingProp.boolValue)
+                {
+                    y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.StreamingPlaybackBufferSeconds)), "Streaming Buffer (s)");
+                }
+                y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.EnableTtsDiagnostics)), "TTS Diagnostics");
             }
             y += SectionSpacing;
 
@@ -167,6 +174,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         // Remote TTS – show remote fields
                         height += AddProp(nameof(AIChatControllerConfig.TtsModel));
                         height += AddProp(nameof(AIChatControllerConfig.TtsVoice));
+                        height += AddProp(nameof(AIChatControllerConfig.UseStreamingTts));
+                        var useStreamingProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.UseStreamingTts));
+                        if (useStreamingProp == null || useStreamingProp.hasMultipleDifferentValues || useStreamingProp.boolValue)
+                        {
+                            height += AddProp(nameof(AIChatControllerConfig.StreamingPlaybackBufferSeconds));
+                        }
+                        height += AddProp(nameof(AIChatControllerConfig.EnableTtsDiagnostics));
                     }
                     break;
 

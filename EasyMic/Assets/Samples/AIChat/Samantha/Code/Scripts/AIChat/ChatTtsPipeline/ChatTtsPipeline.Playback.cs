@@ -77,14 +77,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_mainThreadDispatcher != null)
-            {
-                _mainThreadDispatcher(() => PreparePlaybackSource(_playbackSource));
-            }
-            else
-            {
-                PreparePlaybackSource(_playbackSource);
-            }
+            DispatchToMainThread(() => PreparePlaybackSource(_playbackSource), waitForCompletion: false);
         }
 
         private async Task RunPlaybackWorkerAsync(long sessionId, CancellationToken token)
@@ -238,14 +231,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     if (_playbackSource != null)
                     {
-                        if (_mainThreadDispatcher != null)
-                        {
-                            _mainThreadDispatcher(() => PreparePlaybackSource(_playbackSource));
-                        }
-                        else
-                        {
-                            PreparePlaybackSource(_playbackSource);
-                        }
+                        DispatchToMainThread(() => PreparePlaybackSource(_playbackSource), waitForCompletion: true);
 
                         _playbackSink = new PlaybackSink
                         {

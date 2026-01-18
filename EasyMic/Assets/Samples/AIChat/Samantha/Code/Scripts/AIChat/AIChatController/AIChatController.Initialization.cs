@@ -32,6 +32,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 _openAiClient?.Dispose();
                 _openAiClient = new OpenAICompatibleClient(normalized, Config.ApiKey);
+                _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
             }
             catch (Exception ex)
             {
@@ -155,6 +156,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _ttsPipeline.OnSentenceCompleted += OnTtsSentenceCompleted;
             }
 
+            if (_openAiClient != null)
+            {
+                _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
+            }
+
             var pipelineConfig = new TtsPipelineConfig
             {
                 UseLocalTts = Config.UseLocalTts && SpeechSynthesizer != null,
@@ -166,6 +172,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 EnableStreamingTts = Config.UseStreamingTts,
                 StreamingBufferSeconds = Mathf.Clamp(Config.StreamingPlaybackBufferSeconds, 0.05f, 0.4f),
                 LogSentences = Config.LogStreamingChunks,
+                EnableDiagnostics = Config.EnableTtsDiagnostics,
                 MainThreadDispatcher = PostToUnityThread
             };
 
