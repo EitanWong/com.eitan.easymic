@@ -11,6 +11,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void RefreshSystemPromptCache()
         {
+            var profile = Config.SystemPromptProfile;
+            if (ReferenceEquals(profile, _cachedSystemPromptProfile))
+            {
+                return;
+            }
+
+            _cachedSystemPromptProfile = profile;
             _systemPromptCache = ReadSystemPromptFromProfile();
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -53,6 +54,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public NetworkQualityInfo CurrentNetworkQuality => _networkHandler?.GetCurrentInfo() ?? NetworkQualityInfo.Default;
         public float TimeSinceLastUserActivity => Mathf.Max(0f, Time.realtimeSinceStartup - _lastUserActivityTime);
         public float TimeSinceLastAssistantResponse => Mathf.Max(0f, Time.realtimeSinceStartup - _lastAssistantResponseTime);
+        public float LastLoadingProgress => _lastLoadingProgress;
         public bool HasConversationHistory
         {
             get
@@ -62,6 +64,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return _conversationHistory.Count > 0;
                 }
             }
+        }
+        public string RuntimeConfigPath
+            => Path.Combine(Application.persistentDataPath,
+                string.IsNullOrWhiteSpace(Config.RuntimeConfigFileName) ? "ai_chat_config.json" : Config.RuntimeConfigFileName);
+        public string LastErrorMessage => _lastErrorMessage;
+        public AIChatControllerConfig CurrentConfig => Config;
+
+        public void SetApiKey(string apiKey)
+        {
+            Config.SetApiKeyOverride(apiKey);
+            InitializeOpenAiClient();
+            EnsureTtsPipelineConfigured();
         }
         #endregion
 
@@ -89,6 +103,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly StringBuilder _userInputBuffer = new StringBuilder(256);
         private readonly List<OpenAIChatMessage> _conversationHistory = new List<OpenAIChatMessage>();
         private string _streamedResponseSnapshot = string.Empty;
+        private string _lastErrorMessage = string.Empty;
 
         private StreamingSentenceAssembler _sentenceAssembler;
         private NetworkAdaptiveHandler _networkHandler;
@@ -101,13 +116,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private volatile bool _isAssistantSpeaking;
         private volatile bool _isChatActive;
         private volatile bool _initialized;
+        private volatile bool _initializationFailed;
         private volatile bool _lastIdleState;
+        private volatile float _lastLoadingProgress;
         private bool _localTtsCallbacksRegistered;
         private bool _conversationStarted;
         private volatile float _lastMainThreadTime;
         private int _unityThreadId;
         private SynchronizationContext _unityContext;
         private string _systemPromptCache = string.Empty;
+        private PromptProfile _cachedSystemPromptProfile;
 
         private int _totalRequestCount;
         private int _failedRequestCount;
@@ -123,10 +141,35 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             CaptureUnityThreadContext();
             InitializeComponents();
+            if (_initializationFailed)
+            {
+                return;
+            }
+            LoadRuntimeConfigIfNeeded();
+            if (_initializationFailed)
+            {
+                return;
+            }
             InitializeOpenAiClient();
+            if (_initializationFailed)
+            {
+                return;
+            }
             InitializeMicrophone();
+            if (_initializationFailed)
+            {
+                return;
+            }
             InitializeSpeechSynthesizer();
+            if (_initializationFailed)
+            {
+                return;
+            }
             EnsureTtsPipelineConfigured();
+            if (_initializationFailed)
+            {
+                return;
+            }
             _lastMainThreadTime = Time.realtimeSinceStartup;
             _lastUserActivityTime = _lastMainThreadTime;
             _lastAssistantResponseTime = _lastMainThreadTime;
@@ -138,6 +181,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void Update()
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             UpdateIdleState();
             _lastMainThreadTime = Time.realtimeSinceStartup;
             RefreshSystemPromptCache();

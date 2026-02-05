@@ -14,6 +14,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _fetchLatestManifest: 1
   _autoDownloadModels: 1
+  _autoDeleteCorruptedModels: 1
   _githubProxyUrl: 
   _checksumCacheDirectory: 
   _checksumCacheTtlSeconds: 3600
+  _loggingEnabled: 0
+  _loggingLevel: 3
+  _traceWithStacks: 1

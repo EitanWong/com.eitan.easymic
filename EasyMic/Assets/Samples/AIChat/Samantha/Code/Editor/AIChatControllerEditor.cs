@@ -65,12 +65,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 EditorGUILayout.HelpBox("API Base URL is empty. LLM and remote TTS calls will fail.", MessageType.Error);
             }
-
-            string apiKey = GetConfigString(nameof(AIChatControllerConfig.ApiKey));
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                EditorGUILayout.HelpBox("API Key is empty. Requests may be rejected unless the endpoint allows anonymous access.", MessageType.Warning);
-            }
         }
 
         private SerializedProperty FindConfigProperty(string relativePath)

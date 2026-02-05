@@ -8,9 +8,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         private void OnMicrophoneInitializedHandler(bool initialized)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             var mic = Microphone;
             if (!initialized || mic == null)
             {
+                if (!initialized)
+                {
+                    ReportError("Microphone initialization failed.");
+                }
                 return;
             }
 
@@ -32,6 +41,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnMicrophoneLoadingProgressFeedbackHandler(string message, float progress)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             UpdateServiceLoading(SERVICE_ASR_INIT_KEY, progress);
         }
 
@@ -47,7 +61,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Debug.Log($"[AIChat][ASR] Streaming: {preview}");
             }
 
-            OnChatStateChanged?.Invoke(ChatState.UserInput, preview);
+            NotifyChatStateChanged(ChatState.UserInput, preview);
         }
 
         private void OnAsrSubmitHandler(string utterance)
@@ -80,7 +94,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 Debug.Log($"[AIChat][ASR] Submit: {finalSubmit}");
             }
-            OnChatStateChanged?.Invoke(ChatState.UserInput, finalSubmit);
+            NotifyChatStateChanged(ChatState.UserInput, finalSubmit);
             TryDispatchBufferedInput();
         }
 

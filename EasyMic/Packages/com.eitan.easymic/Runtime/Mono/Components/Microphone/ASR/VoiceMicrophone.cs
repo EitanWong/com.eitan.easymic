@@ -115,6 +115,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
         private SherpaONNXFeedbackReporter _feedbackReporter; // Routes Sherpa feedback / 路由Sherpa反馈
         private SherpaServiceFactory _serviceFactory; // Creates Sherpa services / 创建Sherpa服务
         private ModelProgressAggregator _progressAggregator; // Aggregates model load progress / 聚合模型加载进度
+        private string _lastLoadingMessage = string.Empty;
 
         #endregion
 
@@ -187,6 +188,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
         #endregion
 
         #region Properties
+        protected override string LogPrefix => LOG_PREFIX;
 
         public AutomaticSpeechRecognitionConfiguration AsrConfig
         {
@@ -1615,7 +1617,32 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
             }
 
             float progress = _progressAggregator.CalculateProgress();
+            LogLoadingMessage(message, progress);
             InvokeEvent(() => OnLoadingProgressFeedback?.Invoke(message, progress));
+        }
+
+        private void LogLoadingMessage(string message, float progress)
+        {
+            if (!LogEnabled)
+            {
+                return;
+            }
+
+            var trimmed = string.IsNullOrWhiteSpace(message) ? string.Empty : message.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                return;
+            }
+
+            int percent = Mathf.Clamp(Mathf.RoundToInt(progress * 100f), 0, 100);
+            string composed = $"{trimmed} ({percent}%)";
+            if (string.Equals(_lastLoadingMessage, composed, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastLoadingMessage = composed;
+            LogInfo(composed);
         }
 
         #endregion
@@ -2028,7 +2055,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 
         #region Dispose Helpers
 
-        private static void SafeDispose<T>(ref T disposable) where T : class, IDisposable
+        private void SafeDispose<T>(ref T disposable) where T : class, IDisposable
         {
             if (disposable == null)
             {
@@ -2041,7 +2068,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"{LOG_PREFIX} Failed to dispose {typeof(T).Name}: {ex.Message}");
+                LogWarning($"Failed to dispose {typeof(T).Name}: {ex.Message}");
             }
             finally
             {
@@ -2049,7 +2076,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
             }
         }
 
-        private static void UnsubscribeAndDispose<T>(ref T disposable, Action<T> unsubscribe)
+        private void UnsubscribeAndDispose<T>(ref T disposable, Action<T> unsubscribe)
             where T : class, IDisposable
         {
             if (disposable == null)
@@ -2064,7 +2091,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"{LOG_PREFIX} Failed to dispose {typeof(T).Name}: {ex.Message}");
+                LogWarning($"Failed to dispose {typeof(T).Name}: {ex.Message}");
             }
             finally
             {
@@ -2099,14 +2126,6 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
                 LogError($"Event invocation failed: {ex.Message}");
             }
         }
-
-        #endregion
-
-        #region Logging
-
-        private static void LogInfo(string message) => Debug.Log($"{LOG_PREFIX} {message}");
-        private static void LogWarning(string message) => Debug.LogWarning($"{LOG_PREFIX} {message}");
-        private static void LogError(string message) => Debug.LogError($"{LOG_PREFIX} {message}");
 
         #endregion
     }

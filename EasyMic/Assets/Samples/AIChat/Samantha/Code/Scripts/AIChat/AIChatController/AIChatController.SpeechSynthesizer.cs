@@ -4,6 +4,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         private void OnSpeechSynthesizerProgressFeedbackHandler(string message, float progress)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             UpdateServiceLoading(SERVICE_TTS_INIT_KEY, progress);
         }
 

@@ -1,15 +1,16 @@
 {
-    "name": "Eitan.EasyMic.Demo.AIChat.Samantha",
+    "name": "Eitan.EasyMic.Demo.AIChat.Samantha.Editor",
     "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha",
     "references": [
-        "Eitan.EasyMic",
-        "Eitan.EasyMic.Mono",
-        "Unity.TextMeshPro"
+        "Eitan.EasyMic.Demo.AIChat.Samantha",
+        "Eitan.EasyMic.Mono"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": true,
+    "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],

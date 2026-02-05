@@ -82,10 +82,8 @@ _ReSharper.Caches
 artifacts/
 StreamingAssets/
 StreamingAssets.meta
-
-# ====================== #
-# Project Specific Links #
-# ====================== #
+StreamingAssets~/
+StreamingAssets~.meta
 
 # ================== #
 # Custom Exclusions  #
@@ -104,3 +102,5 @@ EasyMic/Packages/com.eitan.sherpa-onnx-unity
 EasyMic/Recordings/
 
 *.blob
+
+EasyMic/TtsDiagnostics/

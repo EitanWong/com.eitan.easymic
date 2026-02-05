@@ -13,6 +13,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         private async void BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(userInput))
             {
                 return;
@@ -26,7 +31,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (_openAiClient == null)
             {
                 Debug.LogWarning("[AIChat] OpenAI client not available.");
-                OnChatStateChanged?.Invoke(ChatState.Failed, "API client not configured");
+                NotifyChatStateChanged(ChatState.Failed, "API client not configured");
                 return;
             }
 
@@ -122,6 +127,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async Task RunChatCompletionAsync(string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
             var stopwatch = Stopwatch.StartNew();
             bool firstChunkReceived = false;
             bool responseSucceeded = false;
@@ -133,7 +143,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 var chatRequest = new OpenAIChatRequest
                 {
                     Model = string.IsNullOrWhiteSpace(Config.LlmModel)
-                        ? "gpt-4o-mini"
+                        ? "gpt-5.2"
                         : Config.LlmModel.Trim(),
                     Stream = true,
                     Temperature = Config.LlmTemperature,
@@ -178,7 +188,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         if (!string.IsNullOrEmpty(normalizedChunk))
                         {
                             ProcessStreamingChunk(normalizedChunk);
-                            OnChatStateChanged?.Invoke(ChatState.AssistantResponseStreaming, normalizedChunk);
+                            NotifyChatStateChanged(ChatState.AssistantResponseStreaming, normalizedChunk);
                         }
                     }
                 }
@@ -196,7 +206,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 MarkAssistantResponse();
-                OnChatStateChanged?.Invoke(ChatState.AssistantResponseFinish, finalResponse);
+                NotifyChatStateChanged(ChatState.AssistantResponseFinish, finalResponse);
                 ExtractAndNotifyWebLinks(GetRawResponse());
                 responseSucceeded = true;
             }
@@ -209,14 +219,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _failedRequestCount++;
                 _networkHandler.RecordTimeout();
                 Debug.LogError($"[AIChat] Request timeout: {ex.Message}");
-                OnChatStateChanged?.Invoke(ChatState.Failed, "Request timeout");
+                NotifyChatStateChanged(ChatState.Failed, "Request timeout");
                 errorMessage = "Request timeout";
             }
             catch (Exception ex)
             {
                 _failedRequestCount++;
+                UnityEngine.Debug.LogError(ex);
                 Debug.LogError($"[AIChat] Chat completion failed: {ex.Message}");
-                OnChatStateChanged?.Invoke(ChatState.Failed, ex.Message);
+                NotifyChatStateChanged(ChatState.Failed, ex.Message);
                 errorMessage = ex.Message;
             }
             finally

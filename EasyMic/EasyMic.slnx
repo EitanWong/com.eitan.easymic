@@ -1,6 +1,6 @@
 ﻿<Solution>
-  <Project Path="Eitan.SherpaONNXUnity.Runtime.Native.csproj" />
   <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.csproj" />
+  <Project Path="Eitan.SherpaONNXUnity.Runtime.Native.csproj" />
   <Project Path="UnityEngine.TestRunner.csproj" />
   <Project Path="UnityEngine.UI.csproj" />
   <Project Path="Eitan.EasyMic.Samples.SherpaONNX.KWS.csproj" />
@@ -8,6 +8,7 @@
   <Project Path="Eitan.EasyMic.csproj" />
   <Project Path="Eitan.SherpaONNXUnity.Runtime.Utilities.Pinyin.csproj" />
   <Project Path="Eitan.EasyMic.Mono.csproj" />
+  <Project Path="Unity.TextMeshPro.csproj" />
   <Project Path="Eitan.EasyMic.Samples.SherpaONNX.ASR.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Eitan.EasyMic.Apm.csproj" />
@@ -18,7 +19,9 @@
   <Project Path="Eitan.EasyMic.Demo.csproj" />
   <Project Path="UnityEditor.TestRunner.csproj" />
   <Project Path="UnityEditor.UI.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.Editor.csproj" />
   <Project Path="Unity.VisualStudio.Editor.csproj" />
+  <Project Path="Unity.TextMeshPro.Editor.csproj" />
   <Project Path="Eitan.SherpaONNXUnity.Editor.csproj" />
   <Project Path="Utilities.BuildPipeline.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Editor.csproj" />

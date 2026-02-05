@@ -2,7 +2,6 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Debug = UnityEngine.Debug;
 using SherpaSpeechSynthesis = Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis;
 
 namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
@@ -15,6 +14,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
         private readonly SpeechSynthesizerConfiguration _config;
         private readonly Action<string> _onStart;
         private readonly Action<string> _onFinish;
+        private readonly Action<string> _logWarning;
+        private readonly Action<string> _logError;
         private readonly SpeechSynthesisResult _result;
 
         public bool IsDone { get; private set; }
@@ -25,6 +26,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
             SpeechSynthesizerConfiguration config,
             Action<string> onStart,
             Action<string> onFinish,
+            Action<string> logWarning,
+            Action<string> logError,
             SpeechSynthesisResult result)
         {
             _originalSentence = sentence;
@@ -32,6 +35,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
             _config = config;
             _onStart = onStart;
             _onFinish = onFinish;
+            _logWarning = logWarning;
+            _logError = logError;
             _result = result;
         }
 
@@ -46,7 +51,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[SpeechSynthesisJob] OnStart callback error: {ex.Message}");
+                _logWarning?.Invoke($"[SpeechSynthesisJob] OnStart callback error: {ex.Message}");
             }
 
             if (string.IsNullOrEmpty(ttsText))
@@ -93,7 +98,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SpeechSynthesisJob] Generation exception: {ex}");
+                _logError?.Invoke($"[SpeechSynthesisJob] Generation exception: {ex}");
                 _result?.MarkFailed(ex);
             }
             finally
@@ -114,7 +119,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[SpeechSynthesisJob] OnFinish callback error: {ex.Message}");
+                    _logWarning?.Invoke($"[SpeechSynthesisJob] OnFinish callback error: {ex.Message}");
                 }
             }
         }

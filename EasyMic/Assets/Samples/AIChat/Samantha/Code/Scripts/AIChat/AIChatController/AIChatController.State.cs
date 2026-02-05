@@ -51,8 +51,67 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             PostToUnityThread(UpdateIdleState);
         }
 
+        private void NotifyChatStateChanged(ChatState state, string message)
+        {
+            if (IsOnUnityThread)
+            {
+                OnChatStateChanged?.Invoke(state, message);
+                return;
+            }
+
+            PostToUnityThread(() => OnChatStateChanged?.Invoke(state, message));
+        }
+
+        private void ReportError(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                message = "Unknown error.";
+            }
+
+            _lastErrorMessage = message;
+            if (!_initializationFailed)
+            {
+                _initializationFailed = true;
+                PostToUnityThread(AbortInitializationOnUnityThread);
+            }
+
+            NotifyChatStateChanged(ChatState.Failed, message);
+        }
+
+        private void AbortInitializationOnUnityThread()
+        {
+            if (!_initializationFailed)
+            {
+                return;
+            }
+
+            TeardownMicrophone();
+            TeardownSpeechSynthesizer();
+            TeardownTtsPipeline();
+
+            if (_openAiClient != null)
+            {
+                _openAiClient.Dispose();
+                _openAiClient = null;
+            }
+
+            _isChatActive = false;
+            _initialized = false;
+        }
+
         private void UpdateServiceLoading(string key, float progress)
         {
+            if (_initializationFailed)
+            {
+                return;
+            }
+
+            if (_serviceLoadingRecord == null)
+            {
+                return;
+            }
+
             _serviceLoadingRecord[key] = progress;
 
             if (_serviceLoadingRecord.Count == 0)
@@ -67,6 +126,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             float overall = total / _serviceLoadingRecord.Count;
+            _lastLoadingProgress = overall;
             OnLoadingCallback?.Invoke(overall);
 
             if (!_initialized && overall >= 1f)

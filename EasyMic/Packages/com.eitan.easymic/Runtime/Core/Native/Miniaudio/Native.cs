@@ -8,13 +8,13 @@ namespace Eitan.EasyMic.Runtime
     {
         // Platform-specific library naming based on your RID folder structure
 #if UNITY_IOS
-    private const string LibraryName = "__Internal";  // iOS uses framework linked statically
+    private const string LibraryName = "miniaudio";   // iOS dynamic framework (use "__Internal" only for static libs)
 #elif UNITY_WEBGL
     private const string LibraryName = "__Internal";  // WebGL uses emscripten linking
 #elif UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
         private const string LibraryName = "miniaudio";   // Windows: miniaudio.dll
 #elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-    private const string LibraryName = "miniaudio";   // macOS: libminiaudio.dylib (Unity handles lib prefix)
+    private const string LibraryName = "libminiaudio";   // macOS IL2CPP needs explicit lib prefix
 #elif UNITY_STANDALONE_LINUX || UNITY_EDITOR_LINUX
     private const string LibraryName = "miniaudio";   // Linux: libminiaudio.so (Unity handles lib prefix)
 #elif UNITY_ANDROID

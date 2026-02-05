@@ -16,9 +16,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public SpeechSynthesizer SpeechSynthesizer;
 
         [Header("LLM Settings")]
-        public string ApiBaseUrl = "http://127.0.0.1:8000/v1/";
-        public string ApiKey = string.Empty;
-        public string LlmModel = "gpt-4o-mini";
+        public string ApiBaseUrl = "https://api.openai.com/v1/";
+        public string LlmModel = "gpt-5.2";
         [Range(0f, 1.5f)] public float LlmTemperature = 0.7f;
         public PromptProfile SystemPromptProfile;
         public bool LogStreamingChunks;
@@ -28,8 +27,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public int MaxHistoryTurns = 6;
 
         [Header("Speech Output")]
-        public bool UseLocalTts = true;
-        public string TtsModel = "gpt-4o-mini-tts";
+        public bool UseLocalTts = false;
+        public string TtsModel = "tts-1";
         public string TtsVoice = "alloy";
         public bool UseStreamingTts = true;
         [Range(0.05f, 0.4f)] public float StreamingPlaybackBufferSeconds = 0.18f;
@@ -40,5 +39,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         [Header("Runtime")]
         public float MicStartupDelay = 1f;
+        public bool LoadRuntimeConfigOnAwake = true;
+        public string RuntimeConfigFileName = "ai_chat_config.json";
+
+        [NonSerialized]
+        private string _apiKeyOverride = string.Empty;
+
+        public void SetApiKeyOverride(string apiKey)
+        {
+            _apiKeyOverride = apiKey ?? string.Empty;
+        }
+
+        public string ResolveApiKey()
+        {
+            if (!string.IsNullOrWhiteSpace(_apiKeyOverride))
+            {
+                return _apiKeyOverride;
+            }
+
+            return string.Empty;
+        }
     }
 }

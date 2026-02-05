@@ -92,8 +92,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
             else
             {
+                string normalizedKey = apiKey.Trim();
+                const string bearerPrefix = "Bearer ";
+                if (normalizedKey.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedKey = normalizedKey.Substring(bearerPrefix.Length).Trim();
+                }
+
                 _httpClient.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", apiKey);
+                    new AuthenticationHeaderValue("Bearer", normalizedKey);
             }
         }
 
@@ -223,6 +230,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 if (response.StatusCode == HttpStatusCode.NotFound ||
                     response.StatusCode == HttpStatusCode.MethodNotAllowed ||
                     response.StatusCode == HttpStatusCode.NotImplemented ||
+                    response.StatusCode == HttpStatusCode.Forbidden ||
                     (int)response.StatusCode == 421) // Misdirected Request
                 {
                     onNotSupported?.Invoke();
@@ -291,7 +299,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (response.StatusCode == HttpStatusCode.NotFound ||
                     response.StatusCode == HttpStatusCode.MethodNotAllowed ||
-                    response.StatusCode == HttpStatusCode.NotImplemented)
+                    response.StatusCode == HttpStatusCode.NotImplemented ||
+                    response.StatusCode == HttpStatusCode.Forbidden)
                 {
                     return new OpenAIChatResult { FallbackRequired = true };
                 }
@@ -495,6 +504,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             using (response)
             {
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string errorMessage = TryExtractErrorMessage(errorBody);
+                    string fallbackMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                    throw new OpenAIApiException(string.IsNullOrWhiteSpace(errorMessage) ? fallbackMessage : errorMessage);
+                }
+
                 response.EnsureSuccessStatusCode();
 
                 var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
@@ -598,6 +615,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             using (response)
             {
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string errorMessage = TryExtractErrorMessage(errorBody);
+                    string fallbackMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                    return new OpenAIChatResult
+                    {
+                        Success = false,
+                        ErrorMessage = string.IsNullOrWhiteSpace(errorMessage) ? fallbackMessage : errorMessage
+                    };
+                }
+
                 response.EnsureSuccessStatusCode();
 
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -780,6 +809,49 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             return current;
+        }
+
+        private static string TryExtractErrorMessage(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return null;
+            }
+
+            try
+            {
+                var envelope = JsonUtility.FromJson<OpenAIErrorEnvelope>(json);
+                if (!string.IsNullOrWhiteSpace(envelope?.error?.message))
+                {
+                    return envelope.error.message;
+                }
+
+                if (!string.IsNullOrWhiteSpace(envelope?.message))
+                {
+                    return envelope.message;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        [Serializable]
+        private sealed class OpenAIErrorEnvelope
+        {
+            public OpenAIErrorDetail error;
+            public string message;
+        }
+
+        [Serializable]
+        private sealed class OpenAIErrorDetail
+        {
+            public string message;
+            public string code;
+            public string type;
         }
     }
 

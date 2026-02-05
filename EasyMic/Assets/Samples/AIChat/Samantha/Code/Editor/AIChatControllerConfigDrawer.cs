@@ -48,13 +48,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             float y = foldoutRect.yMax + EditorGUIUtility.standardVerticalSpacing;
             EditorGUI.indentLevel++;
 
-            y = DrawSectionLabel(position, y, "Components");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.Microphone)), "Microphone");
             y += SectionSpacing;
 
-            y = DrawSectionLabel(position, y, "LLM Settings");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.ApiBaseUrl)), "API Base URL");
-            y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.ApiKey)), "API Key");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LlmModel)), "Model");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LlmTemperature)), "Temperature");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.SystemPromptProfile)), "System Prompt Profile");
@@ -66,7 +63,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                                     useLocalProp.hasMultipleDifferentValues ||
                                     !useLocalProp.boolValue;
 
-            y = DrawSectionLabel(position, y, "Speech Output");
             y = DrawProperty(position, y, useLocalProp, "Use Local TTS");
             if (useLocalProp != null && useLocalProp.boolValue)
             {
@@ -86,12 +82,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
             y += SectionSpacing;
 
-            y = DrawSectionLabel(position, y, "Interaction");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.InterruptAssistantOnUserSpeech)), "Interrupt On User Speech");
             y += SectionSpacing;
 
-            y = DrawSectionLabel(position, y, "Runtime");
             y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.MicStartupDelay)), "Mic Startup Delay (s)");
+            y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LoadRuntimeConfigOnAwake)), "Load Runtime Config");
+            y = DrawProperty(position, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.RuntimeConfigFileName)), "Runtime Config File");
 
             EditorGUI.indentLevel--;
             EditorGUI.EndProperty();
@@ -149,7 +145,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 case Section.Llm:
                     height += AddProp(nameof(AIChatControllerConfig.ApiBaseUrl));
-                    height += AddProp(nameof(AIChatControllerConfig.ApiKey));
                     height += AddProp(nameof(AIChatControllerConfig.LlmModel));
                     height += AddProp(nameof(AIChatControllerConfig.LlmTemperature));
                     height += AddProp(nameof(AIChatControllerConfig.SystemPromptProfile));
@@ -190,6 +185,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 case Section.Runtime:
                     height += AddProp(nameof(AIChatControllerConfig.MicStartupDelay));
+                    height += AddProp(nameof(AIChatControllerConfig.LoadRuntimeConfigOnAwake));
+                    height += AddProp(nameof(AIChatControllerConfig.RuntimeConfigFileName));
                     break;
             }
 

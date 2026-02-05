@@ -23,6 +23,9 @@ namespace Eitan.EasyMic.Runtime.Mono
         private MicrophoneOptions _microphoneOptions = MicrophoneOptions.Default;
 
         [SerializeField] private DeviceOptions _deviceOptions = DeviceOptions.Default;
+
+        [Header("Logging")]
+        [SerializeField] private bool _enableLog = true;
 #if  EASYMIC_APM_INTEGRATION
         [SerializeField] private AudioProcessingOptions _audioProcessingOptions = AudioProcessingOptions.Default;
 #endif
@@ -85,6 +88,11 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         public MicrophoneOptions MicrophoneOpts => _microphoneOptions;
         public DeviceOptions DeviceOpts => _deviceOptions;
+        public bool EnableLog
+        {
+            get => _enableLog;
+            set => _enableLog = value;
+        }
 
 #if EASYMIC_APM_INTEGRATION
         public AudioProcessingOptions AudioProcessingOpts => _audioProcessingOptions;
@@ -173,7 +181,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.LogWarning($"EasyMicrophone: Error while finalizing recording on destroy. {ex.Message}");
+                    LogWarning($"EasyMicrophone: Error while finalizing recording on destroy. {ex.Message}");
                 }
                 finally
                 {
@@ -234,6 +242,48 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
         #endregion
+
+        #region Logging
+        protected bool LogEnabled => _enableLog;
+        protected virtual string LogPrefix => string.Empty;
+
+        private string FormatLogMessage(string message)
+        {
+            if (string.IsNullOrEmpty(LogPrefix))
+            {
+                return message;
+            }
+
+            return $"{LogPrefix} {message}";
+        }
+
+        protected void LogInfo(string message)
+        {
+            if (!_enableLog)
+            {
+                return;
+            }
+            Debug.Log(FormatLogMessage(message), this);
+        }
+
+        protected void LogWarning(string message)
+        {
+            if (!_enableLog)
+            {
+                return;
+            }
+            Debug.LogWarning(FormatLogMessage(message), this);
+        }
+
+        protected void LogError(string message)
+        {
+            if (!_enableLog)
+            {
+                return;
+            }
+            Debug.LogError(FormatLogMessage(message), this);
+        }
+        #endregion
         #region Public Methods
 
         public void Init()
@@ -286,7 +336,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (IsRecording)
             {
-                UnityEngine.Debug.LogWarning("A recording session is already active. Stop it before starting a new one.");
+                LogWarning("A recording session is already active. Stop it before starting a new one.");
                 return;
             }
             RequestStartRecording();
@@ -298,18 +348,18 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (!device.HasValidId)
             {
-                UnityEngine.Debug.LogWarning("Cannot start recording: provided device is not valid.");
+                LogWarning("Cannot start recording: provided device is not valid.");
                 return false;
             }
 
             if (IsRecording)
             {
-                UnityEngine.Debug.LogWarning("A recording session is already active. Stop it before starting a new one.");
+                LogWarning("A recording session is already active. Stop it before starting a new one.");
                 return false;
             }
             if (EasyMicAPI.IsDeviceRecording(device))
             {
-                UnityEngine.Debug.LogWarning($"The device: {device}. is recording, please stop it first.");
+                LogWarning($"The device: {device}. is recording, please stop it first.");
                 return false;
             }
             var channelToUse = channelOverride.HasValue
@@ -344,7 +394,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (!IsRecording)
             {
-                UnityEngine.Debug.LogWarning("Cannot add processor: not recording.");
+                LogWarning("Cannot add processor: not recording.");
                 return;
             }
             EasyMicAPI.AddProcessor(_recordingHandle, blueprint);
@@ -357,7 +407,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (!IsRecording)
             {
-                UnityEngine.Debug.LogWarning("Cannot remove processor: not recording.");
+                LogWarning("Cannot remove processor: not recording.");
                 return;
             }
             EasyMicAPI.RemoveProcessor(_recordingHandle, blueprint);
@@ -500,7 +550,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
             if (_pipelineBlueprint == null)
             {
-                UnityEngine.Debug.LogError("Recognition pipeline blueprint is missing.");
+                LogError("Recognition pipeline blueprint is missing.");
                 return;
             }
 
@@ -540,7 +590,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.LogError($"EasyMicrophone: Failed to finalize temporary recording. {ex.Message}");
+                    LogError($"EasyMicrophone: Failed to finalize temporary recording. {ex.Message}");
                 }
                 finally
                 {
@@ -688,13 +738,13 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (string.IsNullOrWhiteSpace(_latestRecordingTempPath) || !File.Exists(_latestRecordingTempPath))
             {
-                UnityEngine.Debug.LogWarning("EasyMicrophone: No temporary recording available to save.");
+                LogWarning("EasyMicrophone: No temporary recording available to save.");
                 return false;
             }
 
             if (string.IsNullOrWhiteSpace(destinationPath))
             {
-                UnityEngine.Debug.LogWarning("EasyMicrophone: Destination path is empty.");
+                LogWarning("EasyMicrophone: Destination path is empty.");
                 return false;
             }
 
@@ -710,7 +760,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
                 if (!overwrite && File.Exists(finalPath))
                 {
-                    UnityEngine.Debug.LogWarning($"EasyMicrophone: Target file already exists and overwrite is disabled. Path: {finalPath}");
+                    LogWarning($"EasyMicrophone: Target file already exists and overwrite is disabled. Path: {finalPath}");
                     return false;
                 }
 
@@ -741,7 +791,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"EasyMicrophone: Failed to save recording. {ex.Message}");
+                LogError($"EasyMicrophone: Failed to save recording. {ex.Message}");
                 return false;
             }
         }

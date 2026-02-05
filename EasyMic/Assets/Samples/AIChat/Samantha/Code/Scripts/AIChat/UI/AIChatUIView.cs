@@ -5,6 +5,7 @@ using System.Threading;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using Radishmouse;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -18,6 +19,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private Slider loadingProgress;
         [SerializeField] private UIMobiusStripe stripe;
         [SerializeField] private PlaybackAudioSourceBehaviour speakerAudioSource;
+        [SerializeField] private AIChatController chatController;
+        [SerializeField] private TMP_Text errorMessageText;
         [SerializeField] private float Speed = 1;
 
         [Header("Speaker Visualization")]
@@ -36,8 +39,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int HALF_DEGRESS = 180;
         private const float ScaleSmooth = 10f;
         private const float Epsilon = 0.00001f;
+        private const float CompleteThreshold = 0.999f;
+        private const float ResetThreshold = 0.8f;
 
         private Coroutine _animCor;
+        private PlaybackHandle _loadingCompleteHandle;
+        private bool _hasError;
+        private LoadingState _loadingState;
+        private bool _hasSeenLoadingInProgress;
         private volatile float _audioLevel;
         private volatile float _vowelLevel;
         private volatile float _consonantLevel;
@@ -54,11 +63,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private int _hasAudioRead;
 
         #region MonoBehaviour
+        private void Awake()
+        {
+            if (!chatController)
+            {
+                chatController = FindObjectOfType<AIChatController>();
+            }
+        }
+
         private void Start()
         {
             ResetStripeGraphic();
             SubscribeEvents();
             _currentScale = baseScale;
+            InitializeStatus();
         }
 
         private void OnDestroy()
@@ -72,6 +90,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 return;
             }
+
 
             bool isPlaying = speakerAudioSource && speakerAudioSource.IsPlaying;
             bool hasRecentAudio = IsAudioRecent();
@@ -94,7 +113,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 ? Mathf.Clamp(baseScale + (_vowelScale * vowel) + (_consonantScale * consonant) + (_pulseScale * _speechPulse), baseScale, maxScale)
                 : baseScale;
             _currentScale = Mathf.Lerp(_currentScale, targetScale, ScaleSmooth * Time.deltaTime);
-            stripe.transform.localScale = new Vector3(_currentScale, _currentScale, 1f);
+            SetStripeScale(_currentScale);
         }
         #endregion
 
@@ -103,20 +122,72 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void UpdateProgress(float progress)
         {
-            if (this.loadingProgress.value != progress && progress >= 1)
+            if (_hasError || !loadingProgress)
             {
-                if (_animCor != null)
-                {
-                    StopCoroutine(_animCor);
-                }
-                _animCor = StartCoroutine(LoadingCompleteAnim());
-            }
-            else if (_animCor == null)
-            {
-                _animCor = StartCoroutine(LoadingProgressAnim());
+                return;
             }
 
-            this.loadingProgress.value = progress;
+
+            progress = Mathf.Clamp01(progress);
+
+            if (_loadingState == LoadingState.Completed)
+            {
+                if (progress <= ResetThreshold)
+                {
+                    _loadingState = LoadingState.InProgress;
+                    _hasSeenLoadingInProgress = true;
+                }
+                else
+                {
+                    loadingProgress.value = progress;
+                    return;
+                }
+            }
+
+            if (progress < CompleteThreshold)
+            {
+                _loadingState = LoadingState.InProgress;
+                _hasSeenLoadingInProgress = true;
+                if (_animCor == null)
+                {
+                    _animCor = StartCoroutine(LoadingProgressAnim());
+                }
+                loadingProgress.value = progress;
+                return;
+            }
+
+            if (_loadingState != LoadingState.Completed && _hasSeenLoadingInProgress)
+            {
+                RestartAnim(LoadingCompleteAnim());
+                _loadingState = LoadingState.Completed;
+            }
+
+            loadingProgress.value = progress;
+        }
+
+        public void SetErrorMessage(string message)
+        {
+            bool hasError = !string.IsNullOrWhiteSpace(message);
+            _hasError = hasError;
+            if (hasError)
+            {
+                _loadingState = LoadingState.None;
+                _hasSeenLoadingInProgress = false;
+            }
+
+            if (!errorMessageText)
+            {
+                return;
+            }
+
+            if (!hasError)
+            {
+                SetErrorUI(string.Empty, false);
+                return;
+            }
+
+            SetErrorUI(message, true);
+            StopLoadingEffects();
         }
 
         #endregion
@@ -129,6 +200,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 speakerAudioSource.OnAudioPlaybackRead += SpeakerAudioPlaybackHandler;
             }
+
+            if (chatController)
+            {
+                chatController.OnChatStateChanged += OnChatStateChangedHandler;
+                chatController.OnLoadingCallback += OnLoadingProgressHandler;
+            }
         }
 
         private void UnsubscribeEvents()
@@ -137,10 +214,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 speakerAudioSource.OnAudioPlaybackRead -= SpeakerAudioPlaybackHandler;
             }
+
+            if (chatController)
+            {
+                chatController.OnChatStateChanged -= OnChatStateChangedHandler;
+                chatController.OnLoadingCallback -= OnLoadingProgressHandler;
+            }
         }
 
         private void ResetStripeGraphic()
         {
+            if (!stripe)
+            {
+                return;
+            }
+
+
             stripe.loops = 3;
             stripe.orientation = UIMobiusStripe.Orientation.Horizontal;
             stripe.phase = 0;
@@ -167,9 +256,54 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 stripe.perspectiveEuler += Vector3.left * HALF_DEGRESS;
             }
         }
+
+        private void StopLoadingEffects()
+        {
+            if (_animCor != null)
+            {
+                StopCoroutine(_animCor);
+                _animCor = null;
+            }
+
+            if (loadingProgress)
+            {
+                loadingProgress.gameObject.SetActive(false);
+            }
+
+            if (stripe)
+            {
+                _currentScale = baseScale;
+                SetStripeScale(_currentScale);
+                stripe.RebuildNow();
+            }
+
+            if (_loadingCompleteHandle.IsValid)
+            {
+                _loadingCompleteHandle.Stop();
+                _loadingCompleteHandle.Dispose();
+            }
+        }
         #endregion
 
         #region  Private Methods
+        private void OnChatStateChangedHandler(AIChatController.ChatState state, string message)
+        {
+            if (state == AIChatController.ChatState.Failed)
+            {
+                SetErrorMessage(string.IsNullOrWhiteSpace(message) ? "Unknown error." : message);
+                return;
+            }
+
+            if (errorMessageText && errorMessageText.gameObject.activeSelf)
+            {
+                SetErrorMessage(string.Empty);
+            }
+        }
+
+        private void OnLoadingProgressHandler(float progress)
+        {
+            UpdateProgress(progress);
+        }
 
         private void SpeakerAudioPlaybackHandler(float[] sample, int channels, int sampleRate)
         {
@@ -280,6 +414,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #region AnimIEnumeerator
         private IEnumerator LoadingCompleteAnim()
         {
+            if (!loadingProgress)
+            {
+                yield break;
+            }
+
             loadingProgress.gameObject.SetActive(false);
 
             // Guard & locals
@@ -314,10 +453,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (loadingCompleteSound)
             {
-                AudioPlayback.PlayClip(loadingCompleteSound);
+                _loadingCompleteHandle = AudioPlayback.PlayClip(loadingCompleteSound);
             }
 
             // Precompute denominators (avoid per-frame Mathf.Max)
+
 
             float denomRot = Mathf.Max(0.0001f, rotEndSec - rotStartSec);
             float denomHold = Mathf.Max(0.0001f, midHoldSec);
@@ -335,6 +475,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             while (elapsed < rotEndSec)
             {
+                if (_hasError)
+                {
+                    yield break;
+                }
+
                 // Linear rotation progress in [rotStartSec, rotEndSec]
                 float rotEase = elapsed <= rotStartSec ? 0f : Mathf.Clamp01((elapsed - rotStartSec) / denomRot);
 
@@ -378,18 +523,77 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private IEnumerator LoadingProgressAnim()
         {
 
+            if (!loadingProgress)
+            {
+                yield break;
+            }
+
             loadingProgress.gameObject.SetActive(true);
             while (true)
             {
 
-                if (!stripe) { yield return null; }
-                RotateHorizontalAxisMobiusStripe(Speed);
-                // At runtime we must explicitly request a rebuild after changing public fields.
-                stripe.RebuildNow();
+                if (_hasError)
+                {
+                    yield break;
+                }
+
+                if (stripe)
+                {
+                    RotateHorizontalAxisMobiusStripe(Speed);
+                    // At runtime we must explicitly request a rebuild after changing public fields.
+                    stripe.RebuildNow();
+                }
                 yield return null;
             }
         }
         #endregion
 
+        #region Helpers
+        private void InitializeStatus()
+        {
+            if (chatController && !string.IsNullOrWhiteSpace(chatController.LastErrorMessage))
+            {
+                SetErrorMessage(chatController.LastErrorMessage);
+                return;
+            }
+
+            SetErrorMessage(string.Empty);
+            if (!chatController)
+            {
+                return;
+            }
+
+
+            float progress = chatController.LastLoadingProgress;
+            UpdateProgress(progress);
+        }
+
+        private void RestartAnim(IEnumerator routine)
+        {
+            if (_animCor != null)
+            {
+                StopCoroutine(_animCor);
+            }
+            _animCor = StartCoroutine(routine);
+        }
+
+        private void SetErrorUI(string message, bool visible)
+        {
+            errorMessageText.text = message;
+            errorMessageText.gameObject.SetActive(visible);
+        }
+
+        private void SetStripeScale(float scale)
+        {
+            stripe.transform.localScale = new Vector3(scale, scale, 1f);
+        }
+
+        private enum LoadingState
+        {
+            None,
+            InProgress,
+            Completed
+        }
+        #endregion
     }
 }

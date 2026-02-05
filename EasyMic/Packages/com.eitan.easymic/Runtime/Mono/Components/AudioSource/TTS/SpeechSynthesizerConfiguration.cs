@@ -47,6 +47,90 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             private set => _activePresetId = value;
         }
 
+        public TTSPreset GetActivePreset() => GetActivePresetRaw();
+
+        public bool TryGetPreset(string presetId, out TTSPreset preset)
+        {
+            if (!string.IsNullOrWhiteSpace(presetId))
+            {
+                foreach (var cfg in Presets)
+                {
+                    if (!string.IsNullOrWhiteSpace(cfg.Id) &&
+                        string.Equals(cfg.Id, presetId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        preset = cfg.Clone();
+                        return true;
+                    }
+                }
+            }
+
+            preset = default;
+            return false;
+        }
+
+        public bool UpdatePreset(TTSPreset preset)
+        {
+            if (_presets == null || _presets.Length == 0 || string.IsNullOrWhiteSpace(preset.Id))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < _presets.Length; i++)
+            {
+                var candidate = _presets[i];
+                if (!string.IsNullOrWhiteSpace(candidate.Id) &&
+                    string.Equals(candidate.Id, preset.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    var clone = (TTSPreset[])_presets.Clone();
+                    clone[i] = preset;
+                    _presets = clone;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool AddPreset(TTSPreset preset, bool overwrite = false)
+        {
+            if (_presets == null)
+            {
+                _presets = Array.Empty<TTSPreset>();
+            }
+
+            int existingIndex = -1;
+            if (!string.IsNullOrWhiteSpace(preset.Id))
+            {
+                for (int i = 0; i < _presets.Length; i++)
+                {
+                    var candidate = _presets[i];
+                    if (!string.IsNullOrWhiteSpace(candidate.Id) &&
+                        string.Equals(candidate.Id, preset.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existingIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (existingIndex >= 0 && !overwrite)
+            {
+                return false;
+            }
+
+            if (existingIndex >= 0)
+            {
+                var clone = (TTSPreset[])_presets.Clone();
+                clone[existingIndex] = preset;
+                _presets = clone;
+                return true;
+            }
+
+            var list = new List<TTSPreset>(_presets) { preset };
+            _presets = list.ToArray();
+            return true;
+        }
+
         private TTSPreset GetActivePresetRaw()
         {
             if (Presets.Count == 0)
