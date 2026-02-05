@@ -13,6 +13,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private SerializedProperty _microphoneOptionsProp;
         private SerializedProperty _deviceOptionsProp;
         private SerializedProperty _asrConfigProp;
+        private SerializedProperty _enableLogProp;
 #if EASYMIC_APM_INTEGRATION
         private SerializedProperty _audioProcessingOptionsProp;
 #endif
@@ -36,6 +37,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             _microphoneOptionsProp = serializedObject.FindProperty("_microphoneOptions");
             _deviceOptionsProp = serializedObject.FindProperty("_deviceOptions");
             _asrConfigProp = serializedObject.FindProperty("_asrConfig");
+            _enableLogProp = serializedObject.FindProperty("_enableLog");
 #if EASYMIC_APM_INTEGRATION
             _audioProcessingOptionsProp = serializedObject.FindProperty("_audioProcessingOptions");
 #endif
@@ -73,6 +75,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 if (_deviceOptionsProp != null)
                 {
                     EditorGUILayout.PropertyField(_deviceOptionsProp, Styles.DeviceOptionsLabel, true);
+                }
+
+                if (_enableLogProp != null)
+                {
+                    EditorGUILayout.PropertyField(_enableLogProp, new GUIContent("Enable Log"));
                 }
 
 #if EASYMIC_APM_INTEGRATION

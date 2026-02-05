@@ -32,6 +32,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         [Range(1, 8)]
         [SerializeField, HideInInspector] private int _maxParallelSynthesis = 2;
 
+        [Header("Logging")]
+        [SerializeField] private bool _enableLog = true;
+
         public event Action<string, float> OnLoadingProgressFeedback;
         public event Action<FailedFeedback> OnLoadingFailedFeedback;
         public event Action<SuccessFeedback> OnLoadingSuccessedFeedback;
@@ -40,6 +43,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         public event Action<string> OnSentenceStarted;
         public event Action<string> OnSentenceFinished;
         public PlaybackAudioSourceBehaviour PlaybackSource => _playbackSource;
+        public SpeechSynthesizerConfiguration TtsConfig => _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
         #endregion
 
         #region Private Fields
@@ -80,6 +84,26 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         private int _processorCount = 1;
         #endregion
 
+        #region Logging
+        private void LogWarning(string message)
+        {
+            if (!_enableLog)
+            {
+                return;
+            }
+            Debug.LogWarning(message, this);
+        }
+
+        private void LogError(string message)
+        {
+            if (!_enableLog)
+            {
+                return;
+            }
+            Debug.LogError(message, this);
+        }
+        #endregion
+
         #region Unity Lifecycle
         private void Awake()
         {
@@ -91,7 +115,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             _playbackSource ??= GetComponent<PlaybackAudioSourceBehaviour>();
             if (_playbackSource == null)
             {
-                Debug.LogError($"{LogPrefix}PlaybackAudioSourceBehaviour component is required.", this);
+                LogError($"{LogPrefix}PlaybackAudioSourceBehaviour component is required.");
             }
 
             InitializeAdaptiveScheduling();
@@ -148,6 +172,15 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         #endregion
 
         #region Public API
+        public void ApplyConfiguration(SpeechSynthesizerConfiguration configuration)
+        {
+            _ttsConfig = configuration ?? SpeechSynthesizerConfiguration.CreateDefault();
+            if (Initialized)
+            {
+                LogWarning($"{LogPrefix}Configuration updated after initialization; call Stop() and Init() to reload models.");
+            }
+        }
+
         public void Init()
         {
             if (Initialized || _initializing)
@@ -171,7 +204,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             }
             catch (Exception ex)
             {
-                Debug.LogError($"{LogPrefix}Init failed: {ex}");
+                LogError($"{LogPrefix}Init failed: {ex}");
                 _initializing = false;
             }
         }
@@ -226,7 +259,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"{LogPrefix}Error waiting for session to stop: {ex.Message}");
+                    LogWarning($"{LogPrefix}Error waiting for session to stop: {ex.Message}");
                 }
             }
 
@@ -366,7 +399,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
 
                 if (_playbackSource == null)
                 {
-                    Debug.LogError($"{LogPrefix}PlaybackAudioSourceBehaviour is required for playback.");
+                    LogError($"{LogPrefix}PlaybackAudioSourceBehaviour is required for playback.");
                     return null;
                 }
 
@@ -412,7 +445,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"{LogPrefix}Failed to stop playback source: {ex.Message}");
+                    LogWarning($"{LogPrefix}Failed to stop playback source: {ex.Message}");
                 }
             }
         }
@@ -433,7 +466,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
             }
             else
             {
-                Debug.LogError($"{LogPrefix}Model initialization failed.");
+                LogError($"{LogPrefix}Model initialization failed.");
                 OnSynthesizerInitialized?.Invoke(false);
             }
             _initializing = false;
@@ -576,6 +609,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                         _ttsConfig,
                         s => SafeInvokeOnMainThread(() => OnSentenceStarted?.Invoke(s)),
                         s => SafeInvokeOnMainThread(() => OnSentenceFinished?.Invoke(s)),
+                        LogWarning,
+                        LogError,
                         result);
 
                     tasks.Add(RunSynthesisJobAsync(job, result, cancellationToken));
@@ -713,7 +748,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                 {
                     if (result.Error != null)
                     {
-                        Debug.LogWarning($"{LogPrefix}Synthesis failed: {result.Error.Message}");
+                        LogWarning($"{LogPrefix}Synthesis failed: {result.Error.Message}");
                     }
                     break;
                 }
@@ -745,13 +780,13 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                     if (!stallWarned && idleSeconds >= warnAfterSeconds)
                     {
                         string phase = result.HasReceivedChunks ? "after audio start" : "before first chunk";
-                        Debug.LogWarning($"{LogPrefix}Playback waiting for synthesis chunks ({phase}, idle {idleSeconds:0.0}s).");
+                        LogWarning($"{LogPrefix}Playback waiting for synthesis chunks ({phase}, idle {idleSeconds:0.0}s).");
                         stallWarned = true;
                     }
 
                     if (idleSeconds >= abortAfterSeconds)
                     {
-                        Debug.LogWarning($"{LogPrefix}Playback wait timed out after {idleSeconds:0.0}s without new synthesis chunks.");
+                        LogWarning($"{LogPrefix}Playback wait timed out after {idleSeconds:0.0}s without new synthesis chunks.");
                         break;
                     }
                 }
@@ -832,7 +867,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogWarning($"{LogPrefix}Failed to complete stream: {ex.Message}");
+                        LogWarning($"{LogPrefix}Failed to complete stream: {ex.Message}");
                     }
                 }
             }
@@ -919,7 +954,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"{LogPrefix}Callback error: {ex.Message}");
+                    LogWarning($"{LogPrefix}Callback error: {ex.Message}");
                 }
             });
         }
