@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Debug = UnityEngine.Debug;
@@ -15,72 +14,35 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            lock (_sessionLock)
-            {
-                if (!_orchestratorTask.IsCompleted)
-                {
-                    return;
-                }
-
-                _sessionId++;
-                var currentSessionId = _sessionId;
-
-                _sessionCts?.Dispose();
-                _sessionCts = new CancellationTokenSource();
-                var token = _sessionCts.Token;
-
-                _orchestratorTask = RunOrchestratorAsync(currentSessionId, token);
-            }
+            _session.EnsureStarted(RunOrchestratorAsync);
         }
 
         private async Task RunOrchestratorAsync(long sessionId, CancellationToken token)
         {
-            var generationTasks = new List<Task>();
+            Task generationTask = Task.CompletedTask;
             Task playbackTask = null;
 
             try
             {
                 NotifySpeakingState(true);
-
                 playbackTask = RunPlaybackWorkerAsync(sessionId, token);
-
-                int parallelism = _resourceMonitor.CurrentParallelism;
-                if (!_config.UseLocalTts)
-                {
-                    parallelism = 1;
-                }
-
-                for (int i = 0; i < parallelism; i++)
-                {
-                    generationTasks.Add(RunGenerationWorkerAsync(sessionId, token));
-                }
+                generationTask = RunGenerationWorkerAsync(sessionId, token);
 
                 while (!token.IsCancellationRequested)
                 {
-                    if (_pendingJobs.IsEmpty &&
-                        generationTasks.TrueForAll(t => t.IsCompleted) &&
-                        _completedJobs.IsEmpty)
+                    if (_pendingJobs.IsEmpty && generationTask.IsCompleted && _completedJobs.IsEmpty)
                     {
                         break;
                     }
 
-                    _resourceMonitor.AdjustBasedOnLoad();
-                    int targetParallelism = _resourceMonitor.CurrentParallelism;
-                    if (!_config.UseLocalTts)
+                    if (generationTask.IsCompleted && !_pendingJobs.IsEmpty)
                     {
-                        targetParallelism = 1;
-                    }
-
-                    generationTasks.RemoveAll(t => t.IsCompleted);
-
-                    while (generationTasks.Count < targetParallelism && !_pendingJobs.IsEmpty)
-                    {
-                        generationTasks.Add(RunGenerationWorkerAsync(sessionId, token));
+                        generationTask = RunGenerationWorkerAsync(sessionId, token);
                     }
 
                     try
                     {
-                        await Task.Delay(50, token).ConfigureAwait(false);
+                        await Task.Delay(25, token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -88,11 +50,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                 }
 
-                if (generationTasks.Count > 0)
+                if (generationTask != null)
                 {
                     try
                     {
-                        await Task.WhenAll(generationTasks).ConfigureAwait(false);
+                        await generationTask.ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {

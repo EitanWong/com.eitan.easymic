@@ -34,44 +34,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private string GetRawResponse()
         {
-            lock (_stateLock)
-            {
-                return _responseBuffer.ToString();
-            }
-        }
-
-        private string NormalizeStreamingChunkLocked(string chunk)
-        {
-            if (string.IsNullOrEmpty(chunk))
-            {
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(_streamedResponseSnapshot))
-            {
-                _streamedResponseSnapshot = chunk;
-                return chunk;
-            }
-
-            if (chunk.StartsWith(_streamedResponseSnapshot, System.StringComparison.Ordinal))
-            {
-                string delta = chunk.Substring(_streamedResponseSnapshot.Length);
-                _streamedResponseSnapshot = chunk;
-                return delta;
-            }
-
-            if (_streamedResponseSnapshot.EndsWith(chunk, System.StringComparison.Ordinal))
-            {
-                return string.Empty;
-            }
-
-            _streamedResponseSnapshot += chunk;
-            return chunk;
+            return _requestOrchestrator?.GetRawResponse() ?? string.Empty;
         }
 
         private string GetCleanedResponse()
         {
-            return CleanText(GetRawResponse());
+            return _requestOrchestrator?.GetCleanedResponse() ?? string.Empty;
         }
 
         private static string CleanText(string input)

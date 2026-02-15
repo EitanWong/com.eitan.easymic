@@ -55,16 +55,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public float TimeSinceLastUserActivity => Mathf.Max(0f, Time.realtimeSinceStartup - _lastUserActivityTime);
         public float TimeSinceLastAssistantResponse => Mathf.Max(0f, Time.realtimeSinceStartup - _lastAssistantResponseTime);
         public float LastLoadingProgress => _lastLoadingProgress;
-        public bool HasConversationHistory
-        {
-            get
-            {
-                lock (_stateLock)
-                {
-                    return _conversationHistory.Count > 0;
-                }
-            }
-        }
+        public bool HasConversationHistory => _requestOrchestrator?.HasConversationHistory ?? false;
         public string RuntimeConfigPath
             => Path.Combine(Application.persistentDataPath,
                 string.IsNullOrWhiteSpace(Config.RuntimeConfigFileName) ? "ai_chat_config.json" : Config.RuntimeConfigFileName);
@@ -98,30 +89,23 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private VoiceMicrophone Microphone => Config.Microphone;
         private SpeechSynthesizer SpeechSynthesizer => Config.SpeechSynthesizer;
 
+        private readonly AIChatControllerState _controllerState = new AIChatControllerState();
         private readonly object _stateLock = new object();
-        private readonly StringBuilder _responseBuffer = new StringBuilder(1024);
         private readonly StringBuilder _userInputBuffer = new StringBuilder(256);
-        private readonly List<OpenAIChatMessage> _conversationHistory = new List<OpenAIChatMessage>();
-        private string _streamedResponseSnapshot = string.Empty;
         private string _lastErrorMessage = string.Empty;
 
-        private StreamingSentenceAssembler _sentenceAssembler;
+        private AIChatRequestOrchestrator _requestOrchestrator;
         private NetworkAdaptiveHandler _networkHandler;
+        private IAIChatRuntimeConfigStore _runtimeConfigStore;
         private Dictionary<string, float> _serviceLoadingRecord;
         private OpenAICompatibleClient _openAiClient;
         private CancellationTokenSource _responseCts;
         private ChatTtsPipeline _ttsPipeline;
+        private Coroutine _pendingMicStartupCoroutine;
 
-        private volatile bool _llmInFlight;
-        private volatile bool _isAssistantSpeaking;
-        private volatile bool _isChatActive;
-        private volatile bool _initialized;
-        private volatile bool _initializationFailed;
-        private volatile bool _lastIdleState;
-        private volatile float _lastLoadingProgress;
         private bool _localTtsCallbacksRegistered;
         private bool _conversationStarted;
-        private volatile float _lastMainThreadTime;
+        private float _lastMainThreadTime;
         private int _unityThreadId;
         private SynchronizationContext _unityContext;
         private string _systemPromptCache = string.Empty;
@@ -134,6 +118,54 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private float _lastAssistantResponseTime;
         private AIChatPluginHost _pluginHost;
         private AIChatPluginContext _pluginContext;
+
+        private bool _llmInFlight
+        {
+            get => _controllerState.LlmInFlight;
+            set => _controllerState.LlmInFlight = value;
+        }
+
+        private bool _isAssistantSpeaking
+        {
+            get => _controllerState.IsAssistantSpeaking;
+            set => _controllerState.IsAssistantSpeaking = value;
+        }
+
+        private bool _isChatActive
+        {
+            get => _controllerState.IsChatActive;
+            set => _controllerState.IsChatActive = value;
+        }
+
+        private bool _initialized
+        {
+            get => _controllerState.IsInitialized;
+            set => _controllerState.IsInitialized = value;
+        }
+
+        private bool _initializationFailed
+        {
+            get => _controllerState.InitializationFailed;
+            set => _controllerState.InitializationFailed = value;
+        }
+
+        private bool _lastIdleState
+        {
+            get => _controllerState.IsIdle;
+            set => _controllerState.IsIdle = value;
+        }
+
+        private float _lastLoadingProgress
+        {
+            get => _controllerState.LastLoadingProgress;
+            set => _controllerState.LastLoadingProgress = value;
+        }
+
+        private bool _isShuttingDown
+        {
+            get => _controllerState.IsShuttingDown;
+            set => _controllerState.IsShuttingDown = value;
+        }
         #endregion
 
         #region Unity Lifecycle
@@ -176,6 +208,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             RefreshSystemPromptCache();
             _pluginContext = new AIChatPluginContext(this);
             _pluginHost = new AIChatPluginHost(_pluginContext, ResolvePluginBehaviours());
+            InitializeCursorAutoHideState();
             UpdateIdleState();
         }
 
@@ -183,10 +216,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             if (_initializationFailed)
             {
+                ResetCursorAutoHideState();
                 return;
             }
 
             UpdateIdleState();
+            UpdateCursorAutoHideState();
             _lastMainThreadTime = Time.realtimeSinceStartup;
             RefreshSystemPromptCache();
             _pluginHost?.Tick(Time.unscaledDeltaTime);
@@ -205,9 +240,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
 #endif
 
-        private async void OnDestroy()
+        private void OnDisable()
         {
-            await CancelActiveResponseAsync().ConfigureAwait(false);
+            ResetCursorAutoHideState();
+        }
+
+        private void OnDestroy()
+        {
+            _isShuttingDown = true;
+            ResetCursorAutoHideState();
+            CancelActiveResponseForTeardown();
             _pluginHost?.Shutdown();
             TeardownMicrophone();
             TeardownSpeechSynthesizer();
@@ -276,7 +318,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (IsOnUnityThread)
                 {
-                    action();
+                    TryInvokeUnityAction(action);
                 }
 
                 return;
@@ -284,11 +326,101 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (IsOnUnityThread)
             {
-                action();
+                TryInvokeUnityAction(action);
                 return;
             }
 
-            context.Post(static state => ((Action)state)(), action);
+            context.Post(_ =>
+            {
+                TryInvokeUnityAction(action);
+            }, null);
+        }
+
+        private CancellationTokenSource TakeResponseCancellationTokenSource()
+        {
+            lock (_stateLock)
+            {
+                CancellationTokenSource current = _responseCts;
+                _responseCts = null;
+                return current;
+            }
+        }
+
+        private void ReplaceResponseCancellationTokenSource(CancellationTokenSource nextCts)
+        {
+            CancellationTokenSource previous;
+            lock (_stateLock)
+            {
+                previous = _responseCts;
+                _responseCts = nextCts;
+            }
+
+            CancelAndDisposeCts(previous);
+        }
+
+        private static void CancelAndDisposeCts(CancellationTokenSource cts)
+        {
+            if (cts == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!cts.IsCancellationRequested)
+                {
+                    cts.Cancel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }
+
+        private void CancelActiveResponseForTeardown()
+        {
+            CancelAndDisposeCts(TakeResponseCancellationTokenSource());
+            _requestOrchestrator?.ResetCurrentResponse();
+
+            _llmInFlight = false;
+            _isAssistantSpeaking = false;
+        }
+
+        private bool IsUnityObjectOperational()
+        {
+            if (_isShuttingDown || this == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return gameObject != null;
+            }
+            catch (MissingReferenceException)
+            {
+                return false;
+            }
+        }
+
+        private void TryInvokeUnityAction(Action action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            try
+            {
+                action();
+            }
+            catch (MissingReferenceException)
+            {
+            }
         }
         #endregion
     }

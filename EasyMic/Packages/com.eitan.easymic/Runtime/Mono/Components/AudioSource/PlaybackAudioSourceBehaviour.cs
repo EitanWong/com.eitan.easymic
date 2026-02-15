@@ -25,6 +25,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
         [SerializeField] private bool _solo;
 
         private PlaybackAudioSession _session;
+        private string _cachedSessionName = "Playback";
 
         public PlaybackAudioSource Source => _session?.Source;
 
@@ -148,6 +149,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         private void OnEnable()
         {
+            CacheSessionName();
             StartPlayback();
             if (!_playOnAwake)
             {
@@ -169,7 +171,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
                 return;
             }
 
-            EnsureSession();
+            if (!EnsureSession())
+            {
+                return;
+            }
+
             ApplySessionProperties();
             _session.PlayClip(_clip, _loop, autoPlay: true);
         }
@@ -182,7 +188,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         public void Play()
         {
-            EnsureSession();
+            if (!EnsureSession())
+            {
+                return;
+            }
+
             ApplySessionProperties();
             _session.Play();
         }
@@ -199,14 +209,22 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         public void Enqueue(float[] samples, int count)
         {
-            EnsureSession();
+            if (!EnsureSession())
+            {
+                return;
+            }
+
             ApplySessionProperties();
             _session.Enqueue(samples, count);
         }
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
         {
-            EnsureSession();
+            if (!EnsureSession())
+            {
+                return;
+            }
+
             ApplySessionProperties();
             _session.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
         }
@@ -219,7 +237,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         private void StartPlayback()
         {
-            EnsureSession();
+            if (!EnsureSession())
+            {
+                return;
+            }
+
             ApplySessionProperties();
 
             if (_clip != null)
@@ -247,17 +269,23 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
             DisposeSession();
         }
 
-        private void EnsureSession()
+        private bool EnsureSession()
         {
             if (_session != null)
             {
-                return;
+                return true;
             }
 
-            string nameForSession = gameObject != null ? gameObject.name : "Playback";
+            if (!IsUnityObjectAlive())
+            {
+                return false;
+            }
+
+            string nameForSession = string.IsNullOrWhiteSpace(_cachedSessionName) ? "Playback" : _cachedSessionName;
             _session = new PlaybackAudioSession(nameForSession);
             _session.OnAudioPlaybackRead += HandleSessionAudioPlaybackRead;
             _session.OnBatchCompleted += HandleSessionPlaybackBatchCompleted;
+            return true;
         }
 
         private void DisposeSession()
@@ -284,6 +312,46 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
             _session.Mute = _mute;
             _session.Solo = _solo;
             _session.Loop = _loop;
+        }
+
+        private void CacheSessionName()
+        {
+            if (!IsUnityObjectAlive())
+            {
+                return;
+            }
+
+            string resolvedName = null;
+
+            try
+            {
+                resolvedName = gameObject != null ? gameObject.name : null;
+            }
+            catch (MissingReferenceException)
+            {
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolvedName))
+            {
+                _cachedSessionName = resolvedName;
+            }
+        }
+
+        private bool IsUnityObjectAlive()
+        {
+            if (this == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return gameObject != null;
+            }
+            catch (MissingReferenceException)
+            {
+                return false;
+            }
         }
 
         private void HandleSessionAudioPlaybackRead(float[] data, int channels, int sampleRate)

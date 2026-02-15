@@ -37,7 +37,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public string RemoteModel;
         public string RemoteVoice;
         public bool EnableStreamingTts;
-        public float StreamingBufferSeconds;
         public bool LogSentences;
         public bool EnableDiagnostics;
         public int MaxParallelGenerations;
@@ -48,7 +47,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             UseLocalTts = false,
             EnableStreamingTts = true,
-            StreamingBufferSeconds = 0.18f,
             MaxParallelGenerations = 0,
             PlaybackVolume = 1f,
             MainThreadDispatcher = null

@@ -1,10 +1,84 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
+        private Vector3 _lastMousePosition;
+        private float _lastMouseMoveTime;
+        private bool _cursorAutoHideInitialized;
+        private bool _cursorHiddenByAutoHide;
+
+        private void InitializeCursorAutoHideState()
+        {
+            _lastMousePosition = Input.mousePosition;
+            _lastMouseMoveTime = Time.realtimeSinceStartup;
+            _cursorAutoHideInitialized = true;
+        }
+
+        private void UpdateCursorAutoHideState()
+        {
+            if (!Config.AutoHideMouseCursorWhenIdle || !Input.mousePresent)
+            {
+                RestoreCursorVisibilityIfNeeded();
+                return;
+            }
+
+            if (!_cursorAutoHideInitialized)
+            {
+                InitializeCursorAutoHideState();
+            }
+
+            Vector3 mousePosition = Input.mousePosition;
+            float movementThreshold = Mathf.Max(0f, Config.CursorMoveThresholdPixels);
+            bool hasMoved = (mousePosition - _lastMousePosition).sqrMagnitude >
+                            movementThreshold * movementThreshold;
+
+            if (hasMoved)
+            {
+                _lastMousePosition = mousePosition;
+                _lastMouseMoveTime = Time.realtimeSinceStartup;
+
+                if (_cursorHiddenByAutoHide)
+                {
+                    SetCursorVisibility(true);
+                }
+
+                return;
+            }
+
+            float hideDelay = Mathf.Max(0f, Config.MouseCursorHideDelaySeconds);
+            if (_cursorHiddenByAutoHide || Time.realtimeSinceStartup - _lastMouseMoveTime < hideDelay)
+            {
+                return;
+            }
+
+            SetCursorVisibility(false);
+        }
+
+        private void ResetCursorAutoHideState()
+        {
+            RestoreCursorVisibilityIfNeeded();
+            _cursorAutoHideInitialized = false;
+        }
+
+        private void RestoreCursorVisibilityIfNeeded()
+        {
+            if (!_cursorHiddenByAutoHide)
+            {
+                return;
+            }
+
+            Cursor.visible = true;
+            _cursorHiddenByAutoHide = false;
+        }
+
+        private void SetCursorVisibility(bool visible)
+        {
+            Cursor.visible = visible;
+            _cursorHiddenByAutoHide = !visible;
+        }
+
         private void MarkUserActivity()
         {
             _lastUserActivityTime = _lastMainThreadTime;
@@ -17,6 +91,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void UpdateIdleState()
         {
+            if (!IsOnUnityThread)
+            {
+                PostToUnityThread(UpdateIdleState);
+                return;
+            }
+
             bool newIdle = !_llmInFlight && !_isAssistantSpeaking;
 
             if (_lastIdleState == newIdle)
@@ -112,26 +192,39 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            _serviceLoadingRecord[key] = progress;
-
-            if (_serviceLoadingRecord.Count == 0)
+            float overall;
+            lock (_serviceLoadingRecord)
             {
-                return;
+                _serviceLoadingRecord[key] = Mathf.Clamp01(progress);
+
+                if (_serviceLoadingRecord.Count == 0)
+                {
+                    return;
+                }
+
+                float total = 0f;
+                foreach (var kv in _serviceLoadingRecord)
+                {
+                    total += kv.Value;
+                }
+
+                overall = Mathf.Clamp01(total / _serviceLoadingRecord.Count);
             }
 
-            float total = 0f;
-            foreach (var kv in _serviceLoadingRecord)
-            {
-                total += kv.Value;
-            }
-
-            float overall = total / _serviceLoadingRecord.Count;
             _lastLoadingProgress = overall;
-            OnLoadingCallback?.Invoke(overall);
 
             if (!_initialized && overall >= 1f)
             {
                 _initialized = true;
+            }
+
+            if (IsOnUnityThread)
+            {
+                OnLoadingCallback?.Invoke(overall);
+            }
+            else
+            {
+                PostToUnityThread(() => OnLoadingCallback?.Invoke(overall));
             }
         }
 

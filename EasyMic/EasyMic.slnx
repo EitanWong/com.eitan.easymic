@@ -27,4 +27,5 @@
   <Project Path="Eitan.EasyMic.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Tests.csproj" />
   <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.AIChat.Samantha.Editor.Tests.csproj" />
 </Solution>

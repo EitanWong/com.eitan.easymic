@@ -23,20 +23,28 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (!mic.IsRecording)
+            if (!_initialized && mic.IsRecording)
             {
-                StartCoroutine(DelayedInvoke(() =>
+                try
                 {
-                    var innerMic = Microphone;
-                    if (innerMic != null && !innerMic.IsRecording)
-                    {
-                        innerMic.StartRecording();
-                    }
-                }, Config.MicStartupDelay));
+                    mic.StopRecording();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[AIChat] Failed to stop early microphone recording: {ex.Message}");
+                }
             }
 
+            ScheduleMicStartupAfterInitialization();
             _isChatActive = true;
-            _pluginHost?.NotifyChatActivated();
+            if (IsOnUnityThread)
+            {
+                _pluginHost?.NotifyChatActivated();
+            }
+            else
+            {
+                PostToUnityThread(() => _pluginHost?.NotifyChatActivated());
+            }
         }
 
         private void OnMicrophoneLoadingProgressFeedbackHandler(string message, float progress)
@@ -100,7 +108,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async void OnSpeakingChangedHandler(bool isSpeaking)
         {
-            OnUserSpeakingStateChanged?.Invoke(isSpeaking);
+            if (IsOnUnityThread)
+            {
+                OnUserSpeakingStateChanged?.Invoke(isSpeaking);
+            }
+            else
+            {
+                PostToUnityThread(() => OnUserSpeakingStateChanged?.Invoke(isSpeaking));
+            }
 
             if (isSpeaking)
             {
@@ -115,10 +130,87 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private IEnumerator DelayedInvoke(Action callback, float delay)
+        private void ScheduleMicStartupAfterInitialization()
         {
-            yield return new WaitForSeconds(delay);
-            callback?.Invoke();
+            StopPendingMicStartup();
+            if (!IsUnityObjectOperational())
+            {
+                return;
+            }
+
+            try
+            {
+                _pendingMicStartupCoroutine = StartCoroutine(WaitForControllerInitializationThenStartMic());
+            }
+            catch (MissingReferenceException)
+            {
+                _pendingMicStartupCoroutine = null;
+            }
+        }
+
+        private void StopPendingMicStartup()
+        {
+            if (_pendingMicStartupCoroutine == null)
+            {
+                return;
+            }
+
+            if (!IsUnityObjectOperational())
+            {
+                _pendingMicStartupCoroutine = null;
+                return;
+            }
+
+            try
+            {
+                StopCoroutine(_pendingMicStartupCoroutine);
+            }
+            catch (MissingReferenceException)
+            {
+            }
+
+            _pendingMicStartupCoroutine = null;
+        }
+
+        private IEnumerator WaitForControllerInitializationThenStartMic()
+        {
+            while (!_initializationFailed && !_initialized)
+            {
+                yield return null;
+            }
+
+            if (_initializationFailed)
+            {
+                _pendingMicStartupCoroutine = null;
+                yield break;
+            }
+
+            float delay = Mathf.Max(0f, Config.MicStartupDelay);
+            if (delay > 0f)
+            {
+                yield return new WaitForSeconds(delay);
+            }
+
+            if (_initializationFailed)
+            {
+                _pendingMicStartupCoroutine = null;
+                yield break;
+            }
+
+            var mic = Microphone;
+            if (mic != null && !mic.IsRecording)
+            {
+                try
+                {
+                    mic.StartRecording();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[AIChat] Failed to start microphone recording: {ex.Message}");
+                }
+            }
+
+            _pendingMicStartupCoroutine = null;
         }
     }
 }

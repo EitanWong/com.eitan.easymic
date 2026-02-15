@@ -35,61 +35,57 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            await CancelActiveResponseAsync().ConfigureAwait(false);
-
-            lock (_stateLock)
-            {
-                _responseBuffer.Clear();
-                _streamedResponseSnapshot = string.Empty;
-            }
-            _sentenceAssembler.Reset();
+            await CancelActiveResponseAsync();
+            _requestOrchestrator?.ResetCurrentResponse();
 
             _llmInFlight = true;
             _totalRequestCount++;
             UpdateIdleState();
 
-            _responseCts = new CancellationTokenSource();
-            var token = _responseCts.Token;
+            var responseCts = new CancellationTokenSource();
+            ReplaceResponseCancellationTokenSource(responseCts);
+            var token = responseCts.Token;
 
             if (!_conversationStarted)
             {
                 _conversationStarted = true;
-                _pluginHost?.NotifyConversationStarted(isProactive);
+                if (IsOnUnityThread)
+                {
+                    _pluginHost?.NotifyConversationStarted(isProactive);
+                }
+                else
+                {
+                    PostToUnityThread(() => _pluginHost?.NotifyConversationStarted(isProactive));
+                }
             }
 
             if (recordUserMessage)
             {
-                _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive);
+                if (IsOnUnityThread)
+                {
+                    _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive);
+                }
+                else
+                {
+                    PostToUnityThread(() => _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive));
+                }
             }
 
-            _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive);
+            if (IsOnUnityThread)
+            {
+                _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive);
+            }
+            else
+            {
+                PostToUnityThread(() => _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive));
+            }
 
             _ = RunChatCompletionAsync(userInput, token, recordUserMessage, isProactive);
         }
 
         private async Task CancelActiveResponseAsync()
         {
-            CancellationTokenSource oldCts;
-
-            lock (_stateLock)
-            {
-                oldCts = _responseCts;
-                _responseCts = null;
-            }
-
-            if (oldCts != null)
-            {
-                try
-                {
-                    if (!oldCts.IsCancellationRequested)
-                    {
-                        oldCts.Cancel();
-                    }
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-            }
+            CancelAndDisposeCts(TakeResponseCancellationTokenSource());
 
             if (_ttsPipeline != null)
             {
@@ -114,12 +110,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (oldCts != null)
-            {
-                oldCts.Dispose();
-            }
-
-            _sentenceAssembler.Reset();
+            _requestOrchestrator?.ResetCurrentResponse();
             _llmInFlight = false;
             SetAssistantSpeakingState(false);
             UpdateIdleState();
@@ -174,16 +165,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             Debug.Log($"[AIChat][LLM] {chunk}");
                         }
 
-                        string normalizedChunk;
-                        lock (_stateLock)
-                        {
-                            normalizedChunk = NormalizeStreamingChunkLocked(chunk);
-                            if (!string.IsNullOrEmpty(normalizedChunk) &&
-                                _responseBuffer.Length + normalizedChunk.Length <= MaxResponseBufferSize)
-                            {
-                                _responseBuffer.Append(normalizedChunk);
-                            }
-                        }
+                        string normalizedChunk = _requestOrchestrator?.AppendStreamingChunk(chunk) ?? string.Empty;
 
                         if (!string.IsNullOrEmpty(normalizedChunk))
                         {
@@ -196,18 +178,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 FlushPendingSentences();
 
                 finalResponse = GetCleanedResponse();
-                if (recordUserMessage)
-                {
-                    AppendConversationHistory(userInput, GetRawResponse());
-                }
-                else
-                {
-                    AppendConversationHistory(null, GetRawResponse());
-                }
+                string rawResponse = GetRawResponse();
+                AppendConversationHistory(recordUserMessage ? userInput : null, rawResponse);
 
                 MarkAssistantResponse();
                 NotifyChatStateChanged(ChatState.AssistantResponseFinish, finalResponse);
-                ExtractAndNotifyWebLinks(GetRawResponse());
+                ExtractAndNotifyWebLinks(rawResponse);
                 responseSucceeded = true;
             }
             catch (OperationCanceledException)
@@ -257,120 +233,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private List<OpenAIChatMessage> BuildMessages(string transcript)
         {
-            var messages = new List<OpenAIChatMessage>();
-
-            string systemPrompt = GetSystemPrompt();
-            if (!string.IsNullOrWhiteSpace(systemPrompt))
-            {
-                messages.Add(new OpenAIChatMessage("system", systemPrompt.Trim()));
-            }
-
-            int maxHistoryMessages = GetHistoryMessageLimit();
-            if (maxHistoryMessages > 0)
-            {
-                var history = GetConversationHistorySnapshot(maxHistoryMessages);
-                if (history != null && history.Count > 0)
-                {
-                    messages.AddRange(history);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(transcript))
-            {
-                messages.Add(new OpenAIChatMessage("user", transcript));
-            }
-
-            return messages;
-        }
-
-        private int GetHistoryMessageLimit()
-        {
-            int turns = Math.Max(0, Config.MaxHistoryTurns);
-            return turns * 2;
-        }
-
-        private List<OpenAIChatMessage> GetConversationHistorySnapshot(int maxMessages)
-        {
-            if (maxMessages <= 0)
-            {
-                return null;
-            }
-
-            lock (_stateLock)
-            {
-                if (_conversationHistory.Count == 0)
-                {
-                    return null;
-                }
-
-                int startIndex = Math.Max(0, _conversationHistory.Count - maxMessages);
-                var snapshot = new List<OpenAIChatMessage>(_conversationHistory.Count - startIndex);
-
-                for (int i = startIndex; i < _conversationHistory.Count; i++)
-                {
-                    var message = _conversationHistory[i];
-                    if (message == null || string.IsNullOrWhiteSpace(message.Content))
-                    {
-                        continue;
-                    }
-
-                    snapshot.Add(new OpenAIChatMessage(message.Role, message.Content));
-                }
-
-                return snapshot;
-            }
+            return _requestOrchestrator?.BuildMessages(transcript) ?? new List<OpenAIChatMessage>();
         }
 
         private void AppendConversationHistory(string userMessage, string assistantMessage)
         {
-            int maxMessages = GetHistoryMessageLimit();
-            if (maxMessages <= 0)
-            {
-                return;
-            }
-
-            string userContent = NormalizeHistoryContent(userMessage);
-            string assistantContent = NormalizeHistoryContent(assistantMessage);
-
-            if (string.IsNullOrEmpty(userContent) && string.IsNullOrEmpty(assistantContent))
-            {
-                return;
-            }
-
-            lock (_stateLock)
-            {
-                if (!string.IsNullOrEmpty(userContent))
-                {
-                    _conversationHistory.Add(OpenAIChatMessage.User(userContent));
-                }
-
-                if (!string.IsNullOrEmpty(assistantContent))
-                {
-                    _conversationHistory.Add(OpenAIChatMessage.Assistant(assistantContent));
-                }
-
-                TrimConversationHistoryLocked(maxMessages);
-            }
-        }
-
-        private void TrimConversationHistoryLocked(int maxMessages)
-        {
-            if (maxMessages <= 0)
-            {
-                _conversationHistory.Clear();
-                return;
-            }
-
-            int excess = _conversationHistory.Count - maxMessages;
-            if (excess > 0)
-            {
-                _conversationHistory.RemoveRange(0, excess);
-            }
-        }
-
-        private static string NormalizeHistoryContent(string content)
-        {
-            return string.IsNullOrWhiteSpace(content) ? string.Empty : content.Trim();
+            _requestOrchestrator?.AppendConversationHistory(userMessage, assistantMessage);
         }
 
         private void ProcessStreamingChunk(string chunk)
@@ -380,20 +248,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            var readySentences = _sentenceAssembler.Append(chunk, forceFlush: false);
-            foreach (string sentence in readySentences)
-            {
-                DispatchAssistantSentence(sentence);
-            }
+            _requestOrchestrator?.ProcessStreamingChunk(chunk, DispatchAssistantSentence);
         }
 
         private void FlushPendingSentences()
         {
-            var trailing = _sentenceAssembler.Append(string.Empty, forceFlush: true);
-            foreach (string sentence in trailing)
-            {
-                DispatchAssistantSentence(sentence);
-            }
+            _requestOrchestrator?.FlushPendingSentences(DispatchAssistantSentence);
         }
 
         private void DispatchAssistantSentence(string sentence)

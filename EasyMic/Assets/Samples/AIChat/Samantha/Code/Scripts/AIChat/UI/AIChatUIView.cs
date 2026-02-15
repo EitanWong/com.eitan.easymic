@@ -129,6 +129,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
 
             progress = Mathf.Clamp01(progress);
+            bool reachedCompleteThreshold = progress >= CompleteThreshold;
+            bool isControllerInitialized = !chatController || chatController.IsInitialized;
 
             if (_loadingState == LoadingState.Completed)
             {
@@ -144,7 +146,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (progress < CompleteThreshold)
+            if (!reachedCompleteThreshold || !isControllerInitialized)
             {
                 _loadingState = LoadingState.InProgress;
                 _hasSeenLoadingInProgress = true;
@@ -156,7 +158,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_loadingState != LoadingState.Completed && _hasSeenLoadingInProgress)
+            bool shouldPlayCompleteAnim = _loadingState != LoadingState.Completed
+                && (_hasSeenLoadingInProgress || _loadingState == LoadingState.None);
+            if (shouldPlayCompleteAnim)
             {
                 RestartAnim(LoadingCompleteAnim());
                 _loadingState = LoadingState.Completed;
@@ -414,136 +418,155 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #region AnimIEnumeerator
         private IEnumerator LoadingCompleteAnim()
         {
-            if (!loadingProgress)
+            try
             {
-                yield break;
-            }
-
-            loadingProgress.gameObject.SetActive(false);
-
-            // Guard & locals
-            var s = stripe;
-            if (!s)
-            {
-                yield break;
-            }
-
-
-            float baseSpeed = Mathf.Max(0.0001f, Speed);
-            float maxSpeed = baseSpeed * 9f;
-
-            // Use clip length if available; fallback to known length.
-            float totalLen = (loadingCompleteSound && loadingCompleteSound.length > 0f)
-                ? loadingCompleteSound.length
-                : 14.735f;
-
-            // Time anchors scaled from the 14.735s reference
-            const float REF = 14.735f;
-            float rotStartSec = totalLen * (10f / REF); // ~10s
-            float rotEndSec = totalLen * (13f / REF); // ~13s
-            float midHoldSec = totalLen * (9f / REF); // ~9s
-
-            if (midHoldSec >= rotStartSec)
-            {
-                midHoldSec = Mathf.Max(0f, rotStartSec - 0.1f);
-            }
-
-
-            float quickRampSec = Mathf.Max(0.05f, rotStartSec - midHoldSec);
-
-            if (loadingCompleteSound)
-            {
-                _loadingCompleteHandle = AudioPlayback.PlayClip(loadingCompleteSound);
-            }
-
-            // Precompute denominators (avoid per-frame Mathf.Max)
-
-
-            float denomRot = Mathf.Max(0.0001f, rotEndSec - rotStartSec);
-            float denomHold = Mathf.Max(0.0001f, midHoldSec);
-            float denomQuick = Mathf.Max(0.05f, quickRampSec);
-
-            // Rotation targets
-            float startY = s.perspectiveEuler.y;
-            const float targetY = -90f;
-
-            // Cached references to reduce property lookups
-            var line = s.LineRenderer;
-
-            float elapsed = 0f;
-            float midSpeed = Mathf.Min(maxSpeed * 0.999f, baseSpeed * 6f); // cap before ~9s
-
-            while (elapsed < rotEndSec)
-            {
-                if (_hasError)
+                if (!loadingProgress)
                 {
                     yield break;
                 }
 
-                // Linear rotation progress in [rotStartSec, rotEndSec]
-                float rotEase = elapsed <= rotStartSec ? 0f : Mathf.Clamp01((elapsed - rotStartSec) / denomRot);
+                loadingProgress.gameObject.SetActive(false);
 
-                // Three-phase speed profile
-                float currentSpeed =
-                    (elapsed <= midHoldSec)
-                        ? Mathf.Lerp(baseSpeed, midSpeed, Mathf.Clamp01(elapsed / denomHold))
-                        : (elapsed <= midHoldSec + quickRampSec)
-                            ? Mathf.Lerp(midSpeed, maxSpeed, Mathf.Clamp01((elapsed - midHoldSec) / denomQuick))
-                            : maxSpeed;
+                // Guard & locals
+                var s = stripe;
+                if (!s)
+                {
+                    yield break;
+                }
 
-                // Horizontal rotation (frame-rate independent)
-                RotateHorizontalAxisMobiusStripe(currentSpeed);
 
-                // Vertical rotation & visual polish
-                var e = s.perspectiveEuler;
-                e.y = Mathf.LerpAngle(startY, targetY, rotEase);
-                s.perspectiveEuler = e; // Mathf.LerpAngle handles wrap-around correctly.
+                float baseSpeed = Mathf.Max(0.0001f, Speed);
+                float maxSpeed = baseSpeed * 9f;
 
-                s.sizeScale = Vector2.one * Mathf.Lerp(1f, 1.5f, rotEase);
-                line.thinThicknessMultiplier = Mathf.Lerp(.5f, 1f, rotEase);
-                line.transparencyShift = Mathf.Lerp(.5f, 1f, rotEase);
+                // Use clip length if available; fallback to known length.
+                float totalLen = (loadingCompleteSound && loadingCompleteSound.length > 0f)
+                    ? loadingCompleteSound.length
+                    : 14.735f;
 
+                // Time anchors scaled from the 14.735s reference
+                const float REF = 14.735f;
+                float rotStartSec = totalLen * (10f / REF); // ~10s
+                float rotEndSec = totalLen * (13f / REF); // ~13s
+                float midHoldSec = totalLen * (9f / REF); // ~9s
+
+                if (midHoldSec >= rotStartSec)
+                {
+                    midHoldSec = Mathf.Max(0f, rotStartSec - 0.1f);
+                }
+
+
+                float quickRampSec = Mathf.Max(0.05f, rotStartSec - midHoldSec);
+
+                if (_loadingCompleteHandle.IsValid)
+                {
+                    _loadingCompleteHandle.Stop();
+                    _loadingCompleteHandle.Dispose();
+                }
+
+                if (loadingCompleteSound)
+                {
+                    _loadingCompleteHandle = AudioPlayback.PlayClip(loadingCompleteSound);
+                }
+
+                // Precompute denominators (avoid per-frame Mathf.Max)
+
+
+                float denomRot = Mathf.Max(0.0001f, rotEndSec - rotStartSec);
+                float denomHold = Mathf.Max(0.0001f, midHoldSec);
+                float denomQuick = Mathf.Max(0.05f, quickRampSec);
+
+                // Rotation targets
+                float startY = s.perspectiveEuler.y;
+                const float targetY = -90f;
+
+                // Cached references to reduce property lookups
+                var line = s.LineRenderer;
+
+                float elapsed = 0f;
+                float midSpeed = Mathf.Min(maxSpeed * 0.999f, baseSpeed * 6f); // cap before ~9s
+
+                while (elapsed < rotEndSec)
+                {
+                    if (_hasError)
+                    {
+                        yield break;
+                    }
+
+                    // Linear rotation progress in [rotStartSec, rotEndSec]
+                    float rotEase = elapsed <= rotStartSec ? 0f : Mathf.Clamp01((elapsed - rotStartSec) / denomRot);
+
+                    // Three-phase speed profile
+                    float currentSpeed =
+                        (elapsed <= midHoldSec)
+                            ? Mathf.Lerp(baseSpeed, midSpeed, Mathf.Clamp01(elapsed / denomHold))
+                            : (elapsed <= midHoldSec + quickRampSec)
+                                ? Mathf.Lerp(midSpeed, maxSpeed, Mathf.Clamp01((elapsed - midHoldSec) / denomQuick))
+                                : maxSpeed;
+
+                    // Horizontal rotation (frame-rate independent)
+                    RotateHorizontalAxisMobiusStripe(currentSpeed);
+
+                    // Vertical rotation & visual polish
+                    var e = s.perspectiveEuler;
+                    e.y = Mathf.LerpAngle(startY, targetY, rotEase);
+                    s.perspectiveEuler = e; // Mathf.LerpAngle handles wrap-around correctly.
+
+                    s.sizeScale = Vector2.one * Mathf.Lerp(1f, 1.5f, rotEase);
+                    line.thinThicknessMultiplier = Mathf.Lerp(.5f, 1f, rotEase);
+                    line.transparencyShift = Mathf.Lerp(.5f, 1f, rotEase);
+
+                    s.RebuildNow();
+
+                    elapsed += Time.deltaTime;
+                    yield return null; // resume next frame
+                }
+
+                // Final state
+                s.perspectiveEuler = Vector3.zero;
+                s.loops = 1;
+                s.enablePerspective = false;
+                s.sizeScale = Vector2.one;
+                line.thinThicknessMultiplier = 1f;
+                line.transparencyShift = 1f;
                 s.RebuildNow();
-
-                elapsed += Time.deltaTime;
-                yield return null; // resume next frame
             }
-
-            // Final state
-            s.perspectiveEuler = Vector3.zero;
-            s.loops = 1;
-            s.enablePerspective = false;
-            s.sizeScale = Vector2.one;
-            line.thinThicknessMultiplier = 1f;
-            line.transparencyShift = 1f;
-            s.RebuildNow();
+            finally
+            {
+                _animCor = null;
+            }
         }
 
 
         private IEnumerator LoadingProgressAnim()
         {
-
-            if (!loadingProgress)
+            try
             {
-                yield break;
-            }
-
-            loadingProgress.gameObject.SetActive(true);
-            while (true)
-            {
-
-                if (_hasError)
+                if (!loadingProgress)
                 {
                     yield break;
                 }
 
-                if (stripe)
+                loadingProgress.gameObject.SetActive(true);
+                while (true)
                 {
-                    RotateHorizontalAxisMobiusStripe(Speed);
-                    // At runtime we must explicitly request a rebuild after changing public fields.
-                    stripe.RebuildNow();
+
+                    if (_hasError)
+                    {
+                        yield break;
+                    }
+
+                    if (stripe)
+                    {
+                        RotateHorizontalAxisMobiusStripe(Speed);
+                        // At runtime we must explicitly request a rebuild after changing public fields.
+                        stripe.RebuildNow();
+                    }
+                    yield return null;
                 }
-                yield return null;
+            }
+            finally
+            {
+                _animCor = null;
             }
         }
         #endregion

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using Eitan.EasyMic.Runtime.Mono.Components.ASR;
 using Eitan.EasyMic.Runtime.Mono.Components.TTS;
 using UnityEngine;
@@ -10,42 +9,23 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
-        private const string DefaultAsrStreamingModelId = "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20";
-        private const string DefaultAsrOfflineModelId = "sherpa-onnx-zipformer-zh-en-2023-11-22";
-        private const string DefaultAsrVadModelId = "silero_vad_v5";
-        private const string DefaultAsrPunctuationModelId = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
-
-        private const string DefaultLocalTtsModelId = "vits-melo-tts-zh_en";
-        private const int DefaultLocalTtsVoiceId = 1;
-        private const float DefaultLocalTtsSpeed = 1f;
-        private const int DefaultLocalTtsSampleRate = 44100;
-
-        [Serializable]
-        private class RuntimeConfig
-        {
-            public string ApiKey;
-            public string ApiBaseUrl;
-            public string LlmModel;
-            public float LlmTemperature = -1f;
-            public string TtsModel;
-            public string TtsVoice;
-            public int UseLocalTts = -1;
-            public int AsrRecognitionModeIndex = -1;
-            public string AsrStreamingModelId;
-            public string AsrOfflineModelId;
-            public string AsrVadModelId;
-            public int AsrEnablePunctuation = -1;
-            public string AsrPunctuationModelId;
-            public string LocalTtsModelId;
-            public int LocalTtsVoiceId = -1;
-            public float LocalTtsSpeed = -1f;
-            public int LocalTtsSampleRate = -1;
-        }
-
         private void InitializeComponents()
         {
-            _serviceLoadingRecord = new Dictionary<string, float>();
-            _sentenceAssembler = new StreamingSentenceAssembler();
+            _serviceLoadingRecord = new Dictionary<string, float>
+            {
+                [SERVICE_ASR_INIT_KEY] = 0f,
+                [SERVICE_TTS_INIT_KEY] = 0f
+            };
+
+            _runtimeConfigStore = new JsonAIChatRuntimeConfigStore();
+            _requestOrchestrator = new AIChatRequestOrchestrator(
+                historyTurnProvider: () => Config.MaxHistoryTurns,
+                systemPromptProvider: GetSystemPrompt,
+                cleanText: CleanText,
+                maxResponseBufferSize: MaxResponseBufferSize);
+
+            _initialized = false;
+            _lastLoadingProgress = 0f;
             _networkHandler = new NetworkAdaptiveHandler();
         }
 
@@ -61,234 +41,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            var fileName = string.IsNullOrWhiteSpace(Config.RuntimeConfigFileName)
-                ? "ai_chat_config.json"
-                : Config.RuntimeConfigFileName;
-            var path = Path.Combine(Application.persistentDataPath, fileName);
-            if (!File.Exists(path))
-            {
-                var runtimeConfig = CreateDefaultRuntimeConfig();
-                SaveDefaultRuntimeConfig(path);
-                ApplyRuntimeAsrConfig(runtimeConfig);
-                ApplyRuntimeLocalTtsConfig(runtimeConfig);
-                return;
-            }
-
             try
             {
-                var json = File.ReadAllText(path);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return;
-                }
-
-                var runtimeConfig = JsonUtility.FromJson<RuntimeConfig>(json);
+                string path = RuntimeConfigPath;
+                var runtimeConfig = _runtimeConfigStore.LoadOrCreate(path, Config, out _);
                 if (runtimeConfig == null)
                 {
                     return;
                 }
 
-                if (!string.IsNullOrWhiteSpace(runtimeConfig.ApiKey))
-                {
-                    Config.SetApiKeyOverride(runtimeConfig.ApiKey);
-                }
-
-                if (!string.IsNullOrWhiteSpace(runtimeConfig.ApiBaseUrl))
-                {
-                    Config.ApiBaseUrl = runtimeConfig.ApiBaseUrl;
-                }
-
-                if (!string.IsNullOrWhiteSpace(runtimeConfig.LlmModel))
-                {
-                    Config.LlmModel = runtimeConfig.LlmModel;
-                }
-
-                if (runtimeConfig.LlmTemperature >= 0f)
-                {
-                    Config.LlmTemperature = runtimeConfig.LlmTemperature;
-                }
-
-                if (!string.IsNullOrWhiteSpace(runtimeConfig.TtsModel))
-                {
-                    Config.TtsModel = runtimeConfig.TtsModel;
-                }
-
-                if (!string.IsNullOrWhiteSpace(runtimeConfig.TtsVoice))
-                {
-                    Config.TtsVoice = runtimeConfig.TtsVoice;
-                }
-
-                if (runtimeConfig.UseLocalTts >= 0)
-                {
-                    Config.UseLocalTts = runtimeConfig.UseLocalTts > 0;
-                }
-
-                ApplyRuntimeAsrConfig(runtimeConfig);
-                ApplyRuntimeLocalTtsConfig(runtimeConfig);
+                _runtimeConfigStore.Apply(runtimeConfig, Config);
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[AIChat] Failed to load runtime config: {ex.Message}");
-            }
-        }
-
-        private void SaveDefaultRuntimeConfig(string path)
-        {
-            var runtimeConfig = CreateDefaultRuntimeConfig();
-            try
-            {
-                var json = JsonUtility.ToJson(runtimeConfig, true);
-                File.WriteAllText(path, json);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AIChat] Failed to save default runtime config: {ex.Message}");
-            }
-        }
-
-        private RuntimeConfig CreateDefaultRuntimeConfig()
-        {
-            var config = new RuntimeConfig
-            {
-                ApiBaseUrl = Config.ApiBaseUrl,
-                LlmModel = Config.LlmModel,
-                LlmTemperature = Config.LlmTemperature,
-                TtsModel = Config.TtsModel,
-                TtsVoice = Config.TtsVoice,
-                UseLocalTts = Config.UseLocalTts ? 1 : 0,
-                AsrRecognitionModeIndex = MapRecognitionModeToIndex(RecognitionMode.OfflineWithVad),
-                AsrEnablePunctuation = 0
-            };
-
-            config.AsrStreamingModelId = DefaultAsrStreamingModelId;
-            config.AsrOfflineModelId = DefaultAsrOfflineModelId;
-            config.AsrVadModelId = DefaultAsrVadModelId;
-            config.AsrPunctuationModelId = DefaultAsrPunctuationModelId;
-
-            config.LocalTtsModelId = DefaultLocalTtsModelId;
-            config.LocalTtsVoiceId = DefaultLocalTtsVoiceId;
-            config.LocalTtsSpeed = DefaultLocalTtsSpeed;
-            config.LocalTtsSampleRate = DefaultLocalTtsSampleRate;
-
-            return config;
-        }
-
-        private void ApplyRuntimeAsrConfig(RuntimeConfig runtimeConfig)
-        {
-            var mic = Microphone;
-            if (mic == null)
-            {
-                return;
-            }
-
-            var preset = mic.AsrConfig.ActivePresetConfiguration;
-            if (TryMapRecognitionMode(runtimeConfig.AsrRecognitionModeIndex, out var recognitionMode))
-            {
-                preset.RecognitionMode = recognitionMode;
-            }
-
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.AsrStreamingModelId))
-            {
-                preset.StreamingModelId = runtimeConfig.AsrStreamingModelId;
-            }
-
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.AsrOfflineModelId))
-            {
-                preset.OfflineModelId = runtimeConfig.AsrOfflineModelId;
-            }
-
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.AsrVadModelId))
-            {
-                preset.VadModelId = runtimeConfig.AsrVadModelId;
-            }
-
-            if (runtimeConfig.AsrEnablePunctuation >= 0)
-            {
-                preset.EnablePunctuation = runtimeConfig.AsrEnablePunctuation > 0;
-            }
-
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.AsrPunctuationModelId))
-            {
-                preset.PunctuationModelId = runtimeConfig.AsrPunctuationModelId;
-            }
-
-            preset.Id = AutomaticSpeechRecognitionConfiguration.ASRPreset.DefaultPresetId;
-
-            var asrConfig = AutomaticSpeechRecognitionConfiguration.CreateDefault();
-            asrConfig.AddPreset(preset, true);
-            asrConfig.SetActivePreset(AutomaticSpeechRecognitionConfiguration.ASRPreset.DefaultPresetId);
-            mic.ApplyConfiguration(asrConfig);
-        }
-
-        private void ApplyRuntimeLocalTtsConfig(RuntimeConfig runtimeConfig)
-        {
-            var synthesizer = SpeechSynthesizer;
-            if (synthesizer == null)
-            {
-                return;
-            }
-
-            var preset = synthesizer.TtsConfig.GetActivePreset();
-
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.LocalTtsModelId))
-            {
-                preset.modelId = runtimeConfig.LocalTtsModelId;
-            }
-
-            if (runtimeConfig.LocalTtsVoiceId >= 0)
-            {
-                preset.voiceId = runtimeConfig.LocalTtsVoiceId;
-            }
-
-            if (runtimeConfig.LocalTtsSpeed > 0f)
-            {
-                preset.speed = runtimeConfig.LocalTtsSpeed;
-            }
-
-            if (runtimeConfig.LocalTtsSampleRate > 0)
-            {
-                preset.sampleRates = runtimeConfig.LocalTtsSampleRate;
-            }
-
-            preset.Id = SpeechSynthesizerConfiguration.TTSPreset.DefaultPresetId;
-
-            var ttsConfig = SpeechSynthesizerConfiguration.CreateDefault();
-            ttsConfig.AddPreset(preset, true);
-            ttsConfig.SetActivePreset(SpeechSynthesizerConfiguration.TTSPreset.DefaultPresetId);
-            synthesizer.ApplyConfiguration(ttsConfig);
-        }
-
-        private static bool TryMapRecognitionMode(int index, out RecognitionMode mode)
-        {
-            switch (index)
-            {
-                case 0:
-                    mode = RecognitionMode.Streaming;
-                    return true;
-                case 1:
-                    mode = RecognitionMode.OfflineWithVad;
-                    return true;
-                case 2:
-                    mode = RecognitionMode.Hybrid;
-                    return true;
-                default:
-                    mode = RecognitionMode.Streaming;
-                    return false;
-            }
-        }
-
-        private static int MapRecognitionModeToIndex(RecognitionMode mode)
-        {
-            switch (mode)
-            {
-                case RecognitionMode.Streaming:
-                    return 0;
-                case RecognitionMode.OfflineWithVad:
-                    return 1;
-                case RecognitionMode.Hybrid:
-                    return 2;
-                default:
-                    return -1;
             }
         }
 
@@ -350,6 +116,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            ApplyTurnDetectionDelayOverride(mic);
+
             mic.OnMicrophoneInitialized += OnMicrophoneInitializedHandler;
             mic.OnASRTranscriptionStreaming += OnAsrStreamingHandler;
             mic.OnASRTranscriptionSubmit += OnAsrSubmitHandler;
@@ -360,10 +128,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 mic.Init();
             }
-            else if (!mic.IsRecording)
+        }
+
+        private void ApplyTurnDetectionDelayOverride(VoiceMicrophone microphone)
+        {
+            if (microphone == null)
             {
-                mic.StartRecording();
+                return;
             }
+
+            float delay = Mathf.Max(0.1f, Config.AsrTurnDetectionDelaySeconds);
+            microphone.ConfigureTurnDetection(new TurnDetectionOptions(delay, delay));
         }
 
         private void InitializeSpeechSynthesizer()
@@ -400,6 +175,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void TeardownMicrophone()
         {
+            StopPendingMicStartup();
+
             var mic = Microphone;
             if (mic == null)
             {
@@ -481,7 +258,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 RemoteModel = Config.TtsModel,
                 RemoteVoice = Config.TtsVoice,
                 EnableStreamingTts = Config.UseStreamingTts,
-                StreamingBufferSeconds = Mathf.Clamp(Config.StreamingPlaybackBufferSeconds, 0.05f, 0.4f),
                 LogSentences = Config.LogStreamingChunks,
                 EnableDiagnostics = Config.EnableTtsDiagnostics,
                 MainThreadDispatcher = PostToUnityThread

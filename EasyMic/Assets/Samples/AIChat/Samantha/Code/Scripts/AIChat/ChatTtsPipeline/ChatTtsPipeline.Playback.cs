@@ -17,13 +17,47 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             public bool IsValid => UseBehaviour ? Behaviour != null : Handle.IsValid;
 
-            public double BufferedSeconds => UseBehaviour ? Behaviour.BufferedSeconds : Handle.BufferedSeconds;
+            public double BufferedSeconds
+            {
+                get
+                {
+                    if (!IsValid)
+                    {
+                        return 0d;
+                    }
+
+                    if (!UseBehaviour)
+                    {
+                        return Handle.BufferedSeconds;
+                    }
+
+                    try
+                    {
+                        return Behaviour.BufferedSeconds;
+                    }
+                    catch (Exception)
+                    {
+                        return 0d;
+                    }
+                }
+            }
 
             public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
             {
+                if (!IsValid)
+                {
+                    return;
+                }
+
                 if (UseBehaviour)
                 {
-                    Behaviour.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+                    try
+                    {
+                        Behaviour.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 else
                 {
@@ -33,9 +67,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             public void CompleteStream()
             {
+                if (!IsValid)
+                {
+                    return;
+                }
+
                 if (UseBehaviour)
                 {
-                    Behaviour.CompleteStream();
+                    try
+                    {
+                        Behaviour.CompleteStream();
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 else
                 {
@@ -45,9 +90,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             public void Stop()
             {
+                if (!IsValid)
+                {
+                    return;
+                }
+
                 if (UseBehaviour)
                 {
-                    Behaviour.Stop();
+                    try
+                    {
+                        Behaviour.Stop();
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 else
                 {
@@ -155,7 +211,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            sink.Enqueue(job.AudioSamples, job.AudioSamples.Length, job.Channels, job.SampleRate, false);
+            EnqueueSinkSamples(sink, job.AudioSamples, job.AudioSamples.Length, job.Channels, job.SampleRate, false);
 
             await WaitForBufferDrainAsync(sessionId, token).ConfigureAwait(false);
         }
@@ -169,7 +225,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            double bufferBudget = Math.Max(0.05, _targetBufferedSeconds);
             int idleCycles = 0;
             const int maxIdleCycles = 300;
             int channels = job.Channels > 0 ? job.Channels : RemoteDefaultChannels;
@@ -185,8 +240,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (job.TryDequeueStreamChunk(out var samples))
                 {
+                    double bufferBudget = GetAdaptiveBufferBudgetSeconds();
                     await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
-                    sink.Enqueue(samples, samples.Length, channels, sampleRate, false);
+                    EnqueueSinkSamples(sink, samples, samples.Length, channels, sampleRate, false);
+                    double bufferedAfterEnqueue = GetSinkBufferedSeconds(sink);
+                    SafeInvoke(() => OnBufferProgress?.Invoke((float)bufferedAfterEnqueue));
+
+                    if (bufferedAfterEnqueue <= AdaptiveUnderrunThresholdSeconds)
+                    {
+                        ReportAdaptiveUnderrun();
+                    }
+                    else
+                    {
+                        ReportAdaptiveStability(bufferedAfterEnqueue);
+                    }
+
                     idleCycles = 0;
                     continue;
                 }
@@ -194,6 +262,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 if (job.StreamingCompleted && !job.HasPendingChunks)
                 {
                     break;
+                }
+
+                double buffered = GetSinkBufferedSeconds(sink);
+                SafeInvoke(() => OnBufferProgress?.Invoke((float)buffered));
+                if (buffered <= AdaptiveUnderrunThresholdSeconds)
+                {
+                    ReportAdaptiveUnderrun();
+                }
+                else
+                {
+                    ReportAdaptiveStability(buffered);
                 }
 
                 idleCycles++;
@@ -278,10 +357,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            source.Loop = false;
-            if (!source.IsPlaying)
+            try
             {
-                source.Play();
+                source.Loop = false;
+                if (!source.IsPlaying)
+                {
+                    source.Play();
+                }
+            }
+            catch (UnityEngine.MissingReferenceException)
+            {
             }
         }
 
@@ -306,7 +391,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     break;
                 }
 
-                double buffered = _playbackSink.BufferedSeconds;
+                double buffered = GetSinkBufferedSeconds(_playbackSink);
                 SafeInvoke(() => OnBufferProgress?.Invoke((float)buffered));
 
                 if (buffered <= PlaybackDrainEpsilon)
@@ -349,7 +434,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     break;
                 }
 
-                if (sink.BufferedSeconds <= budgetSeconds)
+                if (GetSinkBufferedSeconds(sink) <= budgetSeconds)
                 {
                     break;
                 }
@@ -378,7 +463,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     if (_playbackSink.IsValid)
                     {
-                        _playbackSink.CompleteStream();
+                        CompleteSinkStream(_playbackSink);
                     }
                 }
                 catch (System.Exception ex)
@@ -399,9 +484,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
-                _playbackSink.Stop();
-                _playbackSink.CompleteStream();
-                _playbackSink.Dispose();
+                StopSink(_playbackSink);
+                CompleteSinkStream(_playbackSink);
+                DisposeSink(_playbackSink);
             }
             catch (System.Exception ex)
             {
@@ -411,6 +496,83 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _playbackSink = default;
             _playbackInitialized = false;
             _playbackSessionId = -1;
+        }
+
+        private double GetSinkBufferedSeconds(PlaybackSink sink)
+        {
+            if (!sink.IsValid)
+            {
+                return 0d;
+            }
+            return sink.BufferedSeconds;
+        }
+
+        private void EnqueueSinkSamples(PlaybackSink sink, float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
+        {
+            if (!sink.IsValid)
+            {
+                return;
+            }
+            sink.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+        }
+
+        private void StopSink(PlaybackSink sink)
+        {
+            if (!sink.IsValid)
+            {
+                return;
+            }
+
+            if (!sink.UseBehaviour)
+            {
+                sink.Stop();
+                return;
+            }
+
+            DispatchToMainThread(() =>
+            {
+                if (!sink.IsValid)
+                {
+                    return;
+                }
+
+                sink.Stop();
+            }, waitForCompletion: true);
+        }
+
+        private void CompleteSinkStream(PlaybackSink sink)
+        {
+            if (!sink.IsValid)
+            {
+                return;
+            }
+
+            if (!sink.UseBehaviour)
+            {
+                sink.CompleteStream();
+                return;
+            }
+
+            DispatchToMainThread(() =>
+            {
+                if (!sink.IsValid)
+                {
+                    return;
+                }
+
+                sink.CompleteStream();
+            }, waitForCompletion: true);
+        }
+
+        private void DisposeSink(PlaybackSink sink)
+        {
+            if (!sink.UseBehaviour)
+            {
+                sink.Dispose();
+                return;
+            }
+
+            DispatchToMainThread(sink.Dispose, waitForCompletion: true);
         }
     }
 }

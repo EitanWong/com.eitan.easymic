@@ -51,9 +51,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _greetingSent = false;
             _scheduledGreetingTime = 0f;
             _lastProactiveTime = -9999f;
-            if (_context != null && _context.IsChatActive && _sendGreetingOnReady)
+            if (_sendGreetingOnReady && IsContextReadyForProactive())
             {
-                _scheduledGreetingTime = NowSeconds() + Mathf.Max(0f, _greetingDelaySeconds);
+                ScheduleGreeting(includeMicStartupDelay: false);
             }
             _lastRequestWasProactive = false;
             _currentWaitSeconds = GetNextWaitSeconds();
@@ -69,6 +69,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             float now = NowSeconds();
+
+            if (!IsContextReadyForProactive())
+            {
+                return;
+            }
+
+            if (_sendGreetingOnReady && !_greetingSent && _scheduledGreetingTime <= 0f)
+            {
+                ScheduleGreeting(includeMicStartupDelay: true);
+            }
 
             bool isSpeaking = _context.IsUserSpeaking;
             if (isSpeaking)
@@ -140,11 +150,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void OnChatActivated()
         {
-            if (_sendGreetingOnReady && !_greetingSent)
+            if (_sendGreetingOnReady && !_greetingSent && IsContextReadyForProactive())
             {
-                float delay = Mathf.Max(0f, _greetingDelaySeconds);
-                delay += Mathf.Max(0f, _context != null ? _context.MicStartupDelaySeconds : 0f);
-                _scheduledGreetingTime = NowSeconds() + delay;
+                ScheduleGreeting(includeMicStartupDelay: true);
             }
         }
 
@@ -269,6 +277,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             _lastProactiveTime = now;
             _currentWaitSeconds = GetNextWaitSeconds();
+        }
+
+        private bool IsContextReadyForProactive()
+        {
+            if (_context == null || !_context.IsInitialized)
+            {
+                return false;
+            }
+
+            return !_requireChatActive || _context.IsChatActive;
+        }
+
+        private void ScheduleGreeting(bool includeMicStartupDelay)
+        {
+            if (_context == null)
+            {
+                return;
+            }
+
+            float delay = Mathf.Max(0f, _greetingDelaySeconds);
+            if (includeMicStartupDelay)
+            {
+                delay += Mathf.Max(0f, _context.MicStartupDelaySeconds);
+            }
+
+            _scheduledGreetingTime = NowSeconds() + delay;
         }
 
         private static float Clamp(float value, float min, float max)

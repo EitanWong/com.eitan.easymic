@@ -11,16 +11,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public sealed class AIChatRuntimeConfigPanel : MonoBehaviour
     {
-        private const string DefaultAsrStreamingModelId = "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20";
-        private const string DefaultAsrOfflineModelId = "sherpa-onnx-zipformer-zh-en-2023-11-22";
-        private const string DefaultAsrVadModelId = "silero_vad_v5";
-        private const string DefaultAsrPunctuationModelId = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
-
-        private const string DefaultLocalTtsModelId = "vits-melo-tts-zh_en";
-        private const int DefaultLocalTtsVoiceId = 1;
-        private const float DefaultLocalTtsSpeed = 1f;
-        private const int DefaultLocalTtsSampleRate = 44100;
-
         [Header("Wiring")]
         [SerializeField] private AIChatController _controller;
         [SerializeField] private GameObject _panelRoot;
@@ -44,6 +34,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private TMP_InputField _asrStreamingModelInput;
         [SerializeField] private TMP_InputField _asrOfflineModelInput;
         [SerializeField] private TMP_InputField _asrVadModelInput;
+        [SerializeField] private TMP_InputField _asrTurnDetectionDelayInput;
         [SerializeField] private Toggle _asrEnablePunctuationToggle;
         [SerializeField] private TMP_InputField _asrPunctuationModelInput;
 
@@ -59,35 +50,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             "Offline (VAD)",
             "Hybrid"
         };
-
-        [Serializable]
-        private class RuntimeConfig
-        {
-            public string ApiKey;
-            public string ApiBaseUrl;
-            public string LlmModel;
-            public float LlmTemperature = -1f;
-            public string TtsModel;
-            public string TtsVoice;
-            public int UseLocalTts = -1;
-            public int AsrRecognitionModeIndex = -1;
-            public string AsrStreamingModelId;
-            public string AsrOfflineModelId;
-            public string AsrVadModelId;
-            public int AsrEnablePunctuation = -1;
-            public string AsrPunctuationModelId;
-            public string LocalTtsModelId;
-            public int LocalTtsVoiceId = -1;
-            public float LocalTtsSpeed = -1f;
-            public int LocalTtsSampleRate = -1;
-        }
+        private const float OpenButtonFadeDuration = 0.2f;
+        private const float OpenButtonVisibleAlpha = 1f;
+        private const float OpenButtonHiddenAlpha = 0f;
+        private readonly IAIChatRuntimeConfigStore _runtimeConfigStore = new JsonAIChatRuntimeConfigStore();
+        private CanvasGroup _openButtonCanvasGroup;
+        private CanvasGroup _panelRootCanvasGroup;
+        private bool _panelRootUsesCanvasGroup;
 
         private void Awake()
         {
-            if (_panelRoot != null)
-            {
-                _panelRoot.SetActive(false);
-            }
+            ConfigurePanelRootVisibility();
 
             ConfigureApiKeyInput();
             EnsureRecognitionModeOptions();
@@ -96,6 +69,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 _openButton.onClick.AddListener(OpenPanel);
             }
+
+            InitializeOpenButtonVisibility();
 
             if (_closeButton != null)
             {
@@ -123,6 +98,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             ConfigureApiKeyInput();
             EnsureRecognitionModeOptions();
+            InitializeOpenButtonVisibility();
+        }
+
+        private void Update()
+        {
+            UpdateOpenButtonVisibility();
         }
 
         private void OnDestroy()
@@ -156,10 +137,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OpenPanel()
         {
-            if (_panelRoot != null)
-            {
-                _panelRoot.SetActive(true);
-            }
+            SetPanelRootVisible(true);
 
             EnsureRecognitionModeOptions();
             LoadIntoFields();
@@ -167,10 +145,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void ClosePanel()
         {
-            if (_panelRoot != null)
-            {
-                _panelRoot.SetActive(false);
-            }
+            SetPanelRootVisible(false);
         }
 
         private string ResolveConfigPath()
@@ -190,65 +165,50 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             EnsureRecognitionModeOptions();
             var path = ResolveConfigPath();
-            if (!File.Exists(path))
+            if (!_runtimeConfigStore.TryLoad(path, out var config) || config == null)
             {
                 return;
             }
 
-            try
+            SetText(_apiKeyInput, config.ApiKey);
+            SetText(_apiBaseUrlInput, config.ApiBaseUrl);
+            SetText(_llmModelInput, config.LlmModel);
+            SetText(_ttsModelInput, config.TtsModel);
+            SetText(_ttsVoiceInput, config.TtsVoice);
+            SetToggle(_useLocalTtsToggle, config.UseLocalTts);
+            SetDropdown(_asrRecognitionModeDropdown, config.AsrRecognitionModeIndex);
+            SetText(_asrStreamingModelInput, config.AsrStreamingModelId);
+            SetText(_asrOfflineModelInput, config.AsrOfflineModelId);
+            SetText(_asrVadModelInput, config.AsrVadModelId);
+            if (_asrTurnDetectionDelayInput != null)
             {
-                var json = File.ReadAllText(path);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return;
-                }
-
-                var config = JsonUtility.FromJson<RuntimeConfig>(json);
-                if (config == null)
-                {
-                    return;
-                }
-
-                SetText(_apiKeyInput, config.ApiKey);
-                SetText(_apiBaseUrlInput, config.ApiBaseUrl);
-                SetText(_llmModelInput, config.LlmModel);
-                SetText(_ttsModelInput, config.TtsModel);
-                SetText(_ttsVoiceInput, config.TtsVoice);
-                SetToggle(_useLocalTtsToggle, config.UseLocalTts);
-                SetDropdown(_asrRecognitionModeDropdown, config.AsrRecognitionModeIndex);
-                SetText(_asrStreamingModelInput, config.AsrStreamingModelId);
-                SetText(_asrOfflineModelInput, config.AsrOfflineModelId);
-                SetText(_asrVadModelInput, config.AsrVadModelId);
-                SetToggle(_asrEnablePunctuationToggle, config.AsrEnablePunctuation);
-                SetText(_asrPunctuationModelInput, config.AsrPunctuationModelId);
-                SetText(_localTtsModelInput, config.LocalTtsModelId);
-
-                SetSlider(_llmTemperatureSlider, config.LlmTemperature);
-
-                if (_localTtsVoiceIdInput != null && config.LocalTtsVoiceId >= 0)
-                {
-                    _localTtsVoiceIdInput.text = config.LocalTtsVoiceId.ToString(CultureInfo.InvariantCulture);
-                }
-
-                if (_localTtsSpeedInput != null && config.LocalTtsSpeed >= 0f)
-                {
-                    _localTtsSpeedInput.text = config.LocalTtsSpeed.ToString(CultureInfo.InvariantCulture);
-                }
-
-                if (_localTtsSampleRateInput != null && config.LocalTtsSampleRate > 0)
-                {
-                    _localTtsSampleRateInput.text = config.LocalTtsSampleRate.ToString(CultureInfo.InvariantCulture);
-                }
+                float turnDelay = NormalizeTurnDetectionDelay(config.AsrTurnDetectionDelaySeconds);
+                _asrTurnDetectionDelayInput.text = turnDelay.ToString(CultureInfo.InvariantCulture);
             }
-            catch (Exception ex)
+            SetToggle(_asrEnablePunctuationToggle, config.AsrEnablePunctuation);
+            SetText(_asrPunctuationModelInput, config.AsrPunctuationModelId);
+            SetText(_localTtsModelInput, config.LocalTtsModelId);
+            SetSlider(_llmTemperatureSlider, config.LlmTemperature);
+
+            if (_localTtsVoiceIdInput != null && config.LocalTtsVoiceId >= 0)
             {
-                Debug.LogWarning($"[AIChat] Failed to load runtime config UI: {ex.Message}");
+                _localTtsVoiceIdInput.text = config.LocalTtsVoiceId.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (_localTtsSpeedInput != null && config.LocalTtsSpeed >= 0f)
+            {
+                _localTtsSpeedInput.text = config.LocalTtsSpeed.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (_localTtsSampleRateInput != null && config.LocalTtsSampleRate > 0)
+            {
+                _localTtsSampleRateInput.text = config.LocalTtsSampleRate.ToString(CultureInfo.InvariantCulture);
             }
         }
 
         private void SaveAndReload()
         {
-            var config = new RuntimeConfig
+            var config = new AIChatRuntimeConfig
             {
                 ApiKey = GetText(_apiKeyInput),
                 ApiBaseUrl = GetText(_apiBaseUrlInput),
@@ -260,6 +220,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 AsrStreamingModelId = GetText(_asrStreamingModelInput),
                 AsrOfflineModelId = GetText(_asrOfflineModelInput),
                 AsrVadModelId = GetText(_asrVadModelInput),
+                AsrTurnDetectionDelaySeconds = NormalizeTurnDetectionDelay(ParseFloat(_asrTurnDetectionDelayInput)),
                 AsrEnablePunctuation = GetToggle(_asrEnablePunctuationToggle),
                 AsrPunctuationModelId = GetText(_asrPunctuationModelInput),
                 LocalTtsModelId = GetText(_localTtsModelInput),
@@ -270,14 +231,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             };
 
             var path = ResolveConfigPath();
-            try
+            if (!_runtimeConfigStore.TrySave(path, config, out var saveError))
             {
-                var json = JsonUtility.ToJson(config, true);
-                File.WriteAllText(path, json);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AIChat] Failed to save runtime config UI: {ex.Message}");
+                Debug.LogWarning($"[AIChat] Failed to save runtime config UI: {saveError}");
                 return;
             }
 
@@ -297,38 +253,43 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             EnsureRecognitionModeOptions();
 
-            var defaults = new AIChatControllerConfig();
+            var defaults = _runtimeConfigStore.CreateDefault(new AIChatControllerConfig());
 
             SetText(_apiKeyInput, string.Empty);
             SetText(_apiBaseUrlInput, defaults.ApiBaseUrl);
             SetText(_llmModelInput, defaults.LlmModel);
             SetText(_ttsModelInput, defaults.TtsModel);
             SetText(_ttsVoiceInput, defaults.TtsVoice);
-            SetToggle(_useLocalTtsToggle, defaults.UseLocalTts ? 1 : 0);
+            SetToggle(_useLocalTtsToggle, defaults.UseLocalTts);
             SetSlider(_llmTemperatureSlider, defaults.LlmTemperature);
 
-            SetDropdown(_asrRecognitionModeDropdown, 1);
-            SetToggle(_asrEnablePunctuationToggle, 0);
+            SetDropdown(_asrRecognitionModeDropdown, defaults.AsrRecognitionModeIndex);
+            SetToggle(_asrEnablePunctuationToggle, defaults.AsrEnablePunctuation);
 
-            SetText(_asrStreamingModelInput, DefaultAsrStreamingModelId);
-            SetText(_asrOfflineModelInput, DefaultAsrOfflineModelId);
-            SetText(_asrVadModelInput, DefaultAsrVadModelId);
-            SetText(_asrPunctuationModelInput, DefaultAsrPunctuationModelId);
+            SetText(_asrStreamingModelInput, defaults.AsrStreamingModelId);
+            SetText(_asrOfflineModelInput, defaults.AsrOfflineModelId);
+            SetText(_asrVadModelInput, defaults.AsrVadModelId);
+            if (_asrTurnDetectionDelayInput != null)
+            {
+                _asrTurnDetectionDelayInput.text =
+                    NormalizeTurnDetectionDelay(defaults.AsrTurnDetectionDelaySeconds).ToString(CultureInfo.InvariantCulture);
+            }
+            SetText(_asrPunctuationModelInput, defaults.AsrPunctuationModelId);
 
-            SetText(_localTtsModelInput, DefaultLocalTtsModelId);
+            SetText(_localTtsModelInput, defaults.LocalTtsModelId);
             if (_localTtsVoiceIdInput != null)
             {
-                _localTtsVoiceIdInput.text = DefaultLocalTtsVoiceId.ToString(CultureInfo.InvariantCulture);
+                _localTtsVoiceIdInput.text = defaults.LocalTtsVoiceId.ToString(CultureInfo.InvariantCulture);
             }
 
             if (_localTtsSpeedInput != null)
             {
-                _localTtsSpeedInput.text = DefaultLocalTtsSpeed.ToString(CultureInfo.InvariantCulture);
+                _localTtsSpeedInput.text = defaults.LocalTtsSpeed.ToString(CultureInfo.InvariantCulture);
             }
 
             if (_localTtsSampleRateInput != null)
             {
-                _localTtsSampleRateInput.text = DefaultLocalTtsSampleRate.ToString(CultureInfo.InvariantCulture);
+                _localTtsSampleRateInput.text = defaults.LocalTtsSampleRate.ToString(CultureInfo.InvariantCulture);
             }
         }
 
@@ -489,6 +450,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return -1f;
         }
 
+        private static float NormalizeTurnDetectionDelay(float value)
+        {
+            if (value <= 0f)
+            {
+                return AIChatRuntimeDefaults.DefaultAsrTurnDetectionDelaySeconds;
+            }
+
+            return Mathf.Max(0.1f, value);
+        }
+
         private static int ParseInt(TMP_InputField field)
         {
             var text = GetText(field);
@@ -503,6 +474,139 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             return -1;
+        }
+
+        private void ConfigurePanelRootVisibility()
+        {
+            if (_panelRoot == null)
+            {
+                _panelRootUsesCanvasGroup = false;
+                _panelRootCanvasGroup = null;
+                return;
+            }
+
+            _panelRootUsesCanvasGroup = ReferenceEquals(_panelRoot, gameObject);
+            if (_panelRootUsesCanvasGroup)
+            {
+                if (!_panelRoot.TryGetComponent(out _panelRootCanvasGroup))
+                {
+                    _panelRootCanvasGroup = _panelRoot.AddComponent<CanvasGroup>();
+                }
+
+                SetPanelRootVisible(false);
+                return;
+            }
+
+            _panelRootCanvasGroup = null;
+            _panelRoot.SetActive(false);
+        }
+
+        private void InitializeOpenButtonVisibility()
+        {
+            if (_openButton == null)
+            {
+                _openButtonCanvasGroup = null;
+                return;
+            }
+
+            if (!_openButton.TryGetComponent(out _openButtonCanvasGroup))
+            {
+                _openButtonCanvasGroup = _openButton.gameObject.AddComponent<CanvasGroup>();
+            }
+
+            var initialAlpha = Input.mousePresent ? OpenButtonHiddenAlpha : OpenButtonVisibleAlpha;
+            SetOpenButtonCanvasGroup(initialAlpha);
+        }
+
+        private void UpdateOpenButtonVisibility()
+        {
+            if (_openButton == null)
+            {
+                return;
+            }
+
+            if (_openButtonCanvasGroup == null)
+            {
+                InitializeOpenButtonVisibility();
+                if (_openButtonCanvasGroup == null)
+                {
+                    return;
+                }
+            }
+
+            var targetAlpha = OpenButtonVisibleAlpha;
+            if (Input.mousePresent)
+            {
+                var buttonRect = _openButton.transform as RectTransform;
+                targetAlpha = IsPointerInside(buttonRect) ? OpenButtonVisibleAlpha : OpenButtonHiddenAlpha;
+            }
+
+            var nextAlpha = Mathf.MoveTowards(
+                _openButtonCanvasGroup.alpha,
+                Mathf.Clamp01(targetAlpha),
+                Time.unscaledDeltaTime / OpenButtonFadeDuration);
+            SetOpenButtonCanvasGroup(nextAlpha);
+        }
+
+        private void SetOpenButtonCanvasGroup(float alpha)
+        {
+            if (_openButtonCanvasGroup == null)
+            {
+                return;
+            }
+
+            var clampedAlpha = Mathf.Clamp01(alpha);
+            _openButtonCanvasGroup.alpha = clampedAlpha;
+
+            var allowInteraction = clampedAlpha > 0.001f;
+            _openButtonCanvasGroup.interactable = allowInteraction;
+            _openButtonCanvasGroup.blocksRaycasts = allowInteraction;
+        }
+
+        private void SetPanelRootVisible(bool visible)
+        {
+            if (_panelRoot == null)
+            {
+                return;
+            }
+
+            if (_panelRootUsesCanvasGroup)
+            {
+                if (_panelRootCanvasGroup == null && !_panelRoot.TryGetComponent(out _panelRootCanvasGroup))
+                {
+                    _panelRootCanvasGroup = _panelRoot.AddComponent<CanvasGroup>();
+                }
+
+                if (_panelRootCanvasGroup == null)
+                {
+                    return;
+                }
+
+                _panelRootCanvasGroup.alpha = visible ? 1f : 0f;
+                _panelRootCanvasGroup.interactable = visible;
+                _panelRootCanvasGroup.blocksRaycasts = visible;
+                return;
+            }
+
+            if (_panelRoot.activeSelf != visible)
+            {
+                _panelRoot.SetActive(visible);
+            }
+        }
+
+        private static bool IsPointerInside(RectTransform target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            var canvas = target.GetComponentInParent<Canvas>();
+            var eventCamera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+            return RectTransformUtility.RectangleContainsScreenPoint(target, Input.mousePosition, eventCamera);
         }
     }
 }

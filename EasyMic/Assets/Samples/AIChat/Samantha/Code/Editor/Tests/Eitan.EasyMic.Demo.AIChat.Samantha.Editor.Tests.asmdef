@@ -1,0 +1,21 @@
+{
+    "name": "Eitan.EasyMic.Demo.AIChat.Samantha.Editor.Tests",
+    "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha.Tests",
+    "references": [
+        "Eitan.EasyMic.Demo.AIChat.Samantha"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

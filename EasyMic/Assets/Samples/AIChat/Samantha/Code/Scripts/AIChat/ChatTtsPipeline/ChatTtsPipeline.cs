@@ -22,28 +22,36 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int RemoteDefaultChannels = 1;
         private const int MaxQueuedJobs = 100;
         private const int PlaybackPollDelayMs = 15;
-        private const double PlaybackDrainEpsilon = 0.03;
+        private const double PlaybackDrainEpsilon = 0.08;
+        private const double AdaptiveBufferDefaultSeconds = 0.18;
+        private const double AdaptiveBufferMinSeconds = 0.10;
+        private const double AdaptiveBufferMaxSeconds = 0.36;
+        private const double AdaptiveBufferIncreaseStep = 0.03;
+        private const double AdaptiveBufferDecreaseStep = 0.01;
+        private const double AdaptiveUnderrunThresholdSeconds = 0.10;
+        private const int AdaptiveUnderrunsBeforeIncrease = 2;
+        private const int AdaptiveStableCyclesBeforeDecrease = 90;
 
         private readonly Func<OpenAICompatibleClient> _clientAccessor;
         private readonly ConcurrentQueue<TtsJob> _pendingJobs = new ConcurrentQueue<TtsJob>();
         private readonly ConcurrentDictionary<int, TtsJob> _completedJobs = new ConcurrentDictionary<int, TtsJob>();
         private readonly SemaphoreSlim _generationSemaphore;
         private readonly ResourceMonitor _resourceMonitor;
-        private readonly object _sessionLock = new object();
+        private readonly TtsPipelineSession _session = new TtsPipelineSession();
         private readonly object _playbackLock = new object();
         private readonly object _stateLock = new object();
         private readonly object _inFlightLock = new object();
+        private readonly object _adaptiveBufferLock = new object();
         private readonly HashSet<string> _inFlightSentences = new HashSet<string>(StringComparer.Ordinal);
         private Action<Action> _mainThreadDispatcher;
         private SynchronizationContext _mainThreadContext;
         private int _mainThreadId;
 
         private TtsPipelineConfig _config;
-        private double _targetBufferedSeconds;
+        private double _adaptiveBufferSeconds = AdaptiveBufferDefaultSeconds;
+        private int _adaptiveUnderrunSignals;
+        private int _adaptiveStableCycles;
         private string _projectRootPath;
-        private CancellationTokenSource _sessionCts;
-        private Task _orchestratorTask = Task.CompletedTask;
-        private long _sessionId;
         private int _nextSequenceNumber;
         private int _nextPlaybackSequence;
         private volatile bool _disposed;
@@ -78,9 +86,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             _clientAccessor = clientAccessor ?? throw new ArgumentNullException(nameof(clientAccessor));
             _resourceMonitor = new ResourceMonitor();
-            _generationSemaphore = new SemaphoreSlim(_resourceMonitor.CurrentParallelism);
+            _generationSemaphore = new SemaphoreSlim(1);
             _config = TtsPipelineConfig.Default;
-            _targetBufferedSeconds = _config.StreamingBufferSeconds;
+            ResetAdaptiveBufferState();
         }
 
         public void Configure(TtsPipelineConfig config)
@@ -95,18 +103,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 CacheProjectRootPath();
                 ConfigurePlayback(config);
 
-                if (config.MaxParallelGenerations > 0)
-                {
-                    // Semaphore doesn't support dynamic resize, we'll respect it on new sessions
-                }
-
                 if (config.UseLocalTts && config.LocalSynthesizer != null)
                 {
                     AttachLocalSynthCallbacks(config.LocalSynthesizer);
                 }
-
-                _targetBufferedSeconds = Mathf.Clamp(config.StreamingBufferSeconds, 0.05f, 0.4f);
             }
+
+            ResetAdaptiveBufferState();
         }
 
         private void CacheProjectRootPath()
@@ -128,6 +131,92 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (string.IsNullOrWhiteSpace(_projectRootPath))
             {
                 _projectRootPath = System.Environment.CurrentDirectory;
+            }
+        }
+
+        private void ResetAdaptiveBufferState()
+        {
+            lock (_adaptiveBufferLock)
+            {
+                _adaptiveBufferSeconds = AdaptiveBufferDefaultSeconds;
+                _adaptiveUnderrunSignals = 0;
+                _adaptiveStableCycles = 0;
+            }
+        }
+
+        private double GetAdaptiveBufferBudgetSeconds()
+        {
+            lock (_adaptiveBufferLock)
+            {
+                return _adaptiveBufferSeconds;
+            }
+        }
+
+        private void ReportAdaptiveUnderrun()
+        {
+            double updatedBudget = 0d;
+            bool changed = false;
+
+            lock (_adaptiveBufferLock)
+            {
+                _adaptiveStableCycles = 0;
+                _adaptiveUnderrunSignals++;
+
+                if (_adaptiveUnderrunSignals < AdaptiveUnderrunsBeforeIncrease)
+                {
+                    return;
+                }
+
+                _adaptiveUnderrunSignals = 0;
+                double next = Math.Min(AdaptiveBufferMaxSeconds, _adaptiveBufferSeconds + AdaptiveBufferIncreaseStep);
+                if (next > _adaptiveBufferSeconds + 0.0001d)
+                {
+                    _adaptiveBufferSeconds = next;
+                    updatedBudget = next;
+                    changed = true;
+                }
+            }
+
+            if (changed && _config.LogSentences)
+            {
+                Debug.Log($"[ParallelTtsPipeline] Adaptive buffer increased to {updatedBudget:0.00}s");
+            }
+        }
+
+        private void ReportAdaptiveStability(double bufferedSeconds)
+        {
+            double updatedBudget = 0d;
+            bool changed = false;
+
+            lock (_adaptiveBufferLock)
+            {
+                _adaptiveUnderrunSignals = 0;
+
+                if (bufferedSeconds < (_adaptiveBufferSeconds * 0.85d))
+                {
+                    _adaptiveStableCycles = 0;
+                    return;
+                }
+
+                _adaptiveStableCycles++;
+                if (_adaptiveStableCycles < AdaptiveStableCyclesBeforeDecrease)
+                {
+                    return;
+                }
+
+                _adaptiveStableCycles = 0;
+                double next = Math.Max(AdaptiveBufferMinSeconds, _adaptiveBufferSeconds - AdaptiveBufferDecreaseStep);
+                if (next < _adaptiveBufferSeconds - 0.0001d)
+                {
+                    _adaptiveBufferSeconds = next;
+                    updatedBudget = next;
+                    changed = true;
+                }
+            }
+
+            if (changed && _config.LogSentences)
+            {
+                Debug.Log($"[ParallelTtsPipeline] Adaptive buffer decreased to {updatedBudget:0.00}s");
             }
         }
 
@@ -175,32 +264,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public async Task StopAndWaitAsync()
         {
-            Task taskToWait;
-            long oldSessionId;
-
-            lock (_sessionLock)
-            {
-                oldSessionId = _sessionId;
-
-                if (_sessionCts != null)
-                {
-                    try
-                    {
-                        if (!_sessionCts.IsCancellationRequested)
-                        {
-                            _sessionCts.Cancel();
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                    }
-
-                    _sessionCts.Dispose();
-                    _sessionCts = null;
-                }
-
-                taskToWait = _orchestratorTask;
-            }
+            var stopState = _session.CancelAndGetTask();
+            long oldSessionId = stopState.sessionId;
+            Task taskToWait = stopState.task;
 
             ClearQueues();
 
@@ -249,11 +315,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            Task taskToWait;
-            lock (_sessionLock)
-            {
-                taskToWait = _orchestratorTask;
-            }
+            Task taskToWait = _session.GetTask();
 
             if (taskToWait != null && !taskToWait.IsCompleted)
             {
@@ -279,26 +341,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _disposed = true;
-
-            lock (_sessionLock)
-            {
-                if (_sessionCts != null)
-                {
-                    try
-                    {
-                        if (!_sessionCts.IsCancellationRequested)
-                        {
-                            _sessionCts.Cancel();
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                    }
-
-                    _sessionCts.Dispose();
-                    _sessionCts = null;
-                }
-            }
+            _session.Dispose();
 
             ClearQueues();
             DetachLocalSynthCallbacks();

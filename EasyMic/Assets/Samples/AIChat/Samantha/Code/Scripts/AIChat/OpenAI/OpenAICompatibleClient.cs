@@ -32,6 +32,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly string _responsesEndpoint;
         private readonly string _ttsEndpoint;
         private readonly IOpenAIProviderAdapter _providerAdapter;
+        private readonly OpenAIFallbackPolicy _fallbackPolicy = new OpenAIFallbackPolicy();
+        private readonly OpenAISseReader _sseReader = new OpenAISseReader(StreamIdleTimeout);
 
         /// <summary>
         /// 是否强制使用 Chat Completions API（跳过 Responses API）
@@ -42,11 +44,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         /// 是否保存 TTS 请求 payload 调试文件
         /// </summary>
         public bool EnableTtsDiagnostics { get; set; } = false;
-
-        /// <summary>
-        /// 是否已知服务器不支持 Responses API（运行时自动检测）
-        /// </summary>
-        private bool _responsesApiNotSupported = false;
 
         public OpenAICompatibleClient(string baseUrl, string apiKey, TimeSpan? timeout = null)
         {
@@ -109,7 +106,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         /// </summary>
         public void ResetApiDetection()
         {
-            _responsesApiNotSupported = false;
+            _fallbackPolicy.Reset();
         }
 
         #region Chat Completion - 统一入口
@@ -128,7 +125,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             // 如果强制使用 Chat Completions 或已知不支持 Responses API，直接使用 Chat Completions
 
-            if (ForceChatCompletions || _responsesApiNotSupported || !_providerAdapter.SupportsResponsesApi)
+            if (_fallbackPolicy.ShouldUseChatCompletions(ForceChatCompletions, _providerAdapter.SupportsResponsesApi))
             {
                 await foreach (string chunk in StreamChatCompletionsApiAsync(request, cancellationToken))
                 {
@@ -152,7 +149,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             // 记住不支持 Responses API
 
-            _responsesApiNotSupported = true;
+            _fallbackPolicy.MarkResponsesApiUnsupported();
 
             // 回退到 Chat Completions API
             await foreach (string chunk in StreamChatCompletionsApiAsync(request, cancellationToken))
@@ -176,7 +173,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             // 如果强制使用 Chat Completions 或已知不支持 Responses API
 
-            if (ForceChatCompletions || _responsesApiNotSupported || !_providerAdapter.SupportsResponsesApi)
+            if (_fallbackPolicy.ShouldUseChatCompletions(ForceChatCompletions, _providerAdapter.SupportsResponsesApi))
             {
                 return await ChatCompletionsApiAsync(request, cancellationToken);
             }
@@ -186,7 +183,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (result.FallbackRequired)
             {
-                _responsesApiNotSupported = true;
+                _fallbackPolicy.MarkResponsesApiUnsupported();
                 return await ChatCompletionsApiAsync(request, cancellationToken);
             }
 
@@ -336,32 +333,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 bool streamedDelta = false;
 
-                while (!reader.EndOfStream)
+                await foreach (string payloadLineRaw in _sseReader.ReadDataPayloadLinesAsync(reader, cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    string line = await ReadLineWithTimeoutAsync(reader, cancellationToken).ConfigureAwait(false);
-                    if (line == null)
-                    {
-                        break;
-                    }
-
-
-                    if (string.IsNullOrWhiteSpace(line) ||
-                        !line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    string payloadLine = line.Substring(5).Trim();
+                    string payloadLine = payloadLineRaw;
                     if (payloadLine.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
                     {
                         yield break;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(payloadLine))
-                    {
-                        continue;
                     }
 
                     payloadLine = _providerAdapter.NormalizeResponsesStreamEventJson(payloadLine);
@@ -518,32 +495,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 using (body)
                 using (var reader = new StreamReader(body, Encoding.UTF8))
                 {
-                    while (!reader.EndOfStream)
+                    await foreach (string payloadLineRaw in _sseReader.ReadDataPayloadLinesAsync(reader, cancellationToken))
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        string line = await ReadLineWithTimeoutAsync(reader, cancellationToken).ConfigureAwait(false);
-                        if (line == null)
-                        {
-                            break;
-                        }
-
-
-                        if (string.IsNullOrWhiteSpace(line) ||
-                            !line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        string payloadLine = line.Substring(5).Trim();
+                        string payloadLine = payloadLineRaw;
                         if (payloadLine.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
                         {
                             yield break;
-                        }
-
-                        if (string.IsNullOrWhiteSpace(payloadLine))
-                        {
-                            continue;
                         }
 
                         payloadLine = _providerAdapter.NormalizeChatCompletionChunkJson(payloadLine);
@@ -579,21 +536,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                 }
             }
-        }
-
-        private static async Task<string> ReadLineWithTimeoutAsync(
-            StreamReader reader,
-            CancellationToken cancellationToken)
-        {
-            var readTask = reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(StreamIdleTimeout, cancellationToken);
-            var completed = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
-            if (completed == timeoutTask)
-            {
-                throw new TimeoutException("Stream idle timeout.");
-            }
-
-            return await readTask.ConfigureAwait(false);
         }
 
         private async Task<OpenAIChatResult> ChatCompletionsApiAsync(

@@ -25,17 +25,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [Header("Conversation")]
         [Min(0)]
         public int MaxHistoryTurns = 6;
+        [Header("Speech Input")]
+        [Min(0.1f)] public float AsrTurnDetectionDelaySeconds = AIChatRuntimeDefaults.DefaultAsrTurnDetectionDelaySeconds;
 
         [Header("Speech Output")]
         public bool UseLocalTts = false;
         public string TtsModel = "tts-1";
         public string TtsVoice = "alloy";
         public bool UseStreamingTts = true;
-        [Range(0.05f, 0.4f)] public float StreamingPlaybackBufferSeconds = 0.18f;
         public bool EnableTtsDiagnostics = false;
 
         [Header("Experience")]
         public bool InterruptAssistantOnUserSpeech = true;
+        public bool AutoHideMouseCursorWhenIdle = true;
+        [Min(0f)] public float MouseCursorHideDelaySeconds = 1.5f;
+        [Min(0f)] public float CursorMoveThresholdPixels = 1f;
 
         [Header("Runtime")]
         public float MicStartupDelay = 1f;
