@@ -742,6 +742,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
             var config = AsrConfig;
             var preset = config.GetActivePreset();
             _initializingPreset = preset;
+            ConfigureManifestSourceForPreset(preset);
 
             OnBeforeServicesInitializationRequested(config, preset);
             CreateServices(preset);
@@ -1717,7 +1718,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
                 string moduleType = feedback?.Metadata?.moduleType.ToString();
                 string detail = !string.IsNullOrWhiteSpace(modelId)
                     ? $" (modelId={modelId}{(string.IsNullOrWhiteSpace(moduleType) ? string.Empty : $", moduleType={moduleType}")})"
-                    : string.Empty;
+                    : $" ({DescribeConfiguredModelIdsForDiagnostics()})";
                 LogError($"Model load failed{detail}: {feedback?.Message ?? "unknown error"}");
                 PublishProgress(feedback?.Message);
                 OnServiceLoadingFailed(feedback);
@@ -1741,6 +1742,76 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.ASR
 
         private SherpaONNXFeedbackReporter EnsureFeedbackReporter() =>
             _feedbackReporter ??= new SherpaONNXFeedbackReporter(null, this);
+
+        private void ConfigureManifestSourceForPreset(AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
+        {
+            if (!ShouldUseBuiltInManifest(preset))
+            {
+                return;
+            }
+
+            SherpaServiceFactory.EnsureDeterministicBuiltInManifest();
+        }
+
+        private static bool ShouldUseBuiltInManifest(AutomaticSpeechRecognitionConfiguration.ASRPreset preset)
+        {
+            if (!IsBuiltInOrEmptyModelId(preset.StreamingModelId) ||
+                !IsBuiltInOrEmptyModelId(preset.OfflineModelId) ||
+                !IsBuiltInOrEmptyModelId(preset.VadModelId))
+            {
+                return false;
+            }
+
+            if (preset.EnablePunctuation && !IsBuiltInOrEmptyModelId(preset.PunctuationModelId))
+            {
+                return false;
+            }
+
+            if (preset.KeywordOptions.IsEnabled && !IsBuiltInOrEmptyModelId(preset.KeywordOptions.ModelId))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsBuiltInOrEmptyModelId(string modelId)
+        {
+            string normalized = SherpaServiceFactory.NormalizeModelId(modelId);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return true;
+            }
+
+            return SherpaServiceFactory.IsKnownBuiltInModelCandidate(normalized);
+        }
+
+        private string DescribeConfiguredModelIdsForDiagnostics()
+        {
+            var preset = _initializingPreset;
+            string presetId = string.IsNullOrWhiteSpace(preset.Id) ? "<none>" : preset.Id;
+            string mode = preset.RecognitionMode.ToString();
+            string streaming = FormatModelIdForDiagnostics(preset.StreamingModelId);
+            string offline = FormatModelIdForDiagnostics(preset.OfflineModelId);
+            string vad = FormatModelIdForDiagnostics(preset.VadModelId);
+            string punctuation = FormatModelIdForDiagnostics(preset.PunctuationModelId);
+            string keyword = FormatModelIdForDiagnostics(AsrConfig?.ActiveKeywordOptions.ModelId);
+            return $"presetId={presetId}, mode={mode}, streaming={streaming}, offline={offline}, vad={vad}, punctuation={punctuation}, keyword={keyword}";
+        }
+
+        private static string FormatModelIdForDiagnostics(string modelId)
+        {
+            string normalized = SherpaServiceFactory.NormalizeModelId(modelId);
+            if (string.IsNullOrWhiteSpace(modelId))
+            {
+                return "<empty>";
+            }
+
+            string raw = modelId.Trim();
+            return string.Equals(raw, normalized, StringComparison.OrdinalIgnoreCase)
+                ? raw
+                : $"{raw}->{normalized}";
+        }
 
         private bool IsLoadFailureRequired(SherpaONNXModelMetadata metadata)
         {
