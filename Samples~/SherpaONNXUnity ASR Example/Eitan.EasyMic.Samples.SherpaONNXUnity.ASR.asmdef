@@ -14,7 +14,10 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "EASYMIC_SHERPA_ONNX_INTEGRATION",
+        "EASYMIC_APM_INTEGRATION"
+    ],
     "versionDefines": [
         {
             "name": "com.eitan.sherpa-onnx-unity",

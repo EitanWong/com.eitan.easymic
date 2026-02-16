@@ -1,3 +1,4 @@
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System.Text.RegularExpressions;
 
 namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
@@ -48,3 +49,4 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
         public static string ApplyPronunciationRules(string sentence) => sentence.Replace("海晟", "海胜");
     }
 }
+#endif

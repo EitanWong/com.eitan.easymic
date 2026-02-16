@@ -1,18 +1,16 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
 {
-    using UnityEngine;
-    using UnityEngine.UI;
     using System;
-    using System.Linq;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading.Tasks;
     using Eitan.EasyMic.Runtime;
+    using Eitan.EasyMic.Runtime.Mono.Components;
+    using Eitan.EasyMic.Runtime.Mono.Components.ASR;
     using Eitan.SherpaONNXUnity.Runtime;
-    using Eitan.EasyMic.Runtime.Mono.ASR;
-    using Eitan.EasyMic.Runtime.Mono;
-
-
+    using UnityEngine;
+    using UnityEngine.UI;
 
     /// <summary>
     /// Simplified example demonstrating VoiceMicrophone integration with Sherpa-ONNX Unity.

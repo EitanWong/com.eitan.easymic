@@ -1,0 +1,16 @@
+{
+    "name": "Eitan.EasyMic.Samples.SherpaONNXUnity.KWS.Editor",
+    "rootNamespace": "Eitan.EasyMic.Samples.SherpaONNXUnity.KWS",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

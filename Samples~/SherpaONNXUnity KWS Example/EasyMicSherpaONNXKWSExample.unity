@@ -1721,6 +1721,85 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 541457719}
   m_CullTransparentMesh: 1
+--- !u!1 &553747257
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 553747259}
+  - component: {fileID: 553747258}
+  m_Layer: 0
+  m_Name: VoiceMicrophone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &553747258
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 553747257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fcc30c5140eaf4895a0334f7ec08dc7e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _microphoneOptions:
+    recordOnAwake: 0
+    autoFallback: 1
+  _deviceOptions:
+    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
+    Channel: 2
+    SampleRate: 48000
+  _audioProcessingOptions:
+    EnableAEC: 1
+    EnableANS: 1
+    EnableAGC: 1
+  _asrConfig:
+    _presets:
+    - Id: default
+      DisplayName: Default
+      RecognitionMode: 0
+      StreamingModelId: sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+      OfflineModelId: sherpa-onnx-zipformer-zh-en-2023-11-22
+      VadModelId: silero-vad-v5
+      EnablePunctuation: 1
+      PunctuationModelId: sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
+      KeywordOptions:
+        Enabled: 0
+        ModelId: sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01
+        CustomKeywords: []
+        KeywordsScore: 2
+        KeywordsThreshold: 0.25
+        ContinuousConversation: 0
+        ContinuousConversationTimeoutSeconds: 8
+        UseTriggerSound: 0
+        TriggerSoundClip: {fileID: 0}
+      TurnDetectionOptions:
+        MinDelaySeconds: 0.12
+        MaxDelaySeconds: 0.65
+    _activePresetId: default
+--- !u!4 &553747259
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 553747257}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &615524833
 GameObject:
   m_ObjectHideFlags: 0
@@ -4190,6 +4269,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c21668235495144c0908f67fd78432ec, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _voiceMicrophone: {fileID: 553747258}
   _modelIDDropdown: {fileID: 1669682287}
   _selectDeviceDropdown: {fileID: 1543360700}
   _modelLoadOrUnloadButton: {fileID: 541457721}

@@ -1,0 +1,25 @@
+{
+    "name": "Eitan.EasyMic.Demo.AIChat.Samantha",
+    "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha",
+    "references": [
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EASYMIC_SHERPA_ONNX_INTEGRATION"
+        }
+    ],
+    "noEngineReferences": false
+}

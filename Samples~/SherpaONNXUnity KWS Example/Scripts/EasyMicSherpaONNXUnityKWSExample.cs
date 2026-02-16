@@ -8,7 +8,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
     using System.Threading.Tasks;
     using Eitan.EasyMic.Runtime;
     using Eitan.EasyMic.Runtime.Mono;
-    using Eitan.EasyMic.Runtime.Mono.ASR;
+    using Eitan.EasyMic.Runtime.Mono.Components.ASR;
     using Eitan.SherpaONNXUnity.Runtime;
     using Eitan.SherpaONNXUnity.Runtime.Modules;
     using UnityEngine;
@@ -23,6 +23,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         private const string STATE_READY = "Ready to Record";
         private const string STATE_RECORDING = "Recording...";
         private const string STATE_LISTENING = "Listening...";
+        private const string STATE_STOPPED = "Stopped";
 
         private const string BTN_LOAD_MODEL = "Load Model";
         private const string BTN_UNLOAD_MODEL = "Unload Model";
@@ -432,6 +433,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
         {
             _voiceMicrophone?.StopRecording();
             UpdateState(AppState.Ready);
+            _stateText.text = $"{STATE_STOPPED} - {STATE_READY}";
         }
 
         private string GetSelectedModelId()

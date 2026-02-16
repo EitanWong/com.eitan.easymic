@@ -1,3 +1,4 @@
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -191,3 +192,4 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         public static SpeechSynthesizerConfiguration CreateDefault() => new SpeechSynthesizerConfiguration();
     }
 }
+#endif

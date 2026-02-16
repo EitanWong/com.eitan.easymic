@@ -1,3 +1,4 @@
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
@@ -147,3 +148,4 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
         }
     }
 }
+#endif
