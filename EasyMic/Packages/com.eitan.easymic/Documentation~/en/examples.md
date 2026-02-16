@@ -4,6 +4,8 @@
 
 Real-world implementations and patterns for Easy Mic integration. Learn from complete examples that solve common audio recording challenges.
 
+For scene-component workflows, see [Mono Components Guide](components.md).
+
 > Note: API uses AudioWorkerBlueprint for adding/removing processors. Create a blueprint with a stable `key`, pass it to `AddProcessor`, and use `GetProcessor<T>(handle, blueprint)` to access the runtime instance for reading data or updating parameters.
 
 ## 🎙️ Basic Recording Examples

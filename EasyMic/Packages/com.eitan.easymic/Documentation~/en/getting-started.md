@@ -151,6 +151,7 @@ Easy Mic will automatically request microphone permissions. You can also add a u
 Now that you have basic recording working, explore these topics:
 
 - **[Core Concepts](core-concepts.md)** - Understand EasyMic's architecture
+- **[Mono Components](components.md)** - Use `EasyMicrophone`, `VoiceMicrophone`, playback, and TTS components
 - **[Audio Pipeline](audio-pipeline.md)** - Learn about the processing pipeline
 - **[Built-in Processors](processors.md)** - Discover all available processors
 - **[Examples](examples.md)** - See more complex use cases

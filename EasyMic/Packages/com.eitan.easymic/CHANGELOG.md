@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3-exp.1] - 2026-02-16
+
+### Added
+
+- Added Mono component stack under `Runtime/Mono/Components`, including:
+  - `EasyMicrophone` for recorder lifecycle and temporary WAV persistence.
+  - `VoiceMicrophone` for ASR orchestration (streaming/offline/VAD/keyword modes).
+  - `PlaybackAudioSourceBehaviour` for clip and PCM stream playback.
+  - `SpeechSynthesizer` and `SpeechSynthesizerConfiguration` for queue-based TTS playback.
+- Added new ASR/TTS support types such as preset-based ASR configuration, keyword options, turn-detection options, and recognition strategies.
+- Added low-level native wrappers and new processors (delay, gain/fader/pan/biquad native processors, resampler, and related utilities).
+- Added editor inspectors and drawers for microphone/ASR/audio processing component configuration.
+- Added AIChat sample content and associated runtime/editor support files to `Samples~/AIChat Example`.
+
+### Changed
+
+- Refactored playback internals into `Runtime/Core/Systems/Playback` with `PlaybackAudioSession`-based flow and improved stream completion handling.
+- Refactored recording internals into `Runtime/Core/Systems/Recording` and improved device/session lifecycle separation.
+- Updated EasyMic API/runtime abstractions (`AudioReader`, `AudioPipeline`, worker interfaces, logging contracts, and processor naming layout).
+- Updated package documentation and README content (English/Chinese) to cover component workflows and current architecture.
+
+### Fixed
+
+- Improved microphone device fallback/restart behavior when capture devices change.
+- Improved sample-rate/channel adaptation and stability in cross-platform recording/playback paths.
+- Fixed multiple VoiceMicrophone/Sherpa integration edge cases in model lifecycle, callback dispatch, and turn handling.
+
+### Notes
+
+- Release summary above is based on comparison with `origin/main...HEAD` after fetching remote `main` on 2026-02-16.
+
 ## [0.1.2-exp.1] - 2025-09-22
 
 ### Added

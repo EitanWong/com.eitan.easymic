@@ -1,4 +1,4 @@
-← [内置处理器](processors.md) | [文档首页](../README.md) | [English Version](../en/api-reference.md) →
+← [内置处理器](processors.md) | [Mono 组件](components.md) | [文档首页](../README.md) | [English Version](../en/api-reference.md) →
 
 # ⚡ API 参考
 
