@@ -1,6 +1,6 @@
 {
   "name": "com.eitan.easymic",
-  "version": "0.1.2-exp.2",
+  "version": "0.1.3-exp.1",
   "displayName": "EasyMic",
   "description": "A simple Unity plugin for low-latency raw audio capture with a modular real-time processing pipeline.",
   "keywords": [
@@ -62,6 +62,11 @@
       "displayName": "SherpaONNXUnity KWS Example",
       "description": "A simple scene demonstrating keyword spotting by combining the sherpa-onnx-unity plugin with EasyMic for low-latency microphone input.",
       "path": "Samples~/SherpaONNXUnity KWS Example"
+    },
+    {
+      "displayName": "AIChat Example",
+      "description": "An end-to-end AI voice chat sample (ASR + LLM + TTS) based on EasyMic. Requires installing com.eitan.sherpa-onnx-unity before use.",
+      "path": "Samples~/AIChat Example"
     }
   ],
   "repository": {
