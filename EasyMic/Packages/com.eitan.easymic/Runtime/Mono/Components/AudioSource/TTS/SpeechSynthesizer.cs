@@ -1,3 +1,4 @@
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -1002,3 +1003,4 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS
         #endregion
     }
 }
+#endif

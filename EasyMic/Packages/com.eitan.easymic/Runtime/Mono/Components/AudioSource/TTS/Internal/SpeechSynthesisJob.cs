@@ -1,3 +1,4 @@
+#if EASYMIC_SHERPA_ONNX_INTEGRATION
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -125,3 +126,4 @@ namespace Eitan.EasyMic.Runtime.Mono.Components.TTS.Internal
         }
     }
 }
+#endif

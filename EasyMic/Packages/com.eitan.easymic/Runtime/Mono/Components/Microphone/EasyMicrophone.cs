@@ -25,7 +25,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         [SerializeField] private DeviceOptions _deviceOptions = DeviceOptions.Default;
 
         [Header("Logging")]
-        [SerializeField] private bool _enableLog = true;
+        [SerializeField] private bool _enableLog = false;
 #if  EASYMIC_APM_INTEGRATION
         [SerializeField] private AudioProcessingOptions _audioProcessingOptions = AudioProcessingOptions.Default;
 #endif
