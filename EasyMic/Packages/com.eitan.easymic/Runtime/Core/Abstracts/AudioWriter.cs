@@ -1,4 +1,5 @@
-namespace Eitan.EasyMic.Runtime {
+namespace Eitan.EasyMic.Runtime
+{
     using System;
 
     /// <summary>
@@ -12,9 +13,9 @@ namespace Eitan.EasyMic.Runtime {
         /// This sealed override simplifies the interface for developers. Instead of overriding
         /// ProcessAudioBuffer, they implement the more descriptively named `Write` method.
         /// </summary>
-        public sealed override void OnAudioPass(Span<float> audiobuffer, AudioState state)
+        public sealed override void OnAudioPass(Span<float> audiobuffer, AudioContext state)
         {
-            if (!IsInitialized) { return; }
+            if (!IsInitialized|| !Enabled) { return; }
             OnAudioWrite(audiobuffer, state);
         }
 
@@ -22,7 +23,7 @@ namespace Eitan.EasyMic.Runtime {
         /// Implement this method to process or modify the audio data.
         /// </summary>
         /// <param name="audiobuffer">The audio buffer, which can be directly modified.</param>
-        protected abstract void OnAudioWrite(Span<float> audiobuffer, AudioState state);
+        protected abstract void OnAudioWrite(Span<float> audiobuffer, AudioContext state);
     }
 
 }

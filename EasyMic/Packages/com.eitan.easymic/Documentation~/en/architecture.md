@@ -20,11 +20,12 @@ This document explains how EasyMic is built under the hood so you can reason abo
 ## Data Flow
 
 1. Native device callback pulls interleaved float PCM frames from the OS driver.
-2. RecordingSession receives the buffer and updates an AudioState struct (channels, sample rate, current frame length).
+2. RecordingSession receives the buffer and updates an AudioContext struct (channels, sample rate, current frame length).
 3. AudioPipeline forwards the frame through its current snapshot of processors in strict order.
 4. AudioWriter processors mutate the buffer in place; AudioReader processors enqueue the frame to their own worker thread for async work.
 
 Key properties:
+
 - No blocking on the audio thread: AudioReader never blocks; heavy work runs on its background thread. AudioWriter work must be bounded and allocation‑free.
 - Dynamic pipelines: Add/Remove processors at runtime without pausing capture; operations are lock‑free and safe.
 
@@ -39,6 +40,7 @@ Key properties:
 AudioPipeline maintains an immutable array snapshot of IAudioWorker stages. Adding/removing processors creates a new array and swaps it via Interlocked.CompareExchange. The audio thread reads the current snapshot with Volatile.Read and iterates without locking.
 
 Benefits:
+
 - RT safety: Zero locks in the callback path.
 - Predictable ordering: Stages run in insertion order.
 - Hot‑swap: Safe dynamic reconfiguration during recording.
@@ -55,8 +57,9 @@ Benefits:
 AudioWorkerBlueprint is a lightweight factory with a stable key. A blueprint is passed to the API instead of a concrete worker instance. Each RecordingSession creates its own worker instance from the blueprint, ensuring isolation and thread safety.
 
 Example:
+
 ```csharp
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30 }, key: "gate");
 
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz48000, new[]{ bpGate, bpCapture });
@@ -88,7 +91,7 @@ You can also set EasyMicAPI.DefaultWorkers at app init to standardize commonly u
 
 ## Integrations
 
-- SherpaOnnxUnity: Optional speech recognition and VAD processors (guarded by scripting defines). Requires the Sherpa package.
+- SherpaONNXUnity: Optional speech recognition and VAD processors (guarded by scripting defines). Requires the Sherpa package.
 - APM (AEC/ANS/AGC): An add‑on package that integrates professional 3A processing. This is a paid extension; contact the author to purchase a license.
 
 ## Gotchas & Tips
@@ -97,4 +100,3 @@ You can also set EasyMicAPI.DefaultWorkers at app init to standardize commonly u
 - Prefer mono input for speech workloads unless you specifically need multi‑channel.
 - Add the downmixer early in the chain if you want to convert to mono before analysis/recognition.
 - Use DefaultWorkers to avoid duplicating setup code across scenes.
-

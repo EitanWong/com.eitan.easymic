@@ -1961,8 +1961,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0.5}
   m_AnchorMax: {x: 0, y: 0.5}
-  m_AnchoredPosition: {x: 232.86877, y: 0}
-  m_SizeDelta: {x: 305.8644, y: 37.05}
+  m_AnchoredPosition: {x: 262.0621, y: -0.00013161}
+  m_SizeDelta: {x: 360.9147, y: 91.152}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &621024132
 MonoBehaviour:
@@ -1991,7 +1991,7 @@ MonoBehaviour:
     m_BestFit: 1
     m_MinSize: 10
     m_MaxSize: 40
-    m_Alignment: 4
+    m_Alignment: 3
     m_AlignByGeometry: 0
     m_RichText: 1
     m_HorizontalOverflow: 0
@@ -2006,6 +2006,61 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 621024130}
   m_CullTransparentMesh: 1
+--- !u!1 &643919981
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 643919983}
+  - component: {fileID: 643919982}
+  m_Layer: 0
+  m_Name: Easy Microphone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &643919982
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 643919981}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f7dbbef89905447f781d3c930d4af0a0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _microphoneOptions:
+    recordOnAwake: 0
+    autoFallback: 1
+  _deviceOptions:
+    DeviceName: Logitech BRIO
+    Channel: 2
+    SampleRate: 48000
+  _audioProcessingOptions:
+    EnableAEC: 1
+    EnableANS: 1
+    EnableAGC: 1
+--- !u!4 &643919983
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 643919981}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 4
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &648216226
 GameObject:
   m_ObjectHideFlags: 0
@@ -3233,7 +3288,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 1338078743}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f2a8f4e6664924391bae4e1bd9e32396, type: 3}
+  m_Script: {fileID: 11500000, guid: a2acb743bbc32456a89a70b0b561b56d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   _clip: {fileID: 0}
@@ -3241,6 +3296,7 @@ MonoBehaviour:
   _loop: 1
   _volume: 1
   _mute: 0
+  _solo: 0
 --- !u!4 &1338078745
 Transform:
   m_ObjectHideFlags: 0
@@ -3454,17 +3510,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 79b99cca71be449c9bf0d021b0e76197, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _selectDeviceDropdown: {fileID: 505190811}
+  _easyMic: {fileID: 643919982}
+  _audioSource: {fileID: 1338078744}
+  _deviceDropdown: {fileID: 505190811}
   _sampleRateDropdown: {fileID: 1442489759}
   _channelDropdown: {fileID: 2135996701}
-  _downmixToggle: {fileID: 1983119969}
   _refreshButton: {fileID: 1560107136}
   _recordingStateImage: {fileID: 480202617}
   _recordingStateText: {fileID: 1977474725}
   _recordButton: {fileID: 1782216910}
   _resultPanel: {fileID: 1496447633}
-  _audioNameText: {fileID: 621024132}
-  _playOrStopButton: {fileID: 2108436360}
+  _audioInfoText: {fileID: 621024132}
+  _playStopButton: {fileID: 2108436360}
   _saveButton: {fileID: 1678523287}
 --- !u!114 &1390354610
 MonoBehaviour:

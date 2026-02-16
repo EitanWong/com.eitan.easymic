@@ -1,0 +1,152 @@
+using System;
+
+namespace Eitan.EasyMic.Runtime
+{
+    public class Downmixer : AudioWriter
+    {
+
+        // Optimized coefficients for different channel configurations
+        private static readonly float COEFF_3DB = 0.707f;  // -3dB for primary channels
+        private static readonly float COEFF_6DB = 0.5f;    // -6dB for safe summing
+        private static readonly float COEFF_12DB = 0.25f;  // -12dB for many channels
+        private int _originalChannelCount;
+
+        public override void Initialize(AudioContext state)
+        {
+            _originalChannelCount = state.ChannelCount;
+            // Publish the post-downmix format to downstream workers during initialization.
+            // This avoids initializing downstream processors with a channel layout they will never see at runtime.
+            state.ChannelCount = 1;
+            state.Length = 0;
+            base.Initialize(state);
+        }
+
+        protected override void OnAudioWrite(Span<float> audiobuffer, AudioContext state)
+        {
+            if (!IsInitialized)
+            {
+                return;
+            }
+
+            int inputChannels = state.ChannelCount;
+            if (inputChannels <= 1)
+            {
+                // Nothing to downmix; ensure Length matches current total samples
+                state.Length = audiobuffer.Length;
+                return;
+            }
+
+            // Perform real-time downmix directly on the buffer using current channel count
+            PerformRealTimeDownmix(audiobuffer, inputChannels);
+
+            // Update state to reflect mono output and new effective length (total samples across all channels)
+            state.ChannelCount = 1;
+            int samplesPerChannel = audiobuffer.Length / inputChannels;
+            state.Length = samplesPerChannel; // since mono, total samples == samples per channel
+        }
+
+        /// <summary>
+        /// Optimized real-time downmix that modifies the buffer in-place for minimal latency
+        /// </summary>
+        private void PerformRealTimeDownmix(Span<float> buffer, int inputChannel)
+        {
+            int numChannels = inputChannel;
+            int samplesPerChannel = buffer.Length / numChannels;
+
+            // Process samples in-place for optimal performance
+            for (int i = 0; i < samplesPerChannel; i++)
+            {
+                int baseIndex = i * numChannels;
+                float monoSample = 0.0f;
+
+                // Optimized downmix based on channel configuration
+                switch (inputChannel)
+                {
+                    case 2: // L, R
+                        monoSample = (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_6DB;
+                        break;
+
+                    case 4: // FL, FR, RL, RR
+                        monoSample = (buffer[baseIndex] + buffer[baseIndex + 1] +
+                                    buffer[baseIndex + 2] + buffer[baseIndex + 3]) * COEFF_12DB;
+                        break;
+
+                    case 6: // L, R, C, LFE, SL, SR
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C (full gain)
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
+                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
+                            -1.0f, 1.0f);
+                        break;
+
+                    case 7: // L, R, C, LFE, SL, SR, BC
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
+                            buffer[baseIndex + 6] * COEFF_3DB + // BC
+                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
+                            -1.0f, 1.0f);
+                        break;
+
+                    case 8: // L, R, C, LFE, SL, SR, BL, BR
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
+                            (buffer[baseIndex + 6] + buffer[baseIndex + 7]) * COEFF_3DB + // BL, BR
+                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
+                            -1.0f, 1.0f);
+                        break;
+
+                    case 9: // L, R, C, SL, SR, BL, BR, TFL, TFR
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 3] + buffer[baseIndex + 4]) * COEFF_3DB + // SL, SR
+                            (buffer[baseIndex + 5] + buffer[baseIndex + 6]) * COEFF_3DB + // BL, BR
+                            (buffer[baseIndex + 7] + buffer[baseIndex + 8]) * COEFF_6DB, // Top channels
+                            -1.0f, 1.0f);
+                        break;
+
+                    case 12: // L, R, C, LFE, SL, SR, BL, BR, TFL, TFR, TRL, TRR
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
+                            (buffer[baseIndex + 6] + buffer[baseIndex + 7]) * COEFF_3DB + // BL, BR
+                            (buffer[baseIndex + 8] + buffer[baseIndex + 9] +
+                             buffer[baseIndex + 10] + buffer[baseIndex + 11]) * COEFF_6DB + // All top channels
+                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
+                            -1.0f, 1.0f);
+                        break;
+
+                    case 16: // 16 channels
+                        monoSample = Math.Clamp(
+                            buffer[baseIndex + 2] + // C
+                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
+                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_6DB + // LW, RW
+                            (buffer[baseIndex + 6] + buffer[baseIndex + 7] +
+                             buffer[baseIndex + 8] + buffer[baseIndex + 9]) * COEFF_3DB + // Surround channels
+                            (buffer[baseIndex + 10] + buffer[baseIndex + 11] + buffer[baseIndex + 12] +
+                             buffer[baseIndex + 13] + buffer[baseIndex + 14] + buffer[baseIndex + 15]) * COEFF_6DB + // Top channels
+                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
+                            -1.0f, 1.0f);
+                        break;
+
+                    default: // Generic fallback - simple averaging
+                        for (int ch = 0; ch < numChannels; ch++)
+                        {
+                            monoSample += buffer[baseIndex + ch];
+                        }
+                        monoSample /= numChannels;
+                        break;
+                }
+
+                // Write mono sample back to buffer (only first channel used for mono output)
+                buffer[i] = monoSample;
+            }
+        }
+    }
+}

@@ -64,7 +64,7 @@ public class FirstRecording : MonoBehaviour
         }
 
         // 2) 使用“蓝图”构建简单流水线
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _recordingHandle = EasyMicAPI.StartRecording(
             devices[0].Name,
             SampleRate.Hz48000,
@@ -151,6 +151,7 @@ Easy Mic 会自动请求麦克风权限。您也可以在 `Info.plist` 中添加
 现在您已经有基本的录音功能了，可以探索这些主题：
 
 - **[核心概念](core-concepts.md)** - 了解 EasyMic 的架构
+- **[Mono 组件](components.md)** - 使用 `EasyMicrophone`、`VoiceMicrophone`、播放与 TTS 组件
 - **[音频管道](audio-pipeline.md)** - 学习处理管道
 - **[内置处理器](processors.md)** - 发现所有可用的处理器
 - **[示例代码](examples.md)** - 查看更复杂的用例

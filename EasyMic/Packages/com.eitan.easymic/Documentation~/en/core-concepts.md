@@ -36,6 +36,7 @@ Easy Mic is built around three core principles:
 ## 🎭 Key Components
 
 ### 🎪 EasyMicAPI (Facade Pattern)
+
 The main entry point for all EasyMic operations. Provides a simple, thread-safe interface:
 
 ```csharp
@@ -50,7 +51,7 @@ var devices = EasyMicAPI.Devices;
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 
 // Add processors via blueprints
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpCapture);
 
 // Stop recording
@@ -58,6 +59,7 @@ EasyMicAPI.StopRecording(handle);
 ```
 
 ### 🎛️ MicSystem (Manager)
+
 Manages multiple concurrent recording sessions and handles native audio backend operations:
 
 - **Device Management**: Enumerates and manages microphone devices
@@ -66,6 +68,7 @@ Manages multiple concurrent recording sessions and handles native audio backend 
 - **Permission Handling**: Manages microphone permissions across platforms
 
 ### 🎫 RecordingHandle (Identifier)
+
 A lightweight, type-safe identifier for recording sessions:
 
 ```csharp
@@ -78,11 +81,13 @@ public struct RecordingHandle
 ```
 
 **Benefits:**
+
 - ✅ **Type Safety**: Cannot accidentally mix up recording sessions
 - ✅ **Resource Safety**: Invalid handles are automatically detected
 - ✅ **Thread Safety**: Can be safely passed between threads
 
 ### 🔗 AudioPipeline (Chain of Responsibility)
+
 The heart of EasyMic's processing system. Manages an ordered chain of audio processors:
 
 ```csharp
@@ -91,13 +96,14 @@ The heart of EasyMic's processing system. Manages an ordered chain of audio proc
 var handle = EasyMicAPI.StartRecording(SampleRate.Hz16000);
 var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
 var bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 EasyMicAPI.AddProcessor(handle, bpGate);
 EasyMicAPI.AddProcessor(handle, bpDownmix);
 EasyMicAPI.AddProcessor(handle, bpCapture);
 ```
 
 **Key Features:**
+
 - 🔄 Dynamic modification (add/remove during recording)
 - 🧵 Thread-safe: lock‑free snapshots on the RT path
 - 🎯 Strict order: stages run in insertion order
@@ -108,13 +114,14 @@ EasyMicAPI.AddProcessor(handle, bpCapture);
 Easy Mic uses a type-safe design to prevent common audio processing mistakes:
 
 ### 📖 AudioReader (Async, Read-Only)
+
 For analysis and monitoring without modifying the audio. AudioReader pushes frames into a lock‑free SPSC ring buffer on the audio thread and processes them on a dedicated worker thread via `OnAudioReadAsync`.
 
 ```csharp
 public abstract class AudioReader : AudioWorkerBase
 {
     // Audio thread: enqueue only, non‑blocking
-    public sealed override void OnAudioPass(Span<float> buffer, AudioState state)
+    public sealed override void OnAudioPass(Span<float> buffer, AudioContext state)
     {
         // internal: SPSC write + signal
     }
@@ -127,38 +134,41 @@ public abstract class AudioReader : AudioWorkerBase
 Examples: meters, file writers, ASR front‑ends, VAD, streaming to network, etc.
 
 ### ✏️ AudioWriter (Read-Write)
+
 For processing that modifies the audio:
 
 ```csharp
 public abstract class AudioWriter : AudioWorkerBase
 {
-    public sealed override void OnAudioPass(Span<float> buffer, AudioState state)
+    public sealed override void OnAudioPass(Span<float> buffer, AudioContext state)
     {
         OnAudioWrite(buffer, state); // Span<float> - can modify!
     }
-    
-    protected abstract void OnAudioWrite(Span<float> buffer, AudioState state);
+
+    protected abstract void OnAudioWrite(Span<float> buffer, AudioContext state);
 }
 ```
 
 **Examples:** Filters, effects, format conversion, noise gates
 
 ### 🛠️ IAudioWorker (Interface)
+
 The base interface all processors implement:
 
 ```csharp
 public interface IAudioWorker : IDisposable
 {
-    void Initialize(AudioState state);
-    void OnAudioPass(Span<float> buffer, AudioState state);
+    void Initialize(AudioContext state);
+    void OnAudioPass(Span<float> buffer, AudioContext state);
 }
 ```
 
-## 📊 AudioState (Context)
+## 📊 AudioContext (Context)
+
 Carries information about the current audio format:
 
 ```csharp
-public class AudioState
+public class AudioContext
 {
     public int ChannelCount { get; set; }  // 1 = Mono, 2 = Stereo
     public int SampleRate { get; set; }    // e.g., 44100, 48000
@@ -167,11 +177,13 @@ public class AudioState
 ```
 
 **Usage:**
+
 - Processors use this to adapt to different audio formats
 - Automatically passed to each processor in the pipeline
 - Can change during recording (e.g., if format switches)
 
 ## 🔄 AudioBuffer (Lock-Free Circular Buffer)
+
 High-performance, lock-free buffer designed for Single Producer Single Consumer (SPSC) scenarios:
 
 ```csharp
@@ -185,6 +197,7 @@ buffer.Read(outputArray);
 ```
 
 **Key Features:**
+
 - 🚀 **Zero-Lock Performance**: No mutex overhead
 - 🗑️ **Zero-GC Operations**: No allocations during read/write
 - 🔄 **Circular Design**: Efficient memory usage
@@ -213,6 +226,7 @@ Here's how audio flows through the system:
 ```
 
 **Key Points:**
+
 - Audio processing happens on a **dedicated audio thread**
 - Each processor gets the **output of the previous processor**
 - The pipeline is **lock-free** for maximum performance
@@ -223,17 +237,20 @@ Here's how audio flows through the system:
 Easy Mic is designed to be thread-safe at the API level:
 
 ### ✅ Thread-Safe Operations
+
 - Adding/removing processors from active recordings
 - Starting/stopping recordings
 - Accessing device information
 - Creating/disposing processors
 
 ### ⚠️ Thread-Unsafe Areas
+
 - Modifying processor properties during processing
 - Accessing processor state from multiple threads
 - Manual buffer operations outside the pipeline
 
 ### 🧵 Threading Model
+
 ```
 Main Thread (Unity)     Audio Thread (Native)    Background Thread (Optional)
      │                        │                           │
@@ -251,18 +268,21 @@ Main Thread (Unity)     Audio Thread (Native)    Background Thread (Optional)
 ## 💡 Best Practices
 
 ### 🎯 Performance
+
 - **Minimize allocations** in audio processors
 - **Keep processing lightweight** - audio thread is real-time critical
 - **Use appropriate buffer sizes** - balance latency vs. performance
 - **Avoid complex operations** in the audio callback
 
 ### 🔧 Architecture
+
 - **Compose simple processors** rather than creating complex ones
 - **Use AudioReader for analysis** that doesn't modify audio
 - **Use AudioWriter for effects** that modify audio
 - **Handle errors gracefully** - don't crash the audio thread
 
 ### 🧹 Resource Management
+
 - **Always dispose processors** when done
 - **Stop recordings** before destroying GameObjects
 - **Use using statements** for automatic cleanup

@@ -16,6 +16,11 @@ namespace Eitan.EasyMic.Runtime{
         Hz32000 = 32000,
 
         /// <summary>
+        /// CD 音质标准采样率 (44.1 kHz)
+        /// </summary>
+        Hz44100 = 44100,
+
+        /// <summary>
         /// 专业音频/视频制作标准采样率 (48 kHz)
         /// </summary>
         Hz48000 = 48000,

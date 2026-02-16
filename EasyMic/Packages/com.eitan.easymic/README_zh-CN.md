@@ -75,6 +75,18 @@ Easy Mic 配备了全面的音频处理器套件：
 
 ## ▶️ 快速入门指南
 
+### Mono 组件工作流
+
+如果你偏向场景组件方式开发，可直接使用 `Runtime/Mono/Components` 下的组件：
+
+- `EasyMicrophone`：麦克风采集与录音输出
+- `VoiceMicrophone`：ASR + 关键词/轮次检测编排
+- `PlaybackAudioSourceBehaviour`：低延迟片段/流式播放
+- `SpeechSynthesizer`：队列化 TTS 播放
+
+详细说明： [Documentation~/zh-CN/components.md](Documentation~/zh-CN/components.md)  
+English: [Documentation~/en/components.md](Documentation~/en/components.md)
+
 ### 基础录制示例
 ```csharp
 using Eitan.EasyMic.Runtime;
@@ -92,7 +104,7 @@ public class SimpleRecorder : MonoBehaviour
         var devs = EasyMicAPI.Devices;
         if (devs.Length == 0) return;
 
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _handle = EasyMicAPI.StartRecording(devs[0].Name, SampleRate.Hz48000, devs[0].GetDeviceChannel(), new[]{ _bpCapture });
         Invoke(nameof(StopRecording), 5f);
     }
@@ -128,13 +140,32 @@ public class AdvancedAudioPipeline : MonoBehaviour
 
         _bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -35 }, key: "gate");
         _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 
         _handle = EasyMicAPI.StartRecording(d[0].Name, SampleRate.Hz44100, d[0].GetDeviceChannel(),
             new[]{ _bpGate, _bpDownmix, _bpCapture });
     }
 }
 ```
+
+## 🧪 示例项目总览
+
+EasyMic 在 `Samples~/` 提供了可直接运行的示例，方便开发者快速验证完整流程。
+
+| 示例 | 作用 | 适用场景 |
+| --- | --- | --- |
+| `Recording Example` | 演示基础麦克风录音与 WAV 保存流程。 | 首次接入、设备与权限联调。 |
+| `Playback Example` | 演示 EasyMic 播放链路的基础能力。 | 验证低延迟播放与播放控制。 |
+| `AudioPlayback API Example` | 演示代码式播放 API 与队列式音频喂入。 | 构建自定义运行时播放逻辑。 |
+| `SherpaONNXUnity ASR Example` | 演示 Sherpa ONNX + EasyMic 的实时语音识别链路。 | 语音转文字、语音指令原型。 |
+| `SherpaONNXUnity KWS Example` | 演示关键词/唤醒词识别流程。 | 唤醒词触发、常驻监听助手。 |
+| `AIChat Example` | 演示端到端 AI 语音对话（ASR + LLM + TTS + 播放编排）。 | **可直接作为数字人 / AI 语音助手应用起点。** |
+
+### AIChat 示例说明
+
+- `AIChat Example` 以“可落地”的对话系统流程为目标，适合作为数字人项目脚手架。
+- 示例覆盖从麦克风输入、语音识别、LLM 生成回复，到 TTS 合成播放的完整链路。
+- 运行前请先安装 [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)。
 
 ## 🎯 使用场景
 
@@ -163,6 +194,7 @@ public class AdvancedAudioPipeline : MonoBehaviour
 ## 📚 文档与支持
 
 - 📖 **[完整文档](Documentation~/README.md)**: 全面的指南和API参考
+- 🧩 **[Mono 组件指南](Documentation~/zh-CN/components.md)**: 麦克风、ASR、播放与 TTS 组件用法
 - 💻 **[示例项目](Samples~/)**: 即用的示例和教程
 - 🐛 **[问题跟踪](https://github.com/EitanWong/com.eitan.easymic/issues)**: 错误报告和功能请求
 - 💬 **[讨论区](https://github.com/EitanWong/com.eitan.easymic/discussions)**: 社区支持和技巧

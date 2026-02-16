@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>最新版本：</strong><code>0.1.2-exp.1</code>（2025-09-22） ·
+    <strong>最新版本：</strong><code>0.1.3-exp.1</code>（2026-02-16） ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
   </p>
   <p align="center">
-    <em>更新要点：</em> 添加了 `SherpaKeywordDetector` 唤醒词检测器。移除了桌面平台的 `soundio` 依赖。优化了性能，音频播放现在使用后台线程。
+    <em>更新要点：</em> 新增 Mono 组件栈（`EasyMicrophone`、`VoiceMicrophone`、`PlaybackAudioSourceBehaviour`、`SpeechSynthesizer`），重构播放/录音子系统，并同步更新中英文文档。
   </p>
   
   <p align="center">
@@ -235,6 +235,27 @@ var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapture
 
 ---
 
+## 🧪 示例项目总览
+
+EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运行的示例，方便开发者快速验证完整流程。
+
+| 示例 | 作用 | 适用场景 |
+| --- | --- | --- |
+| `Recording Example` | 演示基础麦克风录音与 WAV 保存流程。 | 首次接入、设备与权限联调。 |
+| `Playback Example` | 演示 EasyMic 播放链路的基础能力。 | 验证低延迟播放与播放控制。 |
+| `AudioPlayback API Example` | 演示代码式播放 API 与队列式音频喂入。 | 构建自定义运行时播放逻辑。 |
+| `SherpaONNXUnity ASR Example` | 演示 Sherpa ONNX + EasyMic 的实时语音识别链路。 | 语音转文字、语音指令原型。 |
+| `SherpaONNXUnity KWS Example` | 演示关键词/唤醒词识别流程。 | 唤醒词触发、常驻监听助手。 |
+| `AIChat Example` | 演示端到端 AI 语音对话（ASR + LLM + TTS + 播放编排）。 | **可直接作为数字人 / AI 语音助手应用起点。** |
+
+### AIChat 示例说明
+
+- `AIChat Example` 以“可落地”的对话系统流程为目标，适合作为数字人项目脚手架。
+- 示例覆盖从麦克风输入、语音识别、LLM 生成回复，到 TTS 合成播放的完整链路。
+- 运行前请先安装 [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)。
+
+---
+
 ## 📚 文档
 
 <div align="center">
@@ -268,6 +289,12 @@ var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapture
       </td>
     </tr>
     <tr>
+      <td align="center" width="25%">
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/components.md">
+          🎛️<br><strong>Mono 组件</strong><br>
+          <em>麦克风 / ASR / 播放 / TTS</em>
+        </a>
+      </td>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/api-reference.md">
           ⚡<br><strong>API 参考</strong><br>

@@ -7,6 +7,7 @@
 ### English Documentation
 - **[Getting Started](../en/getting-started.md)** - Quick setup and first steps
 - **[Core Concepts](../en/core-concepts.md)** - Understanding EasyMic's architecture  
+- **[Mono Components](../en/components.md)** - Component-based workflows for microphone, ASR, playback, and TTS
 - **[Audio Pipeline](../en/audio-pipeline.md)** - Deep dive into the processing pipeline
 - **[API Reference](../en/api-reference.md)** - Complete API documentation
 - **[Built-in Processors](../en/processors.md)** - Guide to all included processors
@@ -17,6 +18,7 @@
 ### 中文文档
 - **[快速入门](getting-started.md)** - 快速设置和第一步
 - **[核心概念](core-concepts.md)** - 理解 EasyMic 的架构
+- **[Mono 组件](components.md)** - 麦克风、ASR、播放、TTS 组件化工作流
 - **[音频流水线](audio-pipeline.md)** - 深入了解处理流水线
 - **[API 参考](api-reference.md)** - 完整的 API 文档
 - **[内置处理器](processors.md)** - 所有包含处理器的指南
@@ -26,8 +28,8 @@
 
 ## 🔗 快速链接
 
-- **English**: [🚀 Getting Started](../en/getting-started.md) | [🏗️ Core Concepts](../en/core-concepts.md) | [⚡ API Reference](../en/api-reference.md)
-- **中文**: [🚀 快速入门](getting-started.md) | [🏗️ 核心概念](core-concepts.md) | [⚡ API 参考](api-reference.md)
+- **English**: [🚀 Getting Started](../en/getting-started.md) | [🏗️ Core Concepts](../en/core-concepts.md) | [🧩 Mono Components](../en/components.md) | [⚡ API Reference](../en/api-reference.md)
+- **中文**: [🚀 快速入门](getting-started.md) | [🏗️ 核心概念](core-concepts.md) | [🧩 Mono 组件](components.md) | [⚡ API 参考](api-reference.md)
 
 ## 📦 安装
 

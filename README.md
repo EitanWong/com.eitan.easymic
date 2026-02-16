@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>Latest Version:</strong> <code>0.1.2-exp.1</code> (2025-09-22) ·
+    <strong>Latest Version:</strong> <code>0.1.3-exp.1</code> (2026-02-16) ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
   </p>
   <p align="center">
-    <em>Highlights:</em> Added `SherpaKeywordDetector` for wake-word detection. Removed `soundio` dependency on desktop. Optimized performance and audio playback now uses a background thread.
+    <em>Highlights:</em> Added Mono component stack (`EasyMicrophone`, `VoiceMicrophone`, `PlaybackAudioSourceBehaviour`, `SpeechSynthesizer`), refactored playback/recording subsystems, and refreshed bilingual docs.
   </p>
   
   <p align="center">
@@ -235,6 +235,27 @@ var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapture
 
 ---
 
+## 🧪 Sample Projects Overview
+
+EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/Samples~/` so developers can quickly validate workflows.
+
+| Sample | Purpose | Best For |
+| --- | --- | --- |
+| `Recording Example` | Basic microphone recording flow and WAV persistence. | First-time integration and device/permission checks. |
+| `Playback Example` | Core playback flow using EasyMic playback stack. | Verifying low-latency output and playback controls. |
+| `AudioPlayback API Example` | Programmatic playback API usage and queue-style audio feeding. | Building custom runtime audio playback logic. |
+| `SherpaONNXUnity ASR Example` | Real-time speech recognition pipeline with Sherpa ONNX + EasyMic input. | Speech-to-text applications and voice command prototypes. |
+| `SherpaONNXUnity KWS Example` | Keyword spotting / wake-word workflow with Sherpa ONNX. | Wake-word activation and always-listening assistants. |
+| `AIChat Example` | End-to-end AI voice chat sample (ASR + LLM + TTS + playback orchestration). | **Direct starting point for digital human / AI avatar apps.** |
+
+### AIChat Sample Notes
+
+- The `AIChat Example` is designed as a production-oriented reference pipeline for conversational digital humans.
+- It demonstrates end-to-end flow from microphone input to speech recognition, LLM response generation, and speech synthesis playback.
+- Install [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) before importing/running this sample.
+
+---
+
 ## 📚 Documentation
 
 <div align="center">
@@ -268,6 +289,12 @@ var clip = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture)?.GetCapture
       </td>
     </tr>
     <tr>
+      <td align="center" width="25%">
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/components.md">
+          🎛️<br><strong>Mono Components</strong><br>
+          <em>Mic / ASR / Playback / TTS</em>
+        </a>
+      </td>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/api-reference.md">
           ⚡<br><strong>API Reference</strong><br>

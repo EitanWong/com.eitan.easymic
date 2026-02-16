@@ -30,7 +30,7 @@ namespace Eitan.EasyMic.Runtime
         public int PrebufferMs { get; set; } = 60;
         private readonly float QUEUE_SECONDS = 0.01f;
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             base.Initialize(state);
             // Defer source creation to first frame to leverage dynamic format handling.

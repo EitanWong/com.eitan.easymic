@@ -1,9 +1,10 @@
+#if UNITY_EDITOR
 using System.Globalization;
-using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEditor;
 using UnityEngine;
 
-namespace Eitan.EasyMic.Runtime.Editor
+namespace Eitan.EasyMic.Runtime.Mono.Editor
 {
     [CustomEditor(typeof(PlaybackAudioSourceBehaviour))]
     public class PlaybackAudioSourceBehaviourEditor : UnityEditor.Editor
@@ -167,7 +168,7 @@ namespace Eitan.EasyMic.Runtime.Editor
                     GUILayout.FlexibleSpace();
                     if (GUILayout.Button("Diagnostics"))
                     {
-                        AudioSystemDiagnosticsWindow.ShowWindow();
+                        Runtime.Editor.AudioSystemDiagnosticsWindow.ShowWindow();
                     }
                 }
             }
@@ -204,3 +205,4 @@ namespace Eitan.EasyMic.Runtime.Editor
         }
     }
 }
+#endif

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Exceptions;
 using UnityEngine;
 
 namespace Eitan.EasyMic
@@ -64,7 +65,27 @@ namespace Eitan.EasyMic
             }
         }
 
-        public static bool IsRecording => MicSys.HasActiveRecordings;
+        public static MicDevice Default
+        {
+            get
+            {
+                Refresh();
+                if (Devices == null || Devices.Length <= 0)
+                {
+                    throw new EasyMicDeviceNotFoundException("No microphone devices found!");
+                }
+                for (int i = 0; i < Devices.Length; i++)
+                {
+                    if (Devices[i].IsDefault)
+                    {
+                        return Devices[i];
+                    }
+                }
+                return Devices[0];
+            }
+        }
+
+        public static bool isWorking => MicSys.HasActiveRecordings;
 
         public static void Refresh()
         {
@@ -78,7 +99,7 @@ namespace Eitan.EasyMic
 
         public static void EnableDeviceAutoRefresh(float seconds = 1f)
         {
-            MicSys.EnableAutoRefresh(Mathf.Max(0.25f, seconds));
+            MicSys.EnableAutoRefresh(Math.Max(0.25f, seconds));
         }
 
         public static void DisableDeviceAutoRefresh()
@@ -121,9 +142,11 @@ namespace Eitan.EasyMic
             get => _defaultWorkers;
             set => _defaultWorkers = value?.Distinct().ToList();
         }
-
         public static void StopRecording(RecordingHandle handle) => MicSys.StopRecording(handle);
         public static void StopAllRecordings() => MicSys.StopAllRecordings();
+
+        public static bool IsDeviceRecording(MicDevice device) => MicSys.IsDeviceRecording(device);
+        public static bool IsHandleAlive(RecordingHandle handle) => MicSys.IsHandleAlive(handle);
         public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint) => MicSys.AddProcessor(handle, blueprint);
         public static void RemoveProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint) => MicSys.RemoveProcessor(handle, blueprint);
         public static RecordingInfo GetRecordingInfo(RecordingHandle handle) => MicSys.GetRecordingInfo(handle);
@@ -158,25 +181,17 @@ namespace Eitan.EasyMic
                 return default;
             }
 
+
             if (!TrySelectDevice(preferredDevice, deviceName, out var chosen))
             {
-                Debug.LogError("EasyMic: No valid capture device available.");
-                return default;
+                throw new EasyMicDeviceNotFoundException("EasyMic: No valid capture device available.");
             }
 
             var channelToUse = ResolveChannel(chosen, requestedChannel);
             var resolvedRate = chosen.ResolveSampleRate(sampleRate);
             var blueprintSet = workers ?? _defaultWorkers;
 
-            try
-            {
-                return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"EasyMic: Failed to start recording on '{chosen.Name}'. {ex.Message}");
-                return default;
-            }
+            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
         }
 
         private static Channel ResolveChannel(MicDevice device, Channel? requested)
@@ -263,14 +278,28 @@ namespace Eitan.EasyMic
                 return true;
             }
 
-            var message = $"EasyMic: Cannot {actionDescription}. Microphone permission not granted. Call EasyMic.RequestPermission() first.";
+            var message = $"Cannot {actionDescription}. Microphone permission not granted. Call EasyMic.RequestPermission() first.";
             if (asError)
             {
-                Debug.LogError(message);
+                if (_micSystem != null)
+                {
+                    _micSystem.Log(message, MicSystem.LogLevel.Error);
+                }
+                else
+                {
+                    Debug.LogError(message);
+                }
             }
             else
             {
-                Debug.LogWarning(message);
+                if (_micSystem != null)
+                {
+                    _micSystem.Log(message, MicSystem.LogLevel.Warning);
+                }
+                else
+                {
+                    Debug.LogWarning(message);
+                }
             }
 
             return false;

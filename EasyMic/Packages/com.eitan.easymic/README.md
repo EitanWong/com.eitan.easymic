@@ -78,6 +78,18 @@ For production-ready applications requiring studio-quality audio, consider the *
 
 ## ▶️ Quick Start Guide
 
+### Component Workflow (Mono)
+
+If you prefer a scene-component workflow, use the built-in Mono components under `Runtime/Mono/Components`:
+
+- `EasyMicrophone` for microphone capture and recording output
+- `VoiceMicrophone` for ASR + keyword/turn-detection orchestration
+- `PlaybackAudioSourceBehaviour` for low-latency clip/stream playback
+- `SpeechSynthesizer` for queued TTS playback
+
+Detailed guide: [Documentation~/en/components.md](Documentation~/en/components.md)  
+中文说明: [Documentation~/zh-CN/components.md](Documentation~/zh-CN/components.md)
+
 ### Basic Recording Example
 ```csharp
 using Eitan.EasyMic.Runtime;
@@ -95,7 +107,7 @@ public class SimpleRecorder : MonoBehaviour
         var devs = EasyMicAPI.Devices;
         if (devs.Length == 0) return;
 
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(5), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
         _handle = EasyMicAPI.StartRecording(devs[0].Name, SampleRate.Hz48000, devs[0].GetDeviceChannel(), new[]{ _bpCapture });
         Invoke(nameof(StopRecording), 5f);
     }
@@ -131,13 +143,32 @@ public class AdvancedAudioPipeline : MonoBehaviour
 
         _bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -35 }, key: "gate");
         _bpDownmix = new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix");
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(10), key: "capture");
+        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
 
         _handle = EasyMicAPI.StartRecording(d[0].Name, SampleRate.Hz44100, d[0].GetDeviceChannel(),
             new[]{ _bpGate, _bpDownmix, _bpCapture });
     }
 }
 ```
+
+## 🧪 Sample Projects Overview
+
+EasyMic includes ready-to-run samples under `Samples~/` so developers can quickly validate workflows.
+
+| Sample | Purpose | Best For |
+| --- | --- | --- |
+| `Recording Example` | Basic microphone recording flow and WAV persistence. | First-time integration and device/permission checks. |
+| `Playback Example` | Core playback flow using EasyMic playback stack. | Verifying low-latency output and playback controls. |
+| `AudioPlayback API Example` | Programmatic playback API usage and queue-style audio feeding. | Building custom runtime audio playback logic. |
+| `SherpaONNXUnity ASR Example` | Real-time speech recognition pipeline with Sherpa ONNX + EasyMic input. | Speech-to-text applications and voice command prototypes. |
+| `SherpaONNXUnity KWS Example` | Keyword spotting / wake-word workflow with Sherpa ONNX. | Wake-word activation and always-listening assistants. |
+| `AIChat Example` | End-to-end AI voice chat sample (ASR + LLM + TTS + playback orchestration). | **Direct starting point for digital human / AI avatar apps.** |
+
+### AIChat Sample Notes
+
+- The `AIChat Example` is designed as a production-oriented reference pipeline for conversational digital humans.
+- It demonstrates end-to-end flow from microphone input to speech recognition, LLM response generation, and speech synthesis playback.
+- Install [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) before importing/running this sample.
 
 ## 🎯 Use Cases
 
@@ -166,6 +197,7 @@ public class AdvancedAudioPipeline : MonoBehaviour
 ## 📚 Documentation & Support
 
 - 📖 **[Full Documentation](Documentation~/README.md)**: Comprehensive guides and API reference
+- 🧩 **[Mono Components Guide](Documentation~/en/components.md)**: Component usage for microphone, ASR, playback, and TTS
 - 💻 **[Sample Projects](Samples~/)**: Ready-to-run examples and tutorials  
 - 🐛 **[Issue Tracker](https://github.com/EitanWong/com.eitan.easymic/issues)**: Bug reports and feature requests
 - 💬 **[Discussions](https://github.com/EitanWong/com.eitan.easymic/discussions)**: Community support and tips

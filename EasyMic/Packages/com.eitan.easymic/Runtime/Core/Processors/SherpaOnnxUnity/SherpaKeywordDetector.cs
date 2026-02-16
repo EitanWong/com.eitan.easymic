@@ -1,10 +1,12 @@
 #if EASYMIC_SHERPA_ONNX_INTEGRATION
 
-namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
+namespace Eitan.EasyMic.Runtime.SherpaONNXUnity
 {
     using System;
     using System.Threading;
-    using Eitan.SherpaOnnxUnity.Runtime;
+    using Eitan.SherpaONNXUnity.Runtime.Modules;
+
+
     public class SherpaKeywordDetector : AudioReader, IDisposable
     {
 
@@ -27,7 +29,7 @@ namespace Eitan.EasyMic.Runtime.SherpaOnnxUnity
             _kws = service ?? throw new ArgumentNullException(nameof(service));
         }
 
-        public override void Initialize(AudioState state)
+        public override void Initialize(AudioContext state)
         {
             _sampleRate = state.SampleRate;
             base.Initialize(state);

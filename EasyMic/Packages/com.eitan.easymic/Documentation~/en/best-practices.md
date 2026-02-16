@@ -11,11 +11,12 @@ Optimize your Easy Mic implementation with these proven patterns and techniques 
 The audio processing thread is real-time critical. Follow these guidelines:
 
 #### 🚫 Avoid Allocations
+
 ```csharp
 // ❌ Bad - allocates on every frame
 public class BadProcessor : AudioWriter
 {
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         var tempArray = new float[buffer.Length]; // ALLOCATION!
         // Process...
@@ -26,24 +27,25 @@ public class BadProcessor : AudioWriter
 public class GoodProcessor : AudioWriter
 {
     private float[] _workBuffer = new float[4096];
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // Resize only if needed
         if (_workBuffer.Length < buffer.Length)
             _workBuffer = new float[buffer.Length * 2]; // Grow with headroom
-        
+
         // Use _workBuffer for processing
     }
 }
 ```
 
 #### 🎯 Minimize Work in Audio Callbacks
+
 ```csharp
 // ❌ Bad - complex calculations on audio thread
 public class BadFilter : AudioWriter
 {
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         foreach (var sample in buffer)
         {
@@ -58,15 +60,15 @@ public class BadFilter : AudioWriter
 public class GoodFilter : AudioWriter
 {
     private float _preCalculatedCoeff;
-    
-    public override void Initialize(AudioState state)
+
+    public override void Initialize(AudioContext state)
     {
         base.Initialize(state);
         // Pre-calculate expensive values
         _preCalculatedCoeff = MathF.Sin(MathF.PI * frequency / state.SampleRate);
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         for (int i = 0; i < buffer.Length; i++)
             buffer[i] *= _preCalculatedCoeff; // Fast multiplication
@@ -75,6 +77,7 @@ public class GoodFilter : AudioWriter
 ```
 
 #### 🔄 Efficient Channel Processing
+
 ```csharp
 // ❌ Inefficient - sample-by-sample processing
 for (int i = 0; i < buffer.Length; i++)
@@ -88,7 +91,7 @@ int frameCount = buffer.Length / channelCount;
 for (int frame = 0; frame < frameCount; frame++)
 {
     int baseIndex = frame * channelCount;
-    
+
     // Process all channels for this frame together
     for (int ch = 0; ch < channelCount; ch++)
     {
@@ -100,12 +103,13 @@ for (int frame = 0; frame < frameCount; frame++)
 ### 🧠 Memory Management
 
 #### Buffer Size Optimization
+
 ```csharp
 public class OptimalBufferSizes
 {
     // ✅ Good buffer sizes (powers of 2 or multiples of 64)
     public static readonly int[] RecommendedSizes = { 64, 128, 256, 512, 1024, 2048 };
-    
+
     public static int GetOptimalBufferSize(int requestedSize)
     {
         // Find the next power of 2
@@ -126,38 +130,39 @@ public AudioCapturer(int maxDurationSeconds, int sampleRate = 48000)
 ```
 
 #### Smart Resource Management
+
 ```csharp
 public class ResourceAwareProcessor : AudioWriter, IDisposable
 {
     private float[] _largeBuffer;
     private bool _disposed = false;
-    
-    public override void Initialize(AudioState state)
+
+    public override void Initialize(AudioContext state)
     {
         base.Initialize(state);
-        
+
         // Allocate only what we need
         int bufferSize = Math.Max(state.Length * 4, 1024); // 4x headroom
         _largeBuffer = new float[bufferSize];
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (_disposed) return;
-        
+
         // Use the pre-allocated buffer
         var workSpan = new Span<float>(_largeBuffer, 0, buffer.Length);
         // Process...
     }
-    
+
     public override void Dispose()
     {
         if (_disposed) return;
-        
+
         // Clear large arrays to help GC
         _largeBuffer = null;
         _disposed = true;
-        
+
         base.Dispose();
     }
 }
@@ -166,6 +171,7 @@ public class ResourceAwareProcessor : AudioWriter, IDisposable
 ## 🏗️ Architecture Patterns
 
 ### 🎭 Facade Pattern for Complex Operations
+
 ```csharp
 public class RecordingManager : MonoBehaviour
 {
@@ -175,33 +181,33 @@ public class RecordingManager : MonoBehaviour
         private string _deviceName;
         private SampleRate _sampleRate = SampleRate.Hz48000;
         private Channel _channel = Channel.Mono;
-        
+
         public Builder WithDevice(string deviceName)
         {
             _deviceName = deviceName;
             return this;
         }
-        
+
         public Builder WithQuality(SampleRate sampleRate, Channel channel)
         {
             _sampleRate = sampleRate;
             _channel = channel;
             return this;
         }
-        
+
         public Builder AddProcessor(AudioWorkerBlueprint blueprint)
         {
             _processors.Add(blueprint);
             return this;
         }
-        
+
         public RecordingSession Build()
         {
             var handle = EasyMicAPI.StartRecording(_deviceName, _sampleRate, _channel, _processors);
             return new RecordingSession(handle, _processors);
         }
     }
-    
+
     // Usage:
     public void StartHighQualityRecording()
     {
@@ -210,24 +216,25 @@ public class RecordingManager : MonoBehaviour
             .WithQuality(SampleRate.Hz48000, Channel.Stereo)
             .AddProcessor(new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30f }, key: "gate"))
             .AddProcessor(new AudioWorkerBlueprint(() => new AudioDownmixer(), key: "downmix"))
-            .AddProcessor(new AudioWorkerBlueprint(() => new AudioCapturer(60), key: "capture"))
+            .AddProcessor(new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture"))
             .Build();
     }
 }
 ```
 
 ### 🔧 Strategy Pattern for Processing Algorithms
+
 ```csharp
 public interface INoiseReductionStrategy
 {
-    void ReduceNoise(Span<float> buffer, AudioState state);
+    void ReduceNoise(Span<float> buffer, AudioContext state);
 }
 
 public class SimpleGateStrategy : INoiseReductionStrategy
 {
     public float Threshold { get; set; } = 0.01f;
-    
-    public void ReduceNoise(Span<float> buffer, AudioState state)
+
+    public void ReduceNoise(Span<float> buffer, AudioContext state)
     {
         for (int i = 0; i < buffer.Length; i++)
         {
@@ -240,8 +247,8 @@ public class SimpleGateStrategy : INoiseReductionStrategy
 public class AdaptiveNoiseReduction : AudioWriter
 {
     public INoiseReductionStrategy Strategy { get; set; }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         Strategy?.ReduceNoise(buffer, state);
     }
@@ -255,6 +262,7 @@ var processor = new AdaptiveNoiseReduction
 ```
 
 ### 🎪 Observer Pattern for Monitoring
+
 ```csharp
 public interface IAudioEventListener
 {
@@ -268,22 +276,22 @@ public class AudioMonitor : AudioReader
     private readonly List<IAudioEventListener> _listeners = new List<IAudioEventListener>();
     private float _silenceStartTime = -1f;
     private float _currentTime;
-    
+
     public void AddListener(IAudioEventListener listener) => _listeners.Add(listener);
     public void RemoveListener(IAudioEventListener listener) => _listeners.Remove(listener);
-    
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioState state)
+
+    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
     {
         _currentTime += (float)buffer.Length / state.SampleRate;
-        
+
         // Calculate volume metrics
         float rms = CalculateRMS(buffer);
         float peak = CalculatePeak(buffer);
-        
+
         // Notify listeners
         foreach (var listener in _listeners)
             listener.OnVolumeChanged(rms, peak);
-        
+
         // Detect silence/speech
         bool isSilent = rms < 0.01f;
         if (isSilent)
@@ -313,29 +321,30 @@ public class AudioMonitor : AudioReader
 ## 🛡️ Thread Safety
 
 ### 🔒 Safe Parameter Updates
+
 ```csharp
 public class ThreadSafeProcessor : AudioWriter
 {
     private volatile float _gain = 1.0f;
     private volatile bool _enabled = true;
-    
+
     // Safe property access from any thread
     public float Gain
     {
         get => _gain;
         set => _gain = value; // Atomic write for float
     }
-    
+
     public bool Enabled
     {
         get => _enabled;
         set => _enabled = value; // Atomic write for bool
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (!_enabled) return;
-        
+
         float currentGain = _gain; // Atomic read
         for (int i = 0; i < buffer.Length; i++)
             buffer[i] *= currentGain;
@@ -344,13 +353,14 @@ public class ThreadSafeProcessor : AudioWriter
 ```
 
 ### 🎭 Thread-Safe State Management
+
 ```csharp
 public class SafeStateProcessor : AudioWriter
 {
     private readonly object _stateLock = new object();
     private ProcessorConfig _config;
     private ProcessorConfig _pendingConfig;
-    
+
     public void UpdateConfig(ProcessorConfig newConfig)
     {
         lock (_stateLock)
@@ -358,8 +368,8 @@ public class SafeStateProcessor : AudioWriter
             _pendingConfig = newConfig;
         }
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // Check for config updates (rare operation)
         if (_pendingConfig != null)
@@ -373,7 +383,7 @@ public class SafeStateProcessor : AudioWriter
                 }
             }
         }
-        
+
         // Use stable config for processing
         ProcessWithConfig(buffer, _config);
     }
@@ -383,17 +393,18 @@ public class SafeStateProcessor : AudioWriter
 ## 🎯 Error Handling
 
 ### 🛡️ Graceful Degradation
+
 ```csharp
 public class RobustProcessor : AudioWriter
 {
     private bool _hasError = false;
     private int _errorCount = 0;
     private const int MaxErrors = 5;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (_hasError) return; // Fail-safe mode
-        
+
         try
         {
             ProcessAudioInternal(buffer, state);
@@ -403,18 +414,18 @@ public class RobustProcessor : AudioWriter
         {
             _errorCount++;
             Debug.LogError($"Audio processing error {_errorCount}/{MaxErrors}: {ex.Message}");
-            
+
             if (_errorCount >= MaxErrors)
             {
                 Debug.LogError("Too many errors, disabling processor");
                 _hasError = true;
             }
-            
+
             // Pass audio through unmodified on error
         }
     }
-    
-    private void ProcessAudioInternal(Span<float> buffer, AudioState state)
+
+    private void ProcessAudioInternal(Span<float> buffer, AudioContext state)
     {
         // Your processing code here
         // Throws exceptions on error
@@ -423,24 +434,25 @@ public class RobustProcessor : AudioWriter
 ```
 
 ### 📊 Health Monitoring
+
 ```csharp
 public class HealthMonitorProcessor : AudioWriter
 {
     private int _processedFrames;
     private int _skippedFrames;
     private DateTime _lastHealthReport = DateTime.Now;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         _processedFrames++;
-        
+
         // Detect audio dropouts
         if (buffer.Length == 0)
         {
             _skippedFrames++;
             return;
         }
-        
+
         // Periodic health reporting
         if ((DateTime.Now - _lastHealthReport).TotalSeconds >= 10)
         {
@@ -449,12 +461,12 @@ public class HealthMonitorProcessor : AudioWriter
             {
                 Debug.LogWarning($"Audio health: {dropoutRate:P} dropout rate");
             }
-            
+
             _lastHealthReport = DateTime.Now;
             _skippedFrames = 0;
             _processedFrames = 0;
         }
-        
+
         // Process audio normally...
     }
 }
@@ -463,6 +475,7 @@ public class HealthMonitorProcessor : AudioWriter
 ## 🎪 Pipeline Patterns
 
 ### 🔄 Dynamic Pipeline Reconfiguration
+
 ```csharp
 public class AdaptivePipeline : MonoBehaviour
 {
@@ -470,7 +483,7 @@ public class AdaptivePipeline : MonoBehaviour
     private VolumeGateFilter _noiseGate;
     private AudioDownmixer _downmixer;
     private readonly Queue<System.Action> _pipelineUpdates = new Queue<System.Action>();
-    
+
     void Update()
     {
         // Process pipeline updates on main thread
@@ -480,7 +493,7 @@ public class AdaptivePipeline : MonoBehaviour
             update.Invoke();
         }
     }
-    
+
     public void EnableNoiseGateAsync(float thresholdDb)
     {
         _pipelineUpdates.Enqueue(() =>
@@ -493,7 +506,7 @@ public class AdaptivePipeline : MonoBehaviour
             }
         });
     }
-    
+
     public void DisableNoiseGateAsync()
     {
         _pipelineUpdates.Enqueue(() =>
@@ -510,36 +523,37 @@ public class AdaptivePipeline : MonoBehaviour
 ```
 
 ### 🎯 Conditional Processing Chain
+
 ```csharp
 public class ConditionalPipeline : AudioWriter
 {
     public bool EnableNoiseGate { get; set; } = true;
     public bool EnableCompression { get; set; } = false;
     public float NoiseThreshold { get; set; } = -35f;
-    
+
     private VolumeGateFilter _gate;
     private SimpleCompressor _compressor;
-    
-    public override void Initialize(AudioState state)
+
+    public override void Initialize(AudioContext state)
     {
         base.Initialize(state);
         _gate = new VolumeGateFilter { ThresholdDb = NoiseThreshold };
         _compressor = new SimpleCompressor();
-        
+
         _gate.Initialize(state);
         _compressor.Initialize(state);
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         // Conditional processing based on settings
         if (EnableNoiseGate)
             _gate.OnAudioPass(buffer, state);
-            
+
         if (EnableCompression)
             _compressor.OnAudioPass(buffer, state);
     }
-    
+
     public override void Dispose()
     {
         _gate?.Dispose();
@@ -552,35 +566,36 @@ public class ConditionalPipeline : AudioWriter
 ## 🔧 Testing and Debugging
 
 ### 🐛 Debug-Friendly Processors
+
 ```csharp
 public class DebuggableProcessor : AudioWriter
 {
     private readonly bool _debugMode;
     private int _frameCount;
     private float _totalEnergy;
-    
+
     public DebuggableProcessor(bool debugMode = false)
     {
         _debugMode = debugMode;
     }
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         if (_debugMode)
         {
             _frameCount++;
             _totalEnergy += CalculateEnergy(buffer);
-            
+
             if (_frameCount % 100 == 0) // Log every 100 frames
             {
                 float avgEnergy = _totalEnergy / _frameCount;
                 Debug.Log($"Processor stats: {_frameCount} frames, avg energy: {avgEnergy:F4}");
             }
         }
-        
+
         // Normal processing...
     }
-    
+
     private float CalculateEnergy(ReadOnlySpan<float> buffer)
     {
         float sum = 0f;
@@ -592,17 +607,18 @@ public class DebuggableProcessor : AudioWriter
 ```
 
 ### 📊 Performance Profiling
+
 ```csharp
 public class ProfiledProcessor : AudioWriter
 {
     private readonly System.Diagnostics.Stopwatch _stopwatch = new System.Diagnostics.Stopwatch();
     private long _totalProcessingTime;
     private int _processedFrames;
-    
-    protected override void OnAudioWrite(Span<float> buffer, AudioState state)
+
+    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
     {
         _stopwatch.Restart();
-        
+
         try
         {
             ProcessAudioInternal(buffer, state);
@@ -614,16 +630,16 @@ public class ProfiledProcessor : AudioWriter
             _processedFrames++;
         }
     }
-    
+
     public double GetAverageProcessingTimeMs()
     {
         if (_processedFrames == 0) return 0;
-        
+
         double avgTicks = (double)_totalProcessingTime / _processedFrames;
         return (avgTicks / TimeSpan.TicksPerMillisecond);
     }
-    
-    private void ProcessAudioInternal(Span<float> buffer, AudioState state)
+
+    private void ProcessAudioInternal(Span<float> buffer, AudioContext state)
     {
         // Your processing code here
     }
