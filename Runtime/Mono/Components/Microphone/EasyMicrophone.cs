@@ -153,6 +153,19 @@ namespace Eitan.EasyMic.Runtime.Mono
                 SetAudioProcessingOptions(options);
             }
         }
+
+        public bool TryGetApmDiagnostics(out EasyMicApmModifier.DiagnosticsSnapshot diagnostics)
+        {
+            var apmWorker = GetCurrentApmWorker();
+            if (apmWorker == null)
+            {
+                diagnostics = default;
+                return false;
+            }
+
+            diagnostics = apmWorker.GetDiagnostics();
+            return true;
+        }
 #endif
 
         #endregion
