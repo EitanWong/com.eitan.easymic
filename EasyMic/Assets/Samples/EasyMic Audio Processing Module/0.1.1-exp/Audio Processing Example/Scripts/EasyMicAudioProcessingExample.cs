@@ -63,6 +63,10 @@ namespace Eitan.EasyMic.Apm.Samples
         {
             _easyMicrophone = GetComponent<EasyMicrophone>();
             _audioSource = GetComponent<PlaybackAudioSourceBehaviour>();
+            if (GetComponent<EasyMicApmDiagnosticsLogger>() == null)
+            {
+                gameObject.AddComponent<EasyMicApmDiagnosticsLogger>();
+            }
             EnsureManualRecordingFlow();
         }
 
