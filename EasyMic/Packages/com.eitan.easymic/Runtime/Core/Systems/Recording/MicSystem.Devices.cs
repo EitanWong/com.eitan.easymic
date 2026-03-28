@@ -41,6 +41,14 @@ namespace Eitan.EasyMic.Runtime
         private void RefreshDevicesInternal(bool suppressEvents)
         {
             ThrowIfDisposed();
+            EasyMicUnityThread.TryCaptureFromCurrentThread();
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!EasyMicUnityThread.IsMainThread)
+            {
+                return;
+            }
+#endif
 
             var previous = Devices ?? Array.Empty<MicDevice>();
             var current = EnumerateDevices();
@@ -69,6 +77,15 @@ namespace Eitan.EasyMic.Runtime
         {
             ThrowIfDisposed();
 
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!EasyMicUnityThread.IsMainThread)
+            {
+                // Avoid JNI device-enumeration calls on worker threads (can crash in GetMethodID on some Android builds).
+                return Devices ?? Array.Empty<MicDevice>();
+            }
+
+            return EnumerateDevicesAndroid();
+#else
             IntPtr playbackInfos;
             uint playbackCount;
             IntPtr captureInfos;
@@ -128,7 +145,80 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return captureDevices;
+#endif
         }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private MicDevice[] EnumerateDevicesAndroid()
+        {
+            IntPtr playbackInfos = IntPtr.Zero;
+            IntPtr captureInfos = IntPtr.Zero;
+            uint playbackCount = 0;
+            uint captureCount = 0;
+
+            var result = Native.GetDevices(
+                _context,
+                out playbackInfos,
+                out captureInfos,
+                out playbackCount,
+                out captureCount);
+
+            try
+            {
+                if (result != Native.Result.Success)
+                {
+                    throw new InvalidOperationException($"Unable to enumerate devices. {result}");
+                }
+
+                if (captureInfos == IntPtr.Zero || captureCount == 0)
+                {
+                    return Array.Empty<MicDevice>();
+                }
+
+                var captureDevices = new MicDevice[(int)captureCount];
+                for (int i = 0; i < captureDevices.Length; i++)
+                {
+                    var deviceInfo = Native.ReadSfDeviceInfo(captureInfos, i);
+
+                    var id = new byte[Native.DeviceIdSizeInBytes];
+                    if (deviceInfo.Id != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            Marshal.Copy(deviceInfo.Id, id, 0, id.Length);
+                        }
+                        catch
+                        {
+                            // Fall back to zeroed id (default endpoint).
+                            id = new byte[Native.DeviceIdSizeInBytes];
+                        }
+                    }
+
+                    captureDevices[i] = new MicDevice
+                    {
+                        Name = deviceInfo.Name ?? string.Empty,
+                        IsDefault = deviceInfo.IsDefault != 0,
+                        DeviceId = id,
+                        NativeFormats = Native.ReadNativeDataFormats(deviceInfo.NativeDataFormats, deviceInfo.NativeDataFormatCount)
+                    };
+                }
+
+                return captureDevices;
+            }
+            finally
+            {
+                if (playbackInfos != IntPtr.Zero)
+                {
+                    try { Native.FreeDeviceInfos(playbackInfos, playbackCount); } catch { }
+                }
+
+                if (captureInfos != IntPtr.Zero)
+                {
+                    try { Native.FreeDeviceInfos(captureInfos, captureCount); } catch { }
+                }
+            }
+        }
+#endif
 
         private MicDevicesChangedEventArgs BuildChangeArgs(MicDevice[] previous, MicDevice[] current)
         {

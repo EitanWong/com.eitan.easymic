@@ -4,7 +4,7 @@
 PlayerSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 24
-  productGUID: 40b10b75df2bc1c4081e9d8da766a3c0
+  productGUID: 6147c133435c24caf9494bf6e9fc84b9
   AndroidProfiler: 0
   AndroidFilterTouchesWhenObscured: 0
   AndroidEnableSustainedPerformanceMode: 0
@@ -12,11 +12,11 @@ PlayerSettings:
   targetDevice: 2
   useOnDemandResources: 0
   accelerometerFrequency: 60
-  companyName: EitanWong
+  companyName: DefaultCompany
   productName: EasyMic
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
-  m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
+  m_SplashScreenBackgroundColor: {r: 0.12156863, g: 0.12156863, b: 0.1254902, a: 1}
   m_ShowUnitySplashScreen: 1
   m_ShowUnitySplashLogo: 1
   m_SplashScreenOverlayOpacity: 1
@@ -42,8 +42,8 @@ PlayerSettings:
   m_SplashScreenLogos: []
   m_VirtualRealitySplashScreen: {fileID: 0}
   m_HolographicTrackingLossScreen: {fileID: 0}
-  defaultScreenWidth: 1024
-  defaultScreenHeight: 768
+  defaultScreenWidth: 1920
+  defaultScreenHeight: 1080
   defaultScreenWidthWeb: 960
   defaultScreenHeightWeb: 600
   m_StereoRenderingPath: 0
@@ -67,7 +67,7 @@ PlayerSettings:
   disableDepthAndStencilBuffers: 0
   androidStartInFullscreen: 1
   androidRenderOutsideSafeArea: 1
-  androidUseSwappy: 0
+  androidUseSwappy: 1
   androidBlitType: 0
   androidResizableWindow: 0
   androidDefaultWindowWidth: 1920
@@ -137,7 +137,7 @@ PlayerSettings:
     16:10: 1
     16:9: 1
     Others: 1
-  bundleVersion: 1.0.0.1
+  bundleVersion: 1.0
   preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0
@@ -157,19 +157,14 @@ PlayerSettings:
   resetResolutionOnWindowResize: 0
   androidSupportedAspectRatio: 1
   androidMaxAspectRatio: 2.1
-  applicationIdentifier:
-    Android: com.eitan.easymic
-    Lumin: com.eitan.easymic
-    Standalone: com.eitan.easymic
-    WebGL: com.eitan.easymic
-    iPhone: com.eitan.easymic
+  applicationIdentifier: {}
   buildNumber:
     Standalone: 0
     iPhone: 0
     tvOS: 0
-  overrideDefaultApplicationIdentifier: 1
+  overrideDefaultApplicationIdentifier: 0
   AndroidBundleVersionCode: 1
-  AndroidMinSdkVersion: 23
+  AndroidMinSdkVersion: 22
   AndroidTargetSdkVersion: 0
   AndroidPreferredInstallLocation: 1
   aotOptions: 
@@ -184,7 +179,7 @@ PlayerSettings:
   StripUnusedMeshComponents: 0
   VertexChannelCompressionMask: 4054
   iPhoneSdkVersion: 988
-  iOSTargetOSVersionString: 15.0
+  iOSTargetOSVersionString: 12.0
   tvOSSdkVersion: 0
   tvOSRequireExtendedGameController: 0
   tvOSTargetOSVersionString: 12.0
@@ -253,7 +248,7 @@ PlayerSettings:
   useCustomGradlePropertiesTemplate: 0
   useCustomGradleSettingsTemplate: 0
   useCustomProguardFile: 0
-  AndroidTargetArchitectures: 3
+  AndroidTargetArchitectures: 1
   AndroidTargetDevices: 0
   AndroidSplashScreenScale: 0
   androidSplashScreen: {fileID: 0}
@@ -271,19 +266,12 @@ PlayerSettings:
     height: 180
     banner: {fileID: 0}
   androidGamepadSupportLevel: 0
-  chromeosInputEmulation: 0
+  chromeosInputEmulation: 1
   AndroidMinifyRelease: 0
   AndroidMinifyDebug: 0
   AndroidValidateAppBundleSize: 1
-  AndroidAppBundleSizeToValidate: 150
-  m_BuildTargetIcons:
-  - m_BuildTarget: 
-    m_Icons:
-    - serializedVersion: 2
-      m_Icon: {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
-      m_Width: 128
-      m_Height: 128
-      m_Kind: 0
+  AndroidAppBundleSizeToValidate: 200
+  m_BuildTargetIcons: []
   m_BuildTargetPlatformIcons:
   - m_BuildTarget: iPhone
     m_Icons:
@@ -384,116 +372,92 @@ PlayerSettings:
       m_SubKind: App Store
   - m_BuildTarget: Android
     m_Icons:
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 432
       m_Height: 432
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 324
       m_Height: 324
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 216
       m_Height: 216
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 162
       m_Height: 162
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 108
       m_Height: 108
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 10309, guid: 0000000000000000f000000000000000, type: 0}
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 81
       m_Height: 81
       m_Kind: 2
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 192
       m_Height: 192
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 144
       m_Height: 144
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 96
       m_Height: 96
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 72
       m_Height: 72
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 48
       m_Height: 48
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 36
       m_Height: 36
       m_Kind: 1
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 192
       m_Height: 192
       m_Kind: 0
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 144
       m_Height: 144
       m_Kind: 0
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 96
       m_Height: 96
       m_Kind: 0
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 72
       m_Height: 72
       m_Kind: 0
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 48
       m_Height: 48
       m_Kind: 0
       m_SubKind: 
-    - m_Textures:
-      - {fileID: 2800000, guid: 15cd37f5ffbadef4ea67ff67bf624e28, type: 3}
+    - m_Textures: []
       m_Width: 36
       m_Height: 36
       m_Kind: 0
@@ -502,13 +466,7 @@ PlayerSettings:
   m_BuildTargetShaderSettings: []
   m_BuildTargetGraphicsJobs: []
   m_BuildTargetGraphicsJobMode: []
-  m_BuildTargetGraphicsAPIs:
-  - m_BuildTarget: iOSSupport
-    m_APIs: 10000000
-    m_Automatic: 1
-  - m_BuildTarget: AndroidPlayer
-    m_APIs: 0b00000015000000
-    m_Automatic: 1
+  m_BuildTargetGraphicsAPIs: []
   m_BuildTargetVRSettings: []
   m_DefaultShaderChunkSizeInMB: 16
   m_DefaultShaderChunkCount: 0
@@ -530,9 +488,9 @@ PlayerSettings:
   enableInternalProfiler: 0
   logObjCUncaughtExceptions: 1
   enableCrashReportAPI: 0
-  cameraUsageDescription: Need camera for recording
+  cameraUsageDescription: 
   locationUsageDescription: 
-  microphoneUsageDescription: Need microphone for voice recognition
+  microphoneUsageDescription: 
   bluetoothUsageDescription: 
   switchNMETAOverride: 
   switchNetLibKey: 
@@ -716,7 +674,7 @@ PlayerSettings:
   ps4GarlicHeapSize: 2048
   ps4ProGarlicHeapSize: 2560
   playerPrefsMaxSize: 32768
-  ps4Passcode: frAQBc8Wsa1xVPfvJcrgRYwTiizs2trQ
+  ps4Passcode: t11I3THqprHzm4CD3e4BvGIh7tcV2t0C
   ps4pnSessions: 1
   ps4pnPresence: 1
   ps4pnFriends: 1
@@ -766,50 +724,18 @@ PlayerSettings:
   webGLTemplate: APPLICATION:Default
   webGLAnalyzeBuildSize: 0
   webGLUseEmbeddedResources: 0
-  webGLCompressionFormat: 0
+  webGLCompressionFormat: 1
   webGLWasmArithmeticExceptions: 0
   webGLLinkerTarget: 1
   webGLThreadsSupport: 0
   webGLDecompressionFallback: 0
   webGLPowerPreference: 2
-  scriptingDefineSymbols:
-    Android: EASYMIC_APM_INTEGRATION
-    EmbeddedLinux: EASYMIC_APM_INTEGRATION
-    GameCoreXboxOne: EASYMIC_APM_INTEGRATION
-    Lumin: EASYMIC_APM_INTEGRATION
-    Nintendo Switch: EASYMIC_APM_INTEGRATION
-    PS4: EASYMIC_APM_INTEGRATION
-    PS5: EASYMIC_APM_INTEGRATION
-    Stadia: EASYMIC_APM_INTEGRATION
-    Standalone: EASYMIC_APM_INTEGRATION
-    WebGL: EASYMIC_APM_INTEGRATION
-    Windows Store Apps: EASYMIC_APM_INTEGRATION
-    XboxOne: EASYMIC_APM_INTEGRATION
-    tvOS: EASYMIC_APM_INTEGRATION
+  scriptingDefineSymbols: {}
   additionalCompilerArguments: {}
   platformArchitecture: {}
-  scriptingBackend:
-    Android: 1
-    Server: 1
-    Standalone: 1
+  scriptingBackend: {}
   il2cppCompilerConfiguration: {}
-  managedStrippingLevel:
-    Android: 1
-    EmbeddedLinux: 1
-    GameCoreScarlett: 1
-    GameCoreXboxOne: 1
-    Nintendo Switch: 1
-    PS4: 1
-    PS5: 1
-    QNX: 1
-    Server: 1
-    Stadia: 1
-    Standalone: 1
-    WebGL: 1
-    Windows Store Apps: 1
-    XboxOne: 1
-    iPhone: 1
-    tvOS: 1
+  managedStrippingLevel: {}
   incrementalIl2cppBuild: {}
   suppressCommonWarnings: 1
   allowUnsafeCode: 0
@@ -817,21 +743,20 @@ PlayerSettings:
   enableRoslynAnalyzers: 1
   additionalIl2CppArgs: 
   scriptingRuntimeVersion: 1
-  gcIncremental: 0
+  gcIncremental: 1
   assemblyVersionValidation: 1
   gcWBarrierValidation: 0
-  apiCompatibilityLevelPerPlatform:
-    Windows Store Apps: 6
+  apiCompatibilityLevelPerPlatform: {}
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
-  metroPackageName: com.EitanWong.EasyMic
-  metroPackageVersion: 1.0.0.0
+  metroPackageName: EasyMic
+  metroPackageVersion: 
   metroCertificatePath: 
   metroCertificatePassword: 
   metroCertificateSubject: 
   metroCertificateIssuer: 
   metroCertificateNotAfter: 0000000000000000
-  metroApplicationDescription: com.EitanWong.EasyMic
+  metroApplicationDescription: EasyMic
   wsaImages: {}
   metroTileShortName: 
   metroTileShowName: 0
@@ -846,54 +771,8 @@ PlayerSettings:
   metroSplashScreenBackgroundColor: {r: 0.12941177, g: 0.17254902, b: 0.21568628, a: 1}
   metroSplashScreenUseBackgroundColor: 0
   syncCapabilities: 0
-  platformCapabilities:
-    WindowsStoreApps:
-      OfflineMapsManagement: False
-      HumanInterfaceDevice: False
-      Location: False
-      Chat: False
-      Bluetooth: False
-      AllJoyn: False
-      MusicLibrary: False
-      LowLevelDevices: False
-      PrivateNetworkClientServer: False
-      InternetClientServer: False
-      VideosLibrary: False
-      Objects3D: False
-      InternetClient: False
-      RemoteSystem: False
-      BlockedChatMessages: False
-      PhoneCall: False
-      UserDataTasks: False
-      Appointments: False
-      SystemManagement: False
-      SpatialPerception: False
-      Microphone: False
-      SharedUserCertificates: False
-      InputInjectionBrokered: False
-      PicturesLibrary: False
-      RemovableStorage: False
-      WebCam: False
-      VoipCall: False
-      GazeInput: False
-      UserAccountInformation: False
-      UserNotificationListener: False
-      PhoneCallHistoryPublic: False
-      PointOfService: False
-      RecordedCallsFolder: False
-      Contacts: False
-      Proximity: False
-      CodeGeneration: False
-      BackgroundMediaPlayback: False
-      EnterpriseAuthentication: False
-  metroTargetDeviceFamilies:
-    Desktop: False
-    Holographic: False
-    IoT: False
-    IoTHeadless: False
-    Mobile: False
-    Team: False
-    Xbox: False
+  platformCapabilities: {}
+  metroTargetDeviceFamilies: {}
   metroFTAName: 
   metroFTAFileTypes: []
   metroProtocolName: 
@@ -937,9 +816,9 @@ PlayerSettings:
   luminIsChannelApp: 0
   luminVersion:
     m_VersionCode: 1
-    m_VersionName: 1.0.0.1
+    m_VersionName: 
   apiCompatibilityLevel: 6
-  activeInputHandler: 2
+  activeInputHandler: 0
   windowsGamepadBackendHint: 0
   cloudProjectId: 
   framebufferDepthMemorylessMode: 0

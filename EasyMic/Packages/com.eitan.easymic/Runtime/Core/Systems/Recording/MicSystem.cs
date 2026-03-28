@@ -46,6 +46,8 @@ namespace Eitan.EasyMic.Runtime
 
         public MicSystem()
         {
+            EasyMicUnityThread.TryCaptureFromCurrentThread();
+
             _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
             _context = Native.AllocateContext();
             var result = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, _context);

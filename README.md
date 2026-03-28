@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>Latest Version:</strong> <code>0.1.3-exp.1</code> (2026-02-16) ·
+    <strong>Latest Version:</strong> <code>0.1.3-exp.2</code> (2026-03-20) ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
   </p>
   <p align="center">
-    <em>Highlights:</em> Added Mono component stack (`EasyMicrophone`, `VoiceMicrophone`, `PlaybackAudioSourceBehaviour`, `SpeechSynthesizer`), refactored playback/recording subsystems, and refreshed bilingual docs.
+    <em>Highlights:</em> Synced official sherpa-onnx native libraries to <code>v1.12.30</code>, updated the C# native API layer, fixed issue <a href="https://github.com/EitanWong/com.eitan.sherpa-onnx-unity/issues/8">#8</a>, and added SpeakerDiarization module/component/demo support.
   </p>
   
   <p align="center">

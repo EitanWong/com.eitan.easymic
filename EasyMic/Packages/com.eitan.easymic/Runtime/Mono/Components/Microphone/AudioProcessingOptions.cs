@@ -26,7 +26,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         public static AudioProcessingOptions Disable => new AudioProcessingOptions(false, false, false);
         public static AudioProcessingOptions AECOnly => new AudioProcessingOptions(true, false, false);
         public static AudioProcessingOptions ANSOnly => new AudioProcessingOptions(false, true, false);
-        public static AudioProcessingOptions AGCOnly => new AudioProcessingOptions(false, true, true);
+        public static AudioProcessingOptions AGCOnly => new AudioProcessingOptions(false, false, true);
     }
 }
 #endif

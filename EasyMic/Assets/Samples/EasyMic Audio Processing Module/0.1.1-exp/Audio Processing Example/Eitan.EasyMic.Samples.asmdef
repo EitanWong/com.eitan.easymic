@@ -1,0 +1,26 @@
+{
+    "name": "Eitan.EasyMic.Apm.Samples",
+    "rootNamespace": "Eitan.EasyMic.Apm.Samples",
+    "references": [
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono",
+        "Eitan.EasyMic.Apm"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "EASYMIC_APM_INTEGRATION"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.eitan.easymic.apm",
+            "expression": "",
+            "define": "EASYMIC_APM_INTEGRATION"
+        }
+    ],
+    "noEngineReferences": false
+}

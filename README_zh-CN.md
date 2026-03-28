@@ -15,11 +15,11 @@
   </p>
 
   <p align="center">
-    <strong>最新版本：</strong><code>0.1.3-exp.1</code>（2026-02-16） ·
+    <strong>最新版本：</strong><code>0.1.3-exp.2</code>（2026-03-20） ·
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
   </p>
   <p align="center">
-    <em>更新要点：</em> 新增 Mono 组件栈（`EasyMicrophone`、`VoiceMicrophone`、`PlaybackAudioSourceBehaviour`、`SpeechSynthesizer`），重构播放/录音子系统，并同步更新中英文文档。
+    <em>更新要点：</em> 同步官方 sherpa-onnx Native 库到 <code>v1.12.30</code>，同步更新 C# Native API，修复 <a href="https://github.com/EitanWong/com.eitan.sherpa-onnx-unity/issues/8">#8</a>，并接入 SpeakerDiarization 模块、组件与示例 Demo。
   </p>
   
   <p align="center">

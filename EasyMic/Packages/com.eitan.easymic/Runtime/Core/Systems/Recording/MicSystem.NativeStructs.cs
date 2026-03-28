@@ -24,10 +24,8 @@ namespace Eitan.EasyMic.Runtime
             public byte noClip;
             public byte noDisableDenormals;
             public byte noFixedSizedCallback;
-
             public IntPtr playback;
             public IntPtr capture;
-
             public IntPtr wasapi;
             public IntPtr coreaudio;
             public IntPtr alsa;

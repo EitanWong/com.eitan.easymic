@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3-exp.2] - 2026-03-20
+
+### Added
+
+- Added `SpeakerDiarization` support based on sherpa-onnx, including:
+  - runtime module integration for offline speaker diarization
+  - Unity component exposure via `SpeakerDiarizationComponent`
+  - sample/demo coverage for end-to-end diarization usage
+
+### Changed
+
+- Upgraded the bundled official sherpa-onnx native libraries to `v1.12.30`.
+- Synchronized the C# native interop layer and related native API bindings with the updated sherpa-onnx release.
+- Refreshed package release metadata and top-level bilingual README summaries to match the current feature set.
+
+### Fixed
+
+- Fixed the issue reported in [`com.eitan.sherpa-onnx-unity` issue #8](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity/issues/8).
+- Improved stability of the diarization integration flow around model/native API alignment after the sherpa-onnx upgrade.
+
 ## [0.1.3-exp.1] - 2026-02-16
 
 ### Added
