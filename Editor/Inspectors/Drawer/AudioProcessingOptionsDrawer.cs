@@ -38,6 +38,21 @@ namespace Eitan.EasyMic.Editor.Inspectors
             var headerRect = new Rect(position.x, position.y, position.width, headerHeight);
             EditorGUI.LabelField(headerRect, label, Styles.TitleLabel);
 
+            bool hasConfiguredToken = EasyMicApmLicenseEditorUtility.HasConfiguredTokenSource();
+            if (!hasConfiguredToken)
+            {
+                Rect licenseRect = new Rect(
+                    position.x,
+                    headerRect.yMax + Styles.FrameSpacing,
+                    position.width,
+                    GetUnlicensedFrameHeight());
+                DrawUnlicensedLicensePanel(licenseRect);
+
+                EditorGUI.indentLevel = previousIndent;
+                EditorGUI.EndProperty();
+                return;
+            }
+
             Rect frameRect = new Rect(
                 position.x,
                 headerRect.yMax + Styles.FrameSpacing,
@@ -70,7 +85,41 @@ namespace Eitan.EasyMic.Editor.Inspectors
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
             float headerHeight = EditorGUIUtility.singleLineHeight;
-            return headerHeight + Styles.FrameSpacing + Styles.FrameHeight;
+            bool hasConfiguredToken = EasyMicApmLicenseEditorUtility.HasConfiguredTokenSource();
+            if (hasConfiguredToken)
+            {
+                return headerHeight + Styles.FrameSpacing + Styles.FrameHeight;
+            }
+
+            return headerHeight + Styles.FrameSpacing + GetUnlicensedFrameHeight();
+        }
+
+        private static float GetUnlicensedFrameHeight()
+        {
+            return Styles.FramePadding * 2f + Styles.HelpBoxHeight + Styles.RowSpacing + Styles.ButtonHeight;
+        }
+
+        private static void DrawUnlicensedLicensePanel(Rect rect)
+        {
+            Styles.DrawFrame(rect);
+
+            float contentX = rect.x + Styles.FramePadding;
+            float contentWidth = rect.width - Styles.FramePadding * 2f;
+            float y = rect.y + Styles.FramePadding;
+
+            Rect helpRect = new Rect(contentX, y, contentWidth, Styles.HelpBoxHeight);
+            EditorGUI.HelpBox(
+                helpRect,
+                "EasyMic APM license is not configured. Configure your token in Project Settings before enabling AEC/ANS/AGC. Avoid token leakage in source control.",
+                MessageType.Warning);
+            y = helpRect.yMax + Styles.RowSpacing;
+
+            Rect openSettingsRect = new Rect(contentX, y, contentWidth, Styles.ButtonHeight);
+            if (GUI.Button(openSettingsRect, "Open Project Settings", Styles.PrimaryActionButton))
+            {
+                EasyMicApmLicenseEditorUtility.OpenProjectSettingsPage();
+                GUIUtility.ExitGUI();
+            }
         }
 
         private static void DrawToggleButton(Rect rect, SerializedProperty flagProperty, GUIContent content)
@@ -124,6 +173,7 @@ namespace Eitan.EasyMic.Editor.Inspectors
         {
             public static readonly GUIStyle TitleLabel;
             public static readonly GUIStyle ToggleLabel;
+            public static readonly GUIStyle PrimaryActionButton;
 
             public static readonly Color FrameBackground;
             public static readonly Color FrameBorder;
@@ -140,12 +190,14 @@ namespace Eitan.EasyMic.Editor.Inspectors
             public static float FramePadding => 8f;
             public static float FrameSpacing => 6f;
             public static float ButtonSpacing => 6f;
+            public static float RowSpacing => 6f;
             public static float ButtonHeight => EditorGUIUtility.singleLineHeight + 6f;
             public static float FrameHeight => ButtonHeight + FramePadding * 2f;
             public static float MinButtonWidth => 64f;
             public static float IndicatorSize => 8f;
             public static float IndicatorPadding => 8f;
             public static float LabelSpacing => 6f;
+            public static float HelpBoxHeight => 44f;
 
             static Styles()
             {
@@ -179,6 +231,11 @@ namespace Eitan.EasyMic.Editor.Inspectors
                     {
                         textColor = proSkin ? new Color(0.92f, 0.92f, 0.92f, 1f) : new Color(0.14f, 0.14f, 0.14f, 1f)
                     }
+                };
+
+                PrimaryActionButton = new GUIStyle(EditorStyles.miniButtonMid)
+                {
+                    fixedHeight = ButtonHeight
                 };
             }
 

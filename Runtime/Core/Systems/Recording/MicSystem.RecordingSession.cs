@@ -11,7 +11,6 @@ namespace Eitan.EasyMic.Runtime
         {
             private static readonly Native.AudioCallback s_staticAudioCallback = StaticAudioCallback;
             private static readonly Native.AudioCallbackEx s_staticAudioCallbackEx = StaticAudioCallbackEx;
-
             private const int MaxLegacyCallbackSessions = 16;
             private static readonly IntPtr s_legacyPendingKey = new IntPtr(-1);
             private static readonly IntPtr[] s_legacyDevicePtrs = new IntPtr[MaxLegacyCallbackSessions];
@@ -280,38 +279,29 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 _deviceIdHandle = MicDevice.AllocateDeviceIdHandle();
-
                 GCHandle subHandle = default;
                 GCHandle dtoHandle = default;
-                IntPtr config;
 
                 try
                 {
-                    try
-                    {
-                        config = Native.AllocateDeviceConfigEx(
-                            Native.DeviceType.Record,
-                            Native.SampleFormat.F32,
-                            _channelCount,
-                            _sampleRate,
-                            s_staticAudioCallbackEx,
-                            GCHandle.ToIntPtr(_gcHandle),
-                            IntPtr.Zero,
-                            _deviceIdHandle);
-                        _usingUserDataCallback = true;
-                    }
-                    catch (EntryPointNotFoundException)
-                    {
-                        _usingUserDataCallback = false;
-                        config = CreateLegacyDeviceConfig(out subHandle, out dtoHandle);
-                    }
-
-                    if (config == IntPtr.Zero)
+                    IntPtr legacyConfig = CreateLegacyDeviceConfig(out subHandle, out dtoHandle);
+                    _deviceConfig = Native.AllocateDeviceConfig(
+                        Native.DeviceType.Record,
+                        Native.SampleFormat.F32,
+                        _channelCount,
+                        _sampleRate,
+                        s_staticAudioCallbackEx,
+                        GCHandle.ToIntPtr(_gcHandle),
+                        IntPtr.Zero,
+                        _deviceIdHandle,
+                        s_staticAudioCallback,
+                        legacyConfig,
+                        out _usingUserDataCallback);
+                    if (_deviceConfig == IntPtr.Zero)
                     {
                         throw new InvalidOperationException("Unable to allocate device config.");
                     }
 
-                    _deviceConfig = config;
                     _devicePtr = Native.AllocateDevice();
                     if (_devicePtr == IntPtr.Zero)
                     {
@@ -334,16 +324,16 @@ namespace Eitan.EasyMic.Runtime
                     {
                         RegisterLegacyCallbackSession(_devicePtr, this);
                     }
-
-                    _audioPipeline.Initialize(_state);
-
-                    Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
                 }
                 finally
                 {
                     if (dtoHandle.IsAllocated) { dtoHandle.Free(); }
                     if (subHandle.IsAllocated) { subHandle.Free(); }
                 }
+
+                _audioPipeline.Initialize(_state);
+
+                Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
             }
 
             private IntPtr CreateLegacyDeviceConfig(out GCHandle subHandle, out GCHandle dtoHandle)
@@ -381,12 +371,7 @@ namespace Eitan.EasyMic.Runtime
                 };
 
                 dtoHandle = GCHandle.Alloc(dto, GCHandleType.Pinned);
-
-                return Native.AllocateDeviceConfig(
-                    Native.Capability.Record,
-                    _sampleRate,
-                    s_staticAudioCallback,
-                    dtoHandle.AddrOfPinnedObject());
+                return dtoHandle.AddrOfPinnedObject();
             }
 
             private void ApplyFormat(MicDevice device, SampleRate sampleRate, Channel channel)
@@ -431,6 +416,7 @@ namespace Eitan.EasyMic.Runtime
 
                 _usingUserDataCallback = false;
             }
+
 #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
             [AOT.MonoPInvokeCallback(typeof(Native.AudioCallback))]
 #endif

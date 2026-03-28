@@ -190,6 +190,28 @@ namespace Eitan.EasyMic.Runtime
             return Array.IndexOf(Volatile.Read(ref _stagesSnap), worker) >= 0;
         }
 
+        /// <summary>
+        /// Returns the first worker of type <typeparamref name="T"/> from the current pipeline snapshot.
+        /// </summary>
+        public T GetWorker<T>() where T : class, IAudioWorker
+        {
+            if (Volatile.Read(ref _isDisposed) != 0)
+            {
+                return null;
+            }
+
+            var stages = Volatile.Read(ref _stagesSnap);
+            for (int i = 0; i < stages.Length; i++)
+            {
+                if (stages[i] is T typed)
+                {
+                    return typed;
+                }
+            }
+
+            return null;
+        }
+
         public override void Dispose()
         {
             if (Interlocked.Exchange(ref _isDisposed, 1) != 0)

@@ -95,7 +95,64 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
 #if EASYMIC_APM_INTEGRATION
-        public AudioProcessingOptions AudioProcessingOpts => _audioProcessingOptions;
+        /// <summary>
+        /// APM options snapshot.
+        /// - Not recording: reads/writes the serialized staging field.
+        /// - Recording: reads/writes the active APM worker inside the current AudioPipeline.
+        /// </summary>
+        public AudioProcessingOptions AudioProcessingOpts
+        {
+            get => GetCurrentAudioProcessingOptions();
+            set => SetAudioProcessingOptions(value);
+        }
+
+        public bool AecEnabled
+        {
+            get => AudioProcessingOpts.EnableAEC;
+            set
+            {
+                var options = AudioProcessingOpts;
+                if (options.EnableAEC == value)
+                {
+                    return;
+                }
+
+                options.EnableAEC = value;
+                SetAudioProcessingOptions(options);
+            }
+        }
+
+        public bool AnsEnabled
+        {
+            get => AudioProcessingOpts.EnableANS;
+            set
+            {
+                var options = AudioProcessingOpts;
+                if (options.EnableANS == value)
+                {
+                    return;
+                }
+
+                options.EnableANS = value;
+                SetAudioProcessingOptions(options);
+            }
+        }
+
+        public bool AgcEnabled
+        {
+            get => AudioProcessingOpts.EnableAGC;
+            set
+            {
+                var options = AudioProcessingOpts;
+                if (options.EnableAGC == value)
+                {
+                    return;
+                }
+
+                options.EnableAGC = value;
+                SetAudioProcessingOptions(options);
+            }
+        }
 #endif
 
         #endregion
@@ -671,13 +728,10 @@ namespace Eitan.EasyMic.Runtime.Mono
 #if EASYMIC_APM_INTEGRATION
                 if (_audioProcessingOptions.AnyEnabled)
                 {
-                    var apm = new WebRtcApmModifier
+                    var apm = new EasyMicApmModifier
                     {
-                        EchoCancellationEnabled = _audioProcessingOptions.EnableAEC,
-                        Agc1Enabled = _audioProcessingOptions.EnableAGC,
-                        Agc2Enabled = _audioProcessingOptions.EnableAGC,
-                        NoiseSuppressionEnabled = _audioProcessingOptions.EnableANS,
-                        HighPassFilterEnabled = true
+                        Profile = ResolveApmProfile(_audioProcessingOptions),
+                        DelayControlMode = EasyMicApmDelayControlMode.ProfileAuto
                     };
                     pipeline.AddWorker(apm);
                 }
@@ -696,6 +750,109 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return pipeline;
             });
         }
+
+#if EASYMIC_APM_INTEGRATION
+        private AudioProcessingOptions GetCurrentAudioProcessingOptions()
+        {
+            var apmWorker = GetCurrentApmWorker();
+            if (apmWorker == null)
+            {
+                return _audioProcessingOptions;
+            }
+
+            var runtimeOptions = new AudioProcessingOptions(
+                ProfileEnablesAec(apmWorker.Profile),
+                ProfileEnablesAns(apmWorker.Profile),
+                ProfileEnablesAgc(apmWorker.Profile));
+
+            // Keep serialized staging options in sync with the active runtime worker state.
+            _audioProcessingOptions = runtimeOptions;
+            return runtimeOptions;
+        }
+
+        private void SetAudioProcessingOptions(AudioProcessingOptions options)
+        {
+            _audioProcessingOptions = options;
+
+            var apmWorker = GetCurrentApmWorker();
+            if (apmWorker == null)
+            {
+                return;
+            }
+
+            apmWorker.Profile = ResolveApmProfile(options);
+            apmWorker.DelayControlMode = EasyMicApmDelayControlMode.ProfileAuto;
+            apmWorker.ApplyRuntimeSettings();
+        }
+
+        private EasyMicApmModifier GetCurrentApmWorker()
+        {
+            if (!IsRecording || !_recordingHandle.IsValid || _pipelineBlueprint == null)
+            {
+                return null;
+            }
+
+            AudioPipeline pipeline;
+            try
+            {
+                pipeline = EasyMicAPI.GetProcessor<AudioPipeline>(_recordingHandle, _pipelineBlueprint);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (pipeline == null)
+            {
+                return null;
+            }
+
+            return pipeline.GetWorker<EasyMicApmModifier>();
+        }
+
+        private static EasyMicApmProfileId ResolveApmProfile(AudioProcessingOptions options)
+        {
+            if (options.EnableAEC)
+            {
+                return EasyMicApmProfileId.SpeakerphoneVoiceCall;
+            }
+
+            if (options.EnableAGC || options.EnableANS)
+            {
+                return EasyMicApmProfileId.CleanMicCapture;
+            }
+
+            return EasyMicApmProfileId.CleanMicCapture;
+        }
+
+        private static bool ProfileEnablesAec(EasyMicApmProfileId profile)
+        {
+            return profile == EasyMicApmProfileId.SpeakerphoneVoiceCall ||
+                   profile == EasyMicApmProfileId.ReceiverVoiceCall ||
+                   profile == EasyMicApmProfileId.DesktopOpenSpeaker;
+        }
+
+        private static bool ProfileEnablesAns(EasyMicApmProfileId profile)
+        {
+            return profile != EasyMicApmProfileId.CleanMicCapture;
+        }
+
+        private static bool ProfileEnablesAgc(EasyMicApmProfileId profile)
+        {
+            switch (profile)
+            {
+                case EasyMicApmProfileId.SpeakerphoneVoiceCall:
+                case EasyMicApmProfileId.ReceiverVoiceCall:
+                case EasyMicApmProfileId.WiredHeadsetVoiceCall:
+                case EasyMicApmProfileId.BluetoothScoVoiceCall:
+                case EasyMicApmProfileId.UsbVoiceCall:
+                case EasyMicApmProfileId.DesktopOpenSpeaker:
+                case EasyMicApmProfileId.CleanMicCapture:
+                default:
+                    return true;
+            }
+        }
+#endif
 
         private void CacheLatestRecording()
         {

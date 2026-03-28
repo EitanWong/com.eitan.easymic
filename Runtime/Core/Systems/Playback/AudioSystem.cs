@@ -45,9 +45,8 @@ namespace Eitan.EasyMic.Runtime
         private IntPtr _device = IntPtr.Zero;
         private IntPtr _deviceConfig = IntPtr.Zero;
 #pragma warning disable 0414
-        private Native.AudioCallbackEx _cbEx;
         private Native.AudioCallback _cb;
-        private bool _useEx;
+        private Native.AudioCallbackEx _cbEx;
 #pragma warning restore 0414
         private GCHandle _selfHandle;
         private bool _running;
@@ -184,7 +183,7 @@ namespace Eitan.EasyMic.Runtime
                 // Dispose mixer and release references to sources/pipelines
                 try { _masterMixer?.Dispose(); } catch { }
                 _masterMixer = null;
-                _cb = null; _cbEx = null; _useEx = false;
+                _cbEx = null;
                 _running = false;
             }
         }
@@ -256,25 +255,24 @@ namespace Eitan.EasyMic.Runtime
         }
 
 #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
-        [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
+        [AOT.MonoPInvokeCallback(typeof(Native.AudioCallback))]
 #endif
-        private static void OnCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
+        private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
         {
-            var handle = GCHandle.FromIntPtr(userData);
-            if (handle.Target is AudioSystem self)
+            var self = Volatile.Read(ref s_instanceNoLock);
+            if (self != null)
             {
                 self.Render(output, length);
             }
         }
 
 #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
-        [AOT.MonoPInvokeCallback(typeof(Native.AudioCallback))]
+        [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
 #endif
-        private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
+        private static void OnCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
         {
-            // Fallback: singleton
-            var self = Volatile.Read(ref s_instanceNoLock);
-            if (self != null)
+            var handle = GCHandle.FromIntPtr(userData);
+            if (handle.Target is AudioSystem self)
             {
                 self.Render(output, length);
             }
@@ -296,16 +294,17 @@ namespace Eitan.EasyMic.Runtime
             var rate = Math.Max(8000u, desiredSampleRate);
             var channels = Math.Max(1u, desiredChannels);
 
+            _cbEx = OnCallbackEx;
+            _cb = OnCallback;
+            if (!_selfHandle.IsAllocated)
+            {
+                _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+            }
+
+            bool usesExtendedCallback;
             try
             {
-                _cbEx = OnCallbackEx;
-                _useEx = true;
-                if (!_selfHandle.IsAllocated)
-                {
-                    _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-                }
-
-                _deviceConfig = Native.AllocateDeviceConfigEx(
+                _deviceConfig = Native.AllocateDeviceConfig(
                     Native.DeviceType.Playback,
                     Native.SampleFormat.F32,
                     channels,
@@ -313,23 +312,28 @@ namespace Eitan.EasyMic.Runtime
                     _cbEx,
                     GCHandle.ToIntPtr(_selfHandle),
                     IntPtr.Zero,
-                    IntPtr.Zero);
+                    IntPtr.Zero,
+                    _cb,
+                    IntPtr.Zero,
+                    out usesExtendedCallback);
             }
-            catch (EntryPointNotFoundException)
+            catch
             {
-                _useEx = false;
                 if (_selfHandle.IsAllocated)
                 {
                     _selfHandle.Free();
                 }
+                throw;
+            }
 
-                _cb = OnCallback;
-                _deviceConfig = Native.AllocateDeviceConfig(Native.Capability.Playback, rate, _cb, IntPtr.Zero);
+            if (!usesExtendedCallback && _selfHandle.IsAllocated)
+            {
+                _selfHandle.Free();
             }
 
             if (_deviceConfig == IntPtr.Zero)
             {
-                if (_useEx && _selfHandle.IsAllocated)
+                if (_selfHandle.IsAllocated)
                 {
                     _selfHandle.Free();
                 }
@@ -339,7 +343,7 @@ namespace Eitan.EasyMic.Runtime
             _device = Native.AllocateDevice();
             if (_device == IntPtr.Zero)
             {
-                if (_useEx && _selfHandle.IsAllocated)
+                if (_selfHandle.IsAllocated)
                 {
                     _selfHandle.Free();
                 }
@@ -361,7 +365,7 @@ namespace Eitan.EasyMic.Runtime
                     try { Native.Free(_deviceConfig); } catch { }
                     _deviceConfig = IntPtr.Zero;
                 }
-                if (_useEx && _selfHandle.IsAllocated)
+                if (_selfHandle.IsAllocated)
                 {
                     _selfHandle.Free();
                 }

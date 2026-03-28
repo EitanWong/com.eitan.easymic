@@ -6,6 +6,9 @@ namespace Eitan.EasyMic.Runtime
 
     internal static unsafe partial class Native
     {
+        private static readonly object s_deviceConfigApiLock = new object();
+        private static DeviceConfigApi s_deviceConfigApi = DeviceConfigApi.Unknown;
+
         // Platform-specific library naming based on your RID folder structure
 #if UNITY_IOS
     private const string LibraryName = "miniaudio";   // iOS dynamic framework (use "__Internal" only for static libs)
@@ -28,11 +31,10 @@ namespace Eitan.EasyMic.Runtime
         internal const int NativeDataFormatsCapacity = 64; // Mirrors miniaudio's inline array capacity.
         internal const int DeviceIdSizeInBytes = 256;      // Matches ma_device_id union size.
 
-        // Delegates
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void AudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length);
 
-        // Extended callback that carries pUserData for direct instance recovery (preferred when available)
+        // Callback that carries pUserData for direct instance recovery.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void AudioCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData);
 
@@ -151,14 +153,11 @@ namespace Eitan.EasyMic.Runtime
         [DllImport(LibraryName, EntryPoint = "sf_allocate_encoder_config", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr AllocateEncoderConfig(EncodingFormat encodingFormat, SampleFormat format, uint channels, uint sampleRate);
 
-        // Newer API variant: sf_allocate_device_config(capability, sampleRate, callback, pSfConfig)
-        // This version is used by updated native builds. pSfConfig may be NULL for defaults.
         [DllImport(LibraryName, EntryPoint = "sf_allocate_device_config", CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr AllocateDeviceConfig(Capability capabilityType, uint sampleRate, AudioCallback dataCallback, IntPtr pSfConfig);
+        private static extern IntPtr AllocateDeviceConfigLegacy(Capability capabilityType, uint sampleRate, AudioCallback dataCallback, IntPtr pSfConfig);
 
-        // Legacy/alternate variants kept for backward compatibility (may not exist in current native build).
         [DllImport(LibraryName, EntryPoint = "sf_allocate_device_config_ex", CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr AllocateDeviceConfigEx(DeviceType capabilityType, SampleFormat format, uint channels, uint sampleRate, AudioCallbackEx dataCallback, IntPtr pUserData, IntPtr playbackDevice, IntPtr captureDevice);
+        private static extern IntPtr AllocateDeviceConfigExNative(DeviceType capabilityType, SampleFormat format, uint channels, uint sampleRate, AudioCallbackEx dataCallback, IntPtr pUserData, IntPtr playbackDevice, IntPtr captureDevice);
 
         #endregion
 
@@ -193,6 +192,88 @@ namespace Eitan.EasyMic.Runtime
             return managed;
         }
 
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            AudioCallbackEx extendedCallback,
+            IntPtr userData,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback legacyCallback,
+            IntPtr legacyConfig,
+            out bool usesExtendedCallback)
+        {
+            lock (s_deviceConfigApiLock)
+            {
+                if (s_deviceConfigApi != DeviceConfigApi.Legacy)
+                {
+                    try
+                    {
+                        IntPtr config = AllocateDeviceConfigExNative(
+                            capabilityType,
+                            format,
+                            channels,
+                            sampleRate,
+                            extendedCallback,
+                            userData,
+                            playbackDevice,
+                            captureDevice);
+                        s_deviceConfigApi = DeviceConfigApi.Extended;
+                        usesExtendedCallback = true;
+                        return config;
+                    }
+                    catch (EntryPointNotFoundException)
+                    {
+                        s_deviceConfigApi = DeviceConfigApi.Legacy;
+                    }
+                }
+
+                if (legacyCallback == null)
+                {
+                    throw new InvalidOperationException(
+                        "The installed miniaudio bridge does not export sf_allocate_device_config_ex, " +
+                        "and no legacy callback/config path was provided.");
+                }
+
+                try
+                {
+                    IntPtr config = AllocateDeviceConfigLegacy(
+                        ToCapability(capabilityType),
+                        sampleRate,
+                        legacyCallback,
+                        legacyConfig);
+                    usesExtendedCallback = false;
+                    return config;
+                }
+                catch (EntryPointNotFoundException ex)
+                {
+                    throw new InvalidOperationException(
+                        "The installed miniaudio bridge exports neither sf_allocate_device_config_ex nor sf_allocate_device_config. " +
+                        "Update the EasyMic native bridge plugin to a compatible build.",
+                        ex);
+                }
+            }
+        }
+
+        private static Capability ToCapability(DeviceType deviceType)
+        {
+            switch (deviceType)
+            {
+                case DeviceType.Playback:
+                    return Capability.Playback;
+                case DeviceType.Record:
+                    return Capability.Record;
+                case DeviceType.Mixed:
+                    return Capability.Mixed;
+                case DeviceType.Loopback:
+                    return Capability.Loopback;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(deviceType), deviceType, "Unsupported device type for simplified device config allocation.");
+            }
+        }
+
         public static NativeDeviceInfo ReadDeviceInfo(IntPtr deviceInfos, int index)
         {
             if (deviceInfos == IntPtr.Zero)
@@ -205,9 +286,39 @@ namespace Eitan.EasyMic.Runtime
             return Marshal.PtrToStructure<NativeDeviceInfo>(entryPtr);
         }
 
+        public static SfDeviceInfo ReadSfDeviceInfo(IntPtr deviceInfos, int index)
+        {
+            if (deviceInfos == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(deviceInfos));
+            }
+
+            var stride = Marshal.SizeOf<SfDeviceInfo>();
+            var entryPtr = IntPtr.Add(deviceInfos, index * stride);
+            return Marshal.PtrToStructure<SfDeviceInfo>(entryPtr);
+        }
+
         #endregion
 
         #region Structs
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        public struct SfDeviceInfo
+        {
+            // Pointer to native ma_device_id.
+            public IntPtr Id;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = DeviceNameBufferLength)]
+            public string Name;
+
+            // ma_bool32 is stored as a single byte in this wrapper struct.
+            public byte IsDefault;
+
+            public uint NativeDataFormatCount;
+
+            // Pointer to native_data_format array, count = NativeDataFormatCount.
+            public IntPtr NativeDataFormats;
+        }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
         public struct NativeDeviceInfo
@@ -463,6 +574,13 @@ namespace Eitan.EasyMic.Runtime
             Record = 2,
             Mixed = 3,
             Loopback = 4
+        }
+
+        private enum DeviceConfigApi
+        {
+            Unknown = 0,
+            Extended = 1,
+            Legacy = 2,
         }
 
         internal enum SeekPoint

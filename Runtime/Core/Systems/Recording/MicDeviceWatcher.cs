@@ -15,13 +15,11 @@ namespace Eitan.EasyMic.Runtime
         private int _intervalMs;
         private int _isTicking;
         private bool _disposed;
-        private readonly SynchronizationContext _syncContext;
 
         private MicDeviceWatcher(MicSystem system, float intervalSeconds)
         {
             _system = system ?? throw new ArgumentNullException(nameof(system));
             _intervalMs = ClampInterval(intervalSeconds);
-            _syncContext = SynchronizationContext.Current;
             _timer = new Timer(OnTimer, null, _intervalMs, _intervalMs);
         }
 
@@ -84,18 +82,30 @@ namespace Eitan.EasyMic.Runtime
 
             try
             {
-                if (_syncContext != null)
+                var context = EasyMicUnityThread.MainContext;
+                if (context != null)
                 {
-                    _syncContext.Post(s => ExecuteRefresh((MicDeviceWatcher)s), this);
+                    context.Post(s => ExecuteRefresh((MicDeviceWatcher)s), this);
                 }
                 else
                 {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    // Android device enumeration may call JNI paths that are unsafe from worker timer threads.
+                    Interlocked.Exchange(ref _isTicking, 0);
+                    return;
+#else
                     ExecuteRefresh(this);
+#endif
                 }
             }
             catch
             {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                Interlocked.Exchange(ref _isTicking, 0);
+                return;
+#else
                 ExecuteRefresh(this);
+#endif
             }
         }
 
@@ -138,6 +148,12 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (!watcher._disposed && watcher._system != null)
                 {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    if (!EasyMicUnityThread.IsMainThread)
+                    {
+                        return;
+                    }
+#endif
                     watcher._system.Refresh();
                 }
             }
@@ -145,7 +161,10 @@ namespace Eitan.EasyMic.Runtime
             {
                 try
                 {
-                    watcher._system?.Log($"EasyMic: Device watcher refresh failed: {ex.Message}", MicSystem.LogLevel.Error);
+                    if (EasyMicUnityThread.IsMainThread)
+                    {
+                        watcher._system?.Log($"EasyMic: Device watcher refresh failed: {ex.Message}", MicSystem.LogLevel.Error);
+                    }
                 }
                 catch
                 {
