@@ -9,9 +9,28 @@ using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using System.Reflection;
 
 namespace Eitan.EasyMic.Apm.Samples
 {
+    internal sealed class EasyMicApmSampleLicenseProvider : IEasyMicApmLicenseTokenProvider
+    {
+        public static string SessionToken { get; private set; } = string.Empty;
+
+        public int Priority => 10_000;
+
+        public static void SetSessionToken(string token)
+        {
+            SessionToken = token == null ? string.Empty : token.Trim();
+        }
+
+        public bool TryGetLicenseToken(out string token)
+        {
+            token = SessionToken;
+            return !string.IsNullOrWhiteSpace(token);
+        }
+    }
+
     /// <summary>
     /// EasyMicrophone-driven sample showcasing APM processing with a simpler, component-based workflow.
     /// </summary>
@@ -45,6 +64,7 @@ namespace Eitan.EasyMic.Apm.Samples
         [SerializeField] private AudioClip _speechAudioClip;
 
         [Header("UI Components")]
+        [SerializeField] private InputField _licenseKeyInputField;
         [SerializeField] private Text _machineCodeText;
 
         private EasyMicrophone _easyMicrophone;
@@ -58,6 +78,7 @@ namespace Eitan.EasyMic.Apm.Samples
         private AudioClip _recordedClip;
         private bool _wasSourcePlaying;
         private string _currentRecordingSummary = "Recording...";
+        private bool _licenseAuthorized;
 
         private void Awake()
         {
@@ -82,6 +103,10 @@ namespace Eitan.EasyMic.Apm.Samples
             _agcToggle.onValueChanged.AddListener(_ => OnProcessingToggleChanged());
             _ansToggle.onValueChanged.AddListener(_ => OnProcessingToggleChanged());
             _aecToggle.onValueChanged.AddListener(_ => OnProcessingToggleChanged());
+            if (_licenseKeyInputField != null)
+            {
+                _licenseKeyInputField.onEndEdit.AddListener(OnLicenseKeySubmitted);
+            }
 
             _easyMicrophone.OnMicrophoneInitialized += OnMicrophoneInitialized;
             _easyMicrophone.OnRecordingStateChanged += OnRecordingStateChanged;
@@ -89,10 +114,11 @@ namespace Eitan.EasyMic.Apm.Samples
             _resultPanel.gameObject.SetActive(false);
             _recordingStateImage.color = Color.gray;
             _recordingStateText.text = "Not Recording";
-            _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
+            SetRecordButtonLabel("Start Recording");
             _playMusicToggle.isOn = true;
             _machineCodeText.text = GetMachineCodeOrFallback();
             RegisterMachineCodeCopyHandler();
+            SyncLicenseInputFromSession();
             ApplyProcessingOptionsFromToggles();
 
             EasyMicAPI.EnableDeviceAutoRefresh();
@@ -134,6 +160,10 @@ namespace Eitan.EasyMic.Apm.Samples
             _agcToggle.onValueChanged.RemoveAllListeners();
             _ansToggle.onValueChanged.RemoveAllListeners();
             _aecToggle.onValueChanged.RemoveAllListeners();
+            if (_licenseKeyInputField != null)
+            {
+                _licenseKeyInputField.onEndEdit.RemoveListener(OnLicenseKeySubmitted);
+            }
 
             if (_easyMicrophone != null && _easyMicrophone.IsRecording)
             {
@@ -153,6 +183,64 @@ namespace Eitan.EasyMic.Apm.Samples
             {
                 micOptions.recordOnAwake = false;
                 _easyMicrophone.ApplyMicrophoneOptions(micOptions, restartRecording: false);
+            }
+        }
+
+        private void SyncLicenseInputFromSession()
+        {
+            if (_licenseKeyInputField == null)
+            {
+                return;
+            }
+
+            string token = EasyMicApmSampleLicenseProvider.SessionToken;
+            if (!string.IsNullOrEmpty(token))
+            {
+                _licenseKeyInputField.SetTextWithoutNotify(token);
+                _licenseAuthorized = EasyMicApmLicenseRuntime.EnsureAuthorized(out _);
+            }
+        }
+
+        private void OnLicenseKeySubmitted(string rawValue)
+        {
+            string token = rawValue == null ? string.Empty : rawValue.Trim();
+            EasyMicApmSampleLicenseProvider.SetSessionToken(token);
+            ResetLicenseRuntimeAuthorizationState();
+
+            if (string.IsNullOrEmpty(token))
+            {
+                _licenseAuthorized = false;
+                return;
+            }
+
+            _licenseAuthorized = EasyMicApmLicenseRuntime.EnsureAuthorized(out string error);
+            if (!_licenseAuthorized)
+            {
+                Debug.LogWarning("EasyMic: License authorization failed. " + error);
+            }
+        }
+
+        private static void ResetLicenseRuntimeAuthorizationState()
+        {
+            const string runtimeAssemblyQualifiedType = "Eitan.EasyMic.Runtime.Apm.EasyMicApmLicenseRuntime, Eitan.EasyMic.Apm";
+            var runtimeType = Type.GetType(runtimeAssemblyQualifiedType, throwOnError: false);
+            if (runtimeType == null)
+            {
+                return;
+            }
+
+            var resetMethod = runtimeType.GetMethod("ResetAuthorizationState", BindingFlags.NonPublic | BindingFlags.Static);
+            if (resetMethod == null)
+            {
+                return;
+            }
+
+            try
+            {
+                resetMethod.Invoke(null, null);
+            }
+            catch
+            {
             }
         }
 
@@ -365,6 +453,11 @@ namespace Eitan.EasyMic.Apm.Samples
                 return;
             }
 
+            if (!EnsureProcessingAuthorized(stopRecordingOnFailure: false))
+            {
+                return;
+            }
+
             StopAudioSource();
 
             var device = GetSelectedDevice();
@@ -395,19 +488,79 @@ namespace Eitan.EasyMic.Apm.Samples
             return device.GetPreferredChannel(requested);
         }
 
+        private bool IsProcessingEnabled()
+        {
+            return (_aecToggle != null && _aecToggle.isOn) ||
+                   (_ansToggle != null && _ansToggle.isOn) ||
+                   (_agcToggle != null && _agcToggle.isOn);
+        }
+
+        private void SetRecordButtonLabel(string text)
+        {
+            var label = _recordButton != null ? _recordButton.GetComponentInChildren<Text>() : null;
+            if (label != null)
+            {
+                label.text = text;
+            }
+        }
+
+        private bool EnsureProcessingAuthorized(bool stopRecordingOnFailure)
+        {
+            if (!IsProcessingEnabled())
+            {
+                return true;
+            }
+
+            if (_licenseKeyInputField != null)
+            {
+                EasyMicApmSampleLicenseProvider.SetSessionToken(_licenseKeyInputField.text);
+            }
+
+            if (EasyMicApmLicenseRuntime.EnsureAuthorized(out string error))
+            {
+                _licenseAuthorized = true;
+                return true;
+            }
+
+            _licenseAuthorized = false;
+            HandleProcessingAuthorizationFailure(
+                string.IsNullOrWhiteSpace(error) ? "APM license verification failed." : error,
+                stopRecordingOnFailure);
+            return false;
+        }
+
+        private void HandleProcessingAuthorizationFailure(string error, bool stopRecordingOnFailure)
+        {
+            Debug.LogError("EasyMic: APM authorization failed. " + error);
+
+            if (stopRecordingOnFailure && _easyMicrophone != null && _easyMicrophone.IsRecording)
+            {
+                _easyMicrophone.StopRecording();
+            }
+
+            _recordedClip = null;
+            _resultPanel.gameObject.SetActive(false);
+            _recordingStateText.text = stopRecordingOnFailure
+                ? "APM license failed. Recording stopped."
+                : "APM license failed. Recording not started.";
+            _recordingStateImage.color = new Color(0.85f, 0.3f, 0.3f);
+            SetRecordButtonLabel("Start Recording");
+            SetUiInteractable(true);
+        }
+
         private void UpdateRecordingStateUI(bool isRecording)
         {
             if (isRecording)
             {
                 _recordingStateText.text = _currentRecordingSummary;
                 _recordingStateImage.color = Color.red;
-                _recordButton.GetComponentInChildren<Text>().text = "Stop Recording";
+                SetRecordButtonLabel("Stop Recording");
             }
             else
             {
                 _recordingStateText.text = "Not Recording";
                 _recordingStateImage.color = Color.gray;
-                _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
+                SetRecordButtonLabel("Start Recording");
             }
         }
 
@@ -582,6 +735,11 @@ namespace Eitan.EasyMic.Apm.Samples
 
         private void OnProcessingToggleChanged()
         {
+            if (_easyMicrophone != null && _easyMicrophone.IsRecording && !EnsureProcessingAuthorized(stopRecordingOnFailure: true))
+            {
+                return;
+            }
+
             ApplyProcessingOptionsFromToggles();
         }
 

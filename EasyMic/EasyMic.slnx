@@ -6,7 +6,6 @@
   <Project Path="Eitan.EasyMic.Apm.Samples.csproj" />
   <Project Path="Eitan.EasyMic.Samples.Recording.csproj" />
   <Project Path="Eitan.EasyMic.SherpaONNXUnity.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Eitan.EasyMic.Demo.csproj" />
   <Project Path="Eitan.EasyMic.Tests.csproj" />
   <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />

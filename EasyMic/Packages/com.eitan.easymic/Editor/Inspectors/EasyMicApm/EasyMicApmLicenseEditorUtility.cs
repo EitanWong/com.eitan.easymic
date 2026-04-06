@@ -121,7 +121,6 @@ namespace Eitan.EasyMic.Editor.Inspectors
 
             File.WriteAllText(absolutePath, source, new UTF8Encoding(false));
 
-            // Force script import first so runtime provider is recompiled.
             AssetDatabase.ImportAsset(selectedAssetPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             SessionState.SetString(GeneratedProviderPathSessionKey, selectedAssetPath);
@@ -145,8 +144,6 @@ namespace Eitan.EasyMic.Editor.Inspectors
 
         private static string BuildProviderSource(string plainToken)
         {
-            // This template is intentionally small and editable.
-            // Users can replace constant assignment with cloud fetching or additional hardening.
             string escapedToken = EscapeForVerbatimCSharpLiteral(plainToken);
 
             var sb = new StringBuilder(1024);
@@ -199,7 +196,6 @@ namespace Eitan.EasyMic.Editor.Inspectors
             }
             catch
             {
-                // ignored
             }
         }
 

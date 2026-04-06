@@ -302,8 +302,23 @@ namespace Eitan.EasyMic.Runtime
             }
 
             bool usesExtendedCallback;
+            GCHandle legacySubHandle = default;
+            GCHandle legacyConfigHandle = default;
+            GCHandle legacyOpenSlHandle = default;
+            GCHandle legacyAaudioHandle = default;
+            IntPtr legacyConfig = IntPtr.Zero;
             try
             {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                legacyConfig = AndroidLegacyDeviceConfig.CreatePlaybackLegacyConfig(
+                    Native.SampleFormat.F32,
+                    channels,
+                    rate,
+                    out legacySubHandle,
+                    out legacyConfigHandle,
+                    out legacyOpenSlHandle,
+                    out legacyAaudioHandle);
+#endif
                 _deviceConfig = Native.AllocateDeviceConfig(
                     Native.DeviceType.Playback,
                     Native.SampleFormat.F32,
@@ -314,7 +329,7 @@ namespace Eitan.EasyMic.Runtime
                     IntPtr.Zero,
                     IntPtr.Zero,
                     _cb,
-                    IntPtr.Zero,
+                    legacyConfig,
                     out usesExtendedCallback);
             }
             catch
@@ -324,6 +339,25 @@ namespace Eitan.EasyMic.Runtime
                     _selfHandle.Free();
                 }
                 throw;
+            }
+            finally
+            {
+                if (legacyAaudioHandle.IsAllocated)
+                {
+                    legacyAaudioHandle.Free();
+                }
+                if (legacyOpenSlHandle.IsAllocated)
+                {
+                    legacyOpenSlHandle.Free();
+                }
+                if (legacyConfigHandle.IsAllocated)
+                {
+                    legacyConfigHandle.Free();
+                }
+                if (legacySubHandle.IsAllocated)
+                {
+                    legacySubHandle.Free();
+                }
             }
 
             if (!usesExtendedCallback && _selfHandle.IsAllocated)
