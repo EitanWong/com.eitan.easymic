@@ -281,10 +281,12 @@ namespace Eitan.EasyMic.Runtime
                 _deviceIdHandle = MicDevice.AllocateDeviceIdHandle();
                 GCHandle subHandle = default;
                 GCHandle dtoHandle = default;
+                GCHandle openSlHandle = default;
+                GCHandle aaudioHandle = default;
 
                 try
                 {
-                    IntPtr legacyConfig = CreateLegacyDeviceConfig(out subHandle, out dtoHandle);
+                    IntPtr legacyConfig = CreateLegacyDeviceConfig(out subHandle, out dtoHandle, out openSlHandle, out aaudioHandle);
                     _deviceConfig = Native.AllocateDeviceConfig(
                         Native.DeviceType.Record,
                         Native.SampleFormat.F32,
@@ -327,6 +329,8 @@ namespace Eitan.EasyMic.Runtime
                 }
                 finally
                 {
+                    if (aaudioHandle.IsAllocated) { aaudioHandle.Free(); }
+                    if (openSlHandle.IsAllocated) { openSlHandle.Free(); }
                     if (dtoHandle.IsAllocated) { dtoHandle.Free(); }
                     if (subHandle.IsAllocated) { subHandle.Free(); }
                 }
@@ -336,42 +340,21 @@ namespace Eitan.EasyMic.Runtime
                 Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
             }
 
-            private IntPtr CreateLegacyDeviceConfig(out GCHandle subHandle, out GCHandle dtoHandle)
+            private IntPtr CreateLegacyDeviceConfig(
+                out GCHandle subHandle,
+                out GCHandle dtoHandle,
+                out GCHandle openSlHandle,
+                out GCHandle aaudioHandle)
             {
-                subHandle = default;
-                dtoHandle = default;
-
-                var sub = new Sf_DeviceSubConfig
-                {
-                    format = (int)Native.SampleFormat.F32,
-                    channels = _channelCount,
-                    pDeviceID = _deviceIdHandle,
-                    shareMode = 0
-                };
-
-                subHandle = GCHandle.Alloc(sub, GCHandleType.Pinned);
-
-                var dto = new Sf_DeviceConfig
-                {
-                    periodSizeInFrames = 0,
-                    periodSizeInMilliseconds = 0,
-                    periods = 0,
-                    noPreSilencedOutputBuffer = 0,
-                    noClip = 0,
-                    noDisableDenormals = 0,
-                    noFixedSizedCallback = 0,
-                    playback = IntPtr.Zero,
-                    capture = subHandle.AddrOfPinnedObject(),
-                    wasapi = IntPtr.Zero,
-                    coreaudio = IntPtr.Zero,
-                    alsa = IntPtr.Zero,
-                    pulse = IntPtr.Zero,
-                    opensl = IntPtr.Zero,
-                    aaudio = IntPtr.Zero
-                };
-
-                dtoHandle = GCHandle.Alloc(dto, GCHandleType.Pinned);
-                return dtoHandle.AddrOfPinnedObject();
+                return AndroidLegacyDeviceConfig.CreateCaptureLegacyConfig(
+                    Native.SampleFormat.F32,
+                    _channelCount,
+                    _sampleRate,
+                    _deviceIdHandle,
+                    out subHandle,
+                    out dtoHandle,
+                    out openSlHandle,
+                    out aaudioHandle);
             }
 
             private void ApplyFormat(MicDevice device, SampleRate sampleRate, Channel channel)
