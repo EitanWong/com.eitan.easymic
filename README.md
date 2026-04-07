@@ -19,10 +19,6 @@
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
   </p>
   <p align="center">
-    <em>Highlights:</em> Synced official sherpa-onnx native libraries to <code>v1.12.30</code>, updated the C# native API layer, fixed issue <a href="https://github.com/EitanWong/com.eitan.sherpa-onnx-unity/issues/8">#8</a>, and added SpeakerDiarization module/component/demo support.
-  </p>
-  
-  <p align="center">
     <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Processing</em>
   </p>
 </div>

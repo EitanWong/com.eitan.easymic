@@ -19,10 +19,6 @@
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
   </p>
   <p align="center">
-    <em>更新要点：</em> 同步官方 sherpa-onnx Native 库到 <code>v1.12.30</code>，同步更新 C# Native API，修复 <a href="https://github.com/EitanWong/com.eitan.sherpa-onnx-unity/issues/8">#8</a>，并接入 SpeakerDiarization 模块、组件与示例 Demo。
-  </p>
-  
-  <p align="center">
     <em>完美适配 AI 数字人 • 语音交互应用 • 实时音频处理</em>
   </p>
 </div>
