@@ -2,35 +2,20 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Collections;
+using System.IO;
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Runtime.Apm;
+using Eitan.EasyMic.Apm;
 using Eitan.EasyMic.Runtime.Mono;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Networking;
 using UnityEngine.UI;
-using System.Reflection;
+using EasyMicApmApi = Eitan.EasyMic.Apm.EasyMicAudioProcessing;
 
 namespace Eitan.EasyMic.Apm.Samples
 {
-    internal sealed class EasyMicApmSampleLicenseProvider : IEasyMicApmLicenseTokenProvider
-    {
-        public static string SessionToken { get; private set; } = string.Empty;
-
-        public int Priority => 10_000;
-
-        public static void SetSessionToken(string token)
-        {
-            SessionToken = token == null ? string.Empty : token.Trim();
-        }
-
-        public bool TryGetLicenseToken(out string token)
-        {
-            token = SessionToken;
-            return !string.IsNullOrWhiteSpace(token);
-        }
-    }
-
     /// <summary>
     /// EasyMicrophone-driven sample showcasing APM processing with a simpler, component-based workflow.
     /// </summary>
@@ -76,8 +61,16 @@ namespace Eitan.EasyMic.Apm.Samples
 
         private PlaybackAudioSourceBehaviour _audioSource;
         private AudioClip _recordedClip;
+        private Coroutine _loadRecordedClipRoutine;
+        private bool _ownsRecordedClip;
         private bool _wasSourcePlaying;
         private string _currentRecordingSummary = "Recording...";
+        private string _lastRecordingDeviceName = "Unknown Device";
+        private int _lastRecordingSampleRateHz;
+        private string _lastRecordingChannelLabel = "Unknown";
+        private bool _lastRecordingAgcEnabled;
+        private bool _lastRecordingAnsEnabled;
+        private bool _lastRecordingAecEnabled;
         private bool _licenseAuthorized;
 
         private void Awake()
@@ -169,6 +162,14 @@ namespace Eitan.EasyMic.Apm.Samples
             {
                 _easyMicrophone.StopRecording();
             }
+
+            if (_loadRecordedClipRoutine != null)
+            {
+                StopCoroutine(_loadRecordedClipRoutine);
+                _loadRecordedClipRoutine = null;
+            }
+
+            ReplaceRecordedClipForPlayback(null, ownsClip: false);
         }
 
         private void EnsureManualRecordingFlow()
@@ -193,54 +194,29 @@ namespace Eitan.EasyMic.Apm.Samples
                 return;
             }
 
-            string token = EasyMicApmSampleLicenseProvider.SessionToken;
+            string token = _licenseKeyInputField.text == null ? string.Empty : _licenseKeyInputField.text.Trim();
             if (!string.IsNullOrEmpty(token))
             {
                 _licenseKeyInputField.SetTextWithoutNotify(token);
-                _licenseAuthorized = EasyMicApmLicenseRuntime.EnsureAuthorized(out _);
+                _licenseAuthorized = EasyMicApmApi.Authorize(token, out _);
             }
         }
 
         private void OnLicenseKeySubmitted(string rawValue)
         {
             string token = rawValue == null ? string.Empty : rawValue.Trim();
-            EasyMicApmSampleLicenseProvider.SetSessionToken(token);
-            ResetLicenseRuntimeAuthorizationState();
 
             if (string.IsNullOrEmpty(token))
             {
+                EasyMicApmApi.ClearLicenseToken();
                 _licenseAuthorized = false;
                 return;
             }
 
-            _licenseAuthorized = EasyMicApmLicenseRuntime.EnsureAuthorized(out string error);
+            _licenseAuthorized = EasyMicApmApi.Authorize(token, out string error);
             if (!_licenseAuthorized)
             {
                 Debug.LogWarning("EasyMic: License authorization failed. " + error);
-            }
-        }
-
-        private static void ResetLicenseRuntimeAuthorizationState()
-        {
-            const string runtimeAssemblyQualifiedType = "Eitan.EasyMic.Runtime.Apm.EasyMicApmLicenseRuntime, Eitan.EasyMic.Apm";
-            var runtimeType = Type.GetType(runtimeAssemblyQualifiedType, throwOnError: false);
-            if (runtimeType == null)
-            {
-                return;
-            }
-
-            var resetMethod = runtimeType.GetMethod("ResetAuthorizationState", BindingFlags.NonPublic | BindingFlags.Static);
-            if (resetMethod == null)
-            {
-                return;
-            }
-
-            try
-            {
-                resetMethod.Invoke(null, null);
-            }
-            catch
-            {
             }
         }
 
@@ -248,7 +224,7 @@ namespace Eitan.EasyMic.Apm.Samples
         {
             try
             {
-                return EasyMicApmNative.GetMachineCode();
+                return EasyMicApmApi.GetMachineCode();
             }
             catch
             {
@@ -276,6 +252,8 @@ namespace Eitan.EasyMic.Apm.Samples
 
             if (isRecording)
             {
+                CancelRecordedClipLoad();
+                ReplaceRecordedClipForPlayback(null, ownsClip: false);
                 if (_loopbackToggle.isOn)
                 {
                     EnsureLoopbackProcessor();
@@ -284,13 +262,10 @@ namespace Eitan.EasyMic.Apm.Samples
                 return;
             }
 
-            _recordedClip = _easyMicrophone.LatestRecordingClip;
             _resultPanel.gameObject.SetActive(true);
-            _audioNameText.text = _recordedClip != null
-                ? $"{_recordedClip.name} ({_recordedClip.length:F1}s)"
-                : "No audio captured";
-
             _playOrStopButton.GetComponentInChildren<Text>().text = "Play";
+            _audioNameText.text = "Loading recorded clip...";
+            BeginLoadRecordedClip();
 
             if (_playMusicToggle.isOn)
             {
@@ -463,6 +438,7 @@ namespace Eitan.EasyMic.Apm.Samples
             var device = GetSelectedDevice();
             var sampleRate = device.ResolveSampleRate(GetSelectedSampleRateOrDefault());
             var channel = ResolveChannelForStart(device, GetSelectedChannelOrDefault());
+            CaptureRecordingMetadata(device, sampleRate, channel);
             _currentRecordingSummary = $"Recording ({device.Name}, {(int)sampleRate / 1000} kHz, {channel})";
 
             bool started = _easyMicrophone.StartRecording(device, sampleRate, channel);
@@ -495,6 +471,16 @@ namespace Eitan.EasyMic.Apm.Samples
                    (_agcToggle != null && _agcToggle.isOn);
         }
 
+        private void CaptureRecordingMetadata(MicDevice device, SampleRate sampleRate, Channel channel)
+        {
+            _lastRecordingDeviceName = string.IsNullOrWhiteSpace(device.Name) ? "Unnamed Device" : device.Name;
+            _lastRecordingSampleRateHz = (int)sampleRate;
+            _lastRecordingChannelLabel = channel.ToString();
+            _lastRecordingAgcEnabled = _agcToggle != null && _agcToggle.isOn;
+            _lastRecordingAnsEnabled = _ansToggle != null && _ansToggle.isOn;
+            _lastRecordingAecEnabled = _aecToggle != null && _aecToggle.isOn;
+        }
+
         private void SetRecordButtonLabel(string text)
         {
             var label = _recordButton != null ? _recordButton.GetComponentInChildren<Text>() : null;
@@ -513,10 +499,10 @@ namespace Eitan.EasyMic.Apm.Samples
 
             if (_licenseKeyInputField != null)
             {
-                EasyMicApmSampleLicenseProvider.SetSessionToken(_licenseKeyInputField.text);
+                EasyMicApmApi.SetLicenseToken(_licenseKeyInputField.text);
             }
 
-            if (EasyMicApmLicenseRuntime.EnsureAuthorized(out string error))
+            if (EasyMicApmApi.Authorize(out string error))
             {
                 _licenseAuthorized = true;
                 return true;
@@ -538,7 +524,7 @@ namespace Eitan.EasyMic.Apm.Samples
                 _easyMicrophone.StopRecording();
             }
 
-            _recordedClip = null;
+            ReplaceRecordedClipForPlayback(null, ownsClip: false);
             _resultPanel.gameObject.SetActive(false);
             _recordingStateText.text = stopRecordingOnFailure
                 ? "APM license failed. Recording stopped."
@@ -648,7 +634,7 @@ namespace Eitan.EasyMic.Apm.Samples
         {
             if (_recordedClip == null)
             {
-                Debug.LogWarning("EasyMic: No recorded clip to play.");
+                Debug.LogWarning("EasyMic: Recorded clip is not ready yet.");
                 return;
             }
 
@@ -686,7 +672,7 @@ namespace Eitan.EasyMic.Apm.Samples
 
         private void OnSaveRecording()
         {
-            if (!_easyMicrophone.HasRecordedClip)
+            if (!HasCompleteRecording())
             {
                 Debug.LogWarning("EasyMic: Nothing to save.");
                 return;
@@ -773,6 +759,104 @@ namespace Eitan.EasyMic.Apm.Samples
             }
 
             _easyMicrophone.RemoveProcessor(_loopbackBlueprint);
+        }
+
+        private void BeginLoadRecordedClip()
+        {
+            CancelRecordedClipLoad();
+
+            string tempPath = _easyMicrophone != null ? _easyMicrophone.LatestRecordingTempPath : null;
+            if (!string.IsNullOrWhiteSpace(tempPath))
+            {
+                _loadRecordedClipRoutine = StartCoroutine(LoadRecordedClipFromTempFile(tempPath));
+                return;
+            }
+
+            UsePreviewRecordedClip();
+        }
+
+        private IEnumerator LoadRecordedClipFromTempFile(string tempPath)
+        {
+            string clipUrl = "file://" + tempPath;
+            using (var request = UnityWebRequestMultimedia.GetAudioClip(clipUrl, AudioType.WAV))
+            {
+                yield return request.SendWebRequest();
+
+                _loadRecordedClipRoutine = null;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogWarning($"EasyMic: Failed to load complete recording from temp file. {request.error}");
+                    UsePreviewRecordedClip();
+                    yield break;
+                }
+
+                var audioClip = DownloadHandlerAudioClip.GetContent(request);
+                if (audioClip == null)
+                {
+                    Debug.LogWarning("EasyMic: Loaded temp recording returned no clip.");
+                    UsePreviewRecordedClip();
+                    yield break;
+                }
+
+                ReplaceRecordedClipForPlayback(audioClip, ownsClip: true);
+                RefreshRecordedClipSummary();
+            }
+        }
+
+        private void UsePreviewRecordedClip()
+        {
+            ReplaceRecordedClipForPlayback(_easyMicrophone != null ? _easyMicrophone.LatestRecordingClip : null, ownsClip: false);
+            RefreshRecordedClipSummary();
+        }
+
+        private void RefreshRecordedClipSummary()
+        {
+            _audioNameText.text = _recordedClip != null
+                ? $"{BuildRecordingMetadataLabel()} ({_recordedClip.length:F1}s)"
+                : "No audio captured";
+        }
+
+        private string BuildRecordingMetadataLabel()
+        {
+            string sampleRateLabel = _lastRecordingSampleRateHz > 0
+                ? $"{_lastRecordingSampleRateHz / 1000f:0.#} kHz"
+                : "Unknown Hz";
+            return $"{_lastRecordingDeviceName} | {sampleRateLabel} | {_lastRecordingChannelLabel} | " +
+                   $"AGC:{ToOnOff(_lastRecordingAgcEnabled)} ANS:{ToOnOff(_lastRecordingAnsEnabled)} AEC:{ToOnOff(_lastRecordingAecEnabled)}";
+        }
+
+        private static string ToOnOff(bool enabled)
+        {
+            return enabled ? "On" : "Off";
+        }
+
+        private void ReplaceRecordedClipForPlayback(AudioClip clip, bool ownsClip)
+        {
+            if (_ownsRecordedClip && _recordedClip != null && _recordedClip != clip)
+            {
+                Destroy(_recordedClip);
+            }
+
+            _recordedClip = clip;
+            _ownsRecordedClip = ownsClip;
+        }
+
+        private void CancelRecordedClipLoad()
+        {
+            if (_loadRecordedClipRoutine == null)
+            {
+                return;
+            }
+
+            StopCoroutine(_loadRecordedClipRoutine);
+            _loadRecordedClipRoutine = null;
+        }
+
+        private bool HasCompleteRecording()
+        {
+            string tempPath = _easyMicrophone != null ? _easyMicrophone.LatestRecordingTempPath : null;
+            return !string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath);
         }
 
         private sealed class MachineCodeTextClickHandler : MonoBehaviour, IPointerClickHandler

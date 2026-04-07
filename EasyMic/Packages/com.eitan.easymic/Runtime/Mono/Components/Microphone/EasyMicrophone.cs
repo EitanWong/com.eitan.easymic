@@ -11,7 +11,7 @@ namespace Eitan.EasyMic.Runtime.Mono
     using Eitan.EasyMic.Runtime.Mono.Utilities;
     using UnityEngine;
 #if EASYMIC_APM_INTEGRATION
-    using Eitan.EasyMic.Runtime.Apm;
+    using Eitan.EasyMic.Apm;
 #endif
 
     [AddComponentMenu("Audio/Input/Easy Microphone")]
@@ -46,6 +46,9 @@ namespace Eitan.EasyMic.Runtime.Mono
         private Coroutine _pendingStartRecordingRoutine;
         private bool _pendingStartRecording;
 
+#if EASYMIC_APM_INTEGRATION
+        private static string s_lastApmUnavailableReason = string.Empty;
+#endif
 
         #endregion
 
@@ -741,12 +744,15 @@ namespace Eitan.EasyMic.Runtime.Mono
 #if EASYMIC_APM_INTEGRATION
                 if (_audioProcessingOptions.AnyEnabled)
                 {
-                    var apm = new EasyMicApmModifier
+                    if (CanUseApmProcessing())
                     {
-                        Profile = ResolveApmProfile(_audioProcessingOptions),
-                        DelayControlMode = EasyMicApmDelayControlMode.ProfileAuto
-                    };
-                    pipeline.AddWorker(apm);
+                        var apm = new EasyMicApmModifier
+                        {
+                            Profile = ResolveApmProfile(_audioProcessingOptions),
+                            DelayControlMode = EasyMicApmDelayControlMode.ProfileAuto
+                        };
+                        pipeline.AddWorker(apm);
+                    }
                 }
 #endif
 
@@ -765,6 +771,54 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
 #if EASYMIC_APM_INTEGRATION
+        private static bool CanUseApmProcessing()
+        {
+            if (EasyMicAudioProcessing.IsAuthorized)
+            {
+                s_lastApmUnavailableReason = string.Empty;
+                return true;
+            }
+
+            string error;
+            if (!EasyMicAudioProcessing.HasConfiguredLicenseToken)
+            {
+                error =
+                    "EasyMic APM is enabled, but no license token was discovered at runtime. " +
+                    "Automatic token registration may have failed, or no license provider script is loaded. " +
+                    EasyMicAudioProcessing.LastProviderScanDetails;
+            }
+            else if (EasyMicAudioProcessing.Authorize(out error))
+            {
+                s_lastApmUnavailableReason = string.Empty;
+                return true;
+            }
+            else if (string.IsNullOrWhiteSpace(error))
+            {
+                error = EasyMicAudioProcessing.LastError;
+            }
+
+            if (EasyMicAudioProcessing.HasConfiguredLicenseToken)
+            {
+                error = (string.IsNullOrWhiteSpace(error) ? "EasyMic APM license authorization failed. No error details were returned." : error) +
+                        " Token source: " +
+                        (string.IsNullOrWhiteSpace(EasyMicAudioProcessing.LastTokenSource) ? "<unknown>" : EasyMicAudioProcessing.LastTokenSource);
+            }
+
+            LogApmIssue(error);
+            return false;
+        }
+
+        private static void LogApmIssue(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message) || string.Equals(s_lastApmUnavailableReason, message, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            s_lastApmUnavailableReason = message;
+            Debug.LogWarning("[EasyMic] " + message);
+        }
+
         private AudioProcessingOptions GetCurrentAudioProcessingOptions()
         {
             var apmWorker = GetCurrentApmWorker();
@@ -827,7 +881,13 @@ namespace Eitan.EasyMic.Runtime.Mono
         {
             if (options.EnableAEC)
             {
+#if UNITY_ANDROID && !UNITY_EDITOR
                 return EasyMicApmProfileId.SpeakerphoneVoiceCall;
+#elif UNITY_IOS && !UNITY_EDITOR
+                return EasyMicApmProfileId.SpeakerphoneVoiceCall;
+#else
+                return EasyMicApmProfileId.DesktopOpenSpeaker;
+#endif
             }
 
             if (options.EnableAGC || options.EnableANS)

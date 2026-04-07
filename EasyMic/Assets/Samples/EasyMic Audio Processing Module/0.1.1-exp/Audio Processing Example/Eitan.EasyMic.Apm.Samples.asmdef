@@ -4,7 +4,9 @@
     "references": [
         "Eitan.EasyMic",
         "Eitan.EasyMic.Mono",
-        "Eitan.EasyMic.Apm"
+        "Eitan.EasyMic.Apm",
+        "Eitan.EasyMic.Apm.Runtime",
+        "Eitan.EasyMic.Apm.Diagnostics"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

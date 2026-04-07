@@ -8,3 +8,5 @@ using UnityEngine.Scripting;
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Editor.Mono")]
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Tests")]
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Apm")]
+[assembly: InternalsVisibleTo("Eitan.EasyMic.Apm.Runtime")]
+[assembly: InternalsVisibleTo("Eitan.EasyMic.Apm.Diagnostics")]
