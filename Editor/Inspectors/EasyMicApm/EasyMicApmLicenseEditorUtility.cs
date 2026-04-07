@@ -14,22 +14,28 @@ namespace Eitan.EasyMic.Editor.Inspectors
         public const string GeneratedProviderAssetPath = "Assets/EasyMic/Scripts/EasyMicApmLicenseToken.cs";
         private const string GeneratedProviderPathSessionKey = "Eitan.EasyMic.Apm.GeneratedProviderAssetPath";
         private const string ProviderClassName = "EasyMicApmProjectLicenseProvider";
-        private const string RuntimeAssemblyQualifiedType = "Eitan.EasyMic.Runtime.Apm.EasyMicApmLicenseRuntime, Eitan.EasyMic.Apm";
         private const string RuntimeHasConfiguredMethod = "HasConfiguredTokenSource";
         private const string RuntimeResetMethod = "ResetAuthorizationState";
+        private const string RuntimeAssemblyQualifiedType = "Eitan.EasyMic.Apm.EasyMicApmLicenseRuntime, Eitan.EasyMic.Apm.Runtime";
 
         public static bool HasConfiguredTokenSource()
         {
+            if (!TryGetAnyProviderAssetPath(out _))
+            {
+                ClearCachedProviderState();
+                return false;
+            }
+
             var runtimeType = Type.GetType(RuntimeAssemblyQualifiedType, throwOnError: false);
             if (runtimeType == null)
             {
-                return false;
+                return true;
             }
 
             var method = runtimeType.GetMethod(RuntimeHasConfiguredMethod, BindingFlags.Public | BindingFlags.Static);
             if (method == null)
             {
-                return false;
+                return true;
             }
 
             try
@@ -39,19 +45,26 @@ namespace Eitan.EasyMic.Editor.Inspectors
             }
             catch
             {
-                return false;
+                return true;
             }
         }
 
         public static bool HasGeneratedProviderFile()
         {
+            CleanupStaleProviderStateIfNeeded();
             string assetPath = GetCurrentProviderAssetPath();
             return !string.IsNullOrEmpty(assetPath) && File.Exists(GetAbsolutePath(assetPath));
         }
 
         public static bool HasAnyProviderScript()
         {
-            return TryGetAnyProviderAssetPath(out _);
+            if (TryGetAnyProviderAssetPath(out _))
+            {
+                return true;
+            }
+
+            ClearCachedProviderState();
+            return false;
         }
 
         public static void OpenProjectSettingsPage()
@@ -63,6 +76,7 @@ namespace Eitan.EasyMic.Editor.Inspectors
         {
             if (!TryGetAnyProviderAssetPath(out string assetPath) || string.IsNullOrEmpty(assetPath))
             {
+                ClearCachedProviderState();
                 return false;
             }
 
@@ -81,6 +95,7 @@ namespace Eitan.EasyMic.Editor.Inspectors
             string assetPath = string.Empty;
             if (!TryGetAnyProviderAssetPath(out assetPath))
             {
+                ClearCachedProviderState();
                 assetPath = GetCurrentProviderAssetPath();
             }
 
@@ -149,11 +164,13 @@ namespace Eitan.EasyMic.Editor.Inspectors
             var sb = new StringBuilder(1024);
             sb.AppendLine("namespace Eitan.EasyMic.Generated.Licensing");
             sb.AppendLine("{");
-            sb.AppendLine("    using Eitan.EasyMic.Runtime.Apm;");
+            sb.AppendLine("    using Eitan.EasyMic.Apm;");
+            sb.AppendLine("    using UnityEngine;");
             sb.AppendLine("    using UnityEngine.Scripting;");
             sb.AppendLine();
             sb.AppendLine("    /// <summary>");
             sb.AppendLine("    /// EasyMic APM license token provider.");
+            sb.AppendLine("    /// Runtime discovers this provider automatically before first authorization.");
             sb.AppendLine("    /// IMPORTANT: this default template stores token in plaintext.");
             sb.AppendLine("    /// To reduce leakage risk, customize this file to fetch from server,");
             sb.AppendLine("    /// split key material, or perform your own encryption/decryption.");
@@ -164,6 +181,15 @@ namespace Eitan.EasyMic.Editor.Inspectors
             sb.AppendLine("        public int Priority => 0;");
             sb.AppendLine();
             sb.AppendLine("        private const string PlainLicenseToken = @\"" + escapedToken + "\";");
+            sb.AppendLine();
+            sb.AppendLine("        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]");
+            sb.AppendLine("        private static void RegisterGeneratedToken()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (!string.IsNullOrWhiteSpace(PlainLicenseToken))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                EasyMicAudioProcessing.SetLicenseToken(PlainLicenseToken);");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        public bool TryGetLicenseToken(out string token)");
             sb.AppendLine("        {");
@@ -278,7 +304,13 @@ namespace Eitan.EasyMic.Editor.Inspectors
                 return GeneratedProviderAssetPath;
             }
 
-            return NormalizeAssetPath(cached);
+            string normalized = NormalizeAssetPath(cached);
+            if (!string.IsNullOrEmpty(normalized) && File.Exists(GetAbsolutePath(normalized)))
+            {
+                return normalized;
+            }
+
+            return GeneratedProviderAssetPath;
         }
 
         private static string ShowSaveProviderPathDialog()
@@ -401,6 +433,27 @@ namespace Eitan.EasyMic.Editor.Inspectors
             }
 
             return false;
+        }
+
+        public static void NotifyProviderAssetsChanged()
+        {
+            CleanupStaleProviderStateIfNeeded();
+        }
+
+        private static void CleanupStaleProviderStateIfNeeded()
+        {
+            if (TryGetAnyProviderAssetPath(out _))
+            {
+                return;
+            }
+
+            ClearCachedProviderState();
+        }
+
+        private static void ClearCachedProviderState()
+        {
+            SessionState.EraseString(GeneratedProviderPathSessionKey);
+            TryResetRuntimeAuthorizationCache();
         }
 
         private static string GetAbsolutePath(string assetPath)

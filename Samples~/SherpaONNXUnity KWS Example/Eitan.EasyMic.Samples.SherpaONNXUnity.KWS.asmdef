@@ -5,6 +5,7 @@
         "Eitan.EasyMic",
         "Eitan.EasyMic.Mono",
         "Eitan.EasyMic.Apm",
+        "Eitan.EasyMic.Apm.Runtime",
         "Eitan.EasyMic.SherpaONNXUnity",
         "Eitan.SherpaONNXUnity"
     ],
