@@ -116,6 +116,8 @@ namespace Eitan.EasyMic.Runtime
 
         private void WorkerLoop()
         {
+            Span<float> header = stackalloc float[1];
+                            
             while (_running)
             {
                 // Wait for a signal from the producer or timeout to handle shutdown gracefully.
@@ -134,7 +136,6 @@ namespace Eitan.EasyMic.Runtime
                         break;
                     }
 
-                    Span<float> header = stackalloc float[1];
                     if (_queue.Peek(header) < 1)
                     {
                         break;
