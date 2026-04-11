@@ -20,6 +20,7 @@ namespace Eitan.EasyMic.Runtime
 
         // Reusable worker-side frame buffer to avoid allocations
         private float[] _workerFrame;
+        private readonly float[] _workerHeader = new float[1];
 
         // Capacity in seconds for the internal queue (default 1 second)
         private readonly int _capacitySeconds;
@@ -134,13 +135,12 @@ namespace Eitan.EasyMic.Runtime
                         break;
                     }
 
-                    Span<float> header = stackalloc float[1];
-                    if (_queue.Peek(header) < 1)
+                    if (_queue.Peek(_workerHeader) < 1)
                     {
                         break;
                     }
 
-                    int needed = (int)header[0];
+                    int needed = (int)_workerHeader[0];
                     if (needed < 0)
                     {
                         _queue.Skip(1);
