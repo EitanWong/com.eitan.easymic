@@ -5,11 +5,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         bool IsIdle { get; }
         bool IsChatActive { get; }
         bool IsInitialized { get; }
+        bool HasConfigurationPolicy { get; }
+        AIChatConfigurationPolicy.PolicyPreset ConfigurationPolicyPreset { get; }
         bool IsUserSpeaking { get; }
         bool HasConversationHistory { get; }
         float TimeSinceLastUserActivity { get; }
         float TimeSinceLastAssistantResponse { get; }
         float MicStartupDelaySeconds { get; }
+        AIChatResolvedConfiguration ResolvedConfiguration { get; }
         bool TrySendProactiveMessage(string prompt, bool recordUserMessage);
     }
 }

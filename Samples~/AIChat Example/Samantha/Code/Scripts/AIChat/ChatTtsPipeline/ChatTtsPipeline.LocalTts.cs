@@ -1,6 +1,6 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {

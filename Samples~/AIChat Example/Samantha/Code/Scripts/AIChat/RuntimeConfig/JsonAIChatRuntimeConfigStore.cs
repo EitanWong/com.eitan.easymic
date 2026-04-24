@@ -1,9 +1,9 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.IO;
-using Eitan.EasyMic.Runtime.Mono.Components.ASR;
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha

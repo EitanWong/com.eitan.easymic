@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Collections.Concurrent;
@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Mono.Components;
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -25,6 +25,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int MaxQueuedJobs = 100;
         private const int PlaybackPollDelayMs = 15;
         private const double PlaybackDrainEpsilon = 0.08;
+        private const double InitialStreamingPrebufferSeconds = 0.08;
+        private const double MinimumStreamingChunkSeconds = 0.03;
+        private const double BufferedPlaybackChunkSeconds = 0.06;
+        private const int StreamingFlushTimeoutMs = 35;
+        private const double StreamingStallWarningSeconds = 1.2;
+        private const double StreamingStallAbortSeconds = 8.0;
         private const double AdaptiveBufferDefaultSeconds = 0.18;
         private const double AdaptiveBufferMinSeconds = 0.10;
         private const double AdaptiveBufferMaxSeconds = 0.36;

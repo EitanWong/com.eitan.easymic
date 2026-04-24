@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System.Threading.Tasks;
 using NUnit.Framework;

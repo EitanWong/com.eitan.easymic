@@ -6,7 +6,10 @@ namespace Eitan.EasyMic.Runtime
     public interface IAudioSink
     {
         /// <summary>
-        /// Consume captured audio samples. Called on the audio thread.
+        /// Consume captured audio samples.
+        /// Implementations may perform worker-thread work such as file I/O only when invoked behind
+        /// an <see cref="AudioReader"/> dispatch path. Sinks that are called directly from native
+        /// audio callbacks must be allocation-free, non-blocking, Unity-API-free, and file-I/O-free.
         /// </summary>
         /// <param name="samples">Interleaved PCM float samples.</param>
         /// <param name="sampleRate">Sample rate of the provided samples.</param>

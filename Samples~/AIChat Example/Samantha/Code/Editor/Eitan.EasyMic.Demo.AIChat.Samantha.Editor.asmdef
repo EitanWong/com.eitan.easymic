@@ -3,7 +3,9 @@
     "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha",
     "references": [
         "Eitan.EasyMic.Demo.AIChat.Samantha",
-        "Eitan.EasyMic.Mono"
+        "Eitan.EasyMic.Mono",
+        "Eitan.EasyMic.Integration.SherpaONNXUnity",
+        "Eitan.EasyMic.Integration.SherpaONNXUnity.Editor"
     ],
     "includePlatforms": [
         "Editor"
@@ -13,7 +15,15 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
-    "versionDefines": [],
+    "defineConstraints": [
+        "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+        }
+    ],
     "noEngineReferences": false
 }

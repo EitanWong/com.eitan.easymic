@@ -4,7 +4,10 @@
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Eitan.EasyMic"
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Mono",
+        "Eitan.EasyMic.Integration.SherpaONNXUnity",
+        "Eitan.SherpaONNXUnity"
     ],
     "includePlatforms": [
         "Editor"
@@ -19,6 +22,12 @@
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+        }
+    ],
     "noEngineReferences": false
 }

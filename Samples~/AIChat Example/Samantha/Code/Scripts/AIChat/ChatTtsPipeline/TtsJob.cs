@@ -1,8 +1,9 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
@@ -19,8 +20,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public volatile bool HasStreamingRegistration;
         public volatile bool IsComplete;
         public volatile bool IsFailed;
+        public volatile bool HasReceivedChunks;
         public Exception Error;
         private readonly ConcurrentQueue<float[]> _streamChunks = new ConcurrentQueue<float[]>();
+        private long _lastChunkUtcTicks;
 
         public TtsJob(int sequenceNumber, string sentence)
         {
@@ -52,12 +55,26 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            HasReceivedChunks = true;
+            Interlocked.Exchange(ref _lastChunkUtcTicks, DateTime.UtcNow.Ticks);
             _streamChunks.Enqueue(samples);
         }
 
         public bool TryDequeueStreamChunk(out float[] samples) => _streamChunks.TryDequeue(out samples);
 
         public bool HasPendingChunks => !_streamChunks.IsEmpty;
+
+        public TimeSpan GetIdleDuration()
+        {
+            long ticks = Interlocked.Read(ref _lastChunkUtcTicks);
+            if (ticks <= 0)
+            {
+                return Stopwatch.Elapsed;
+            }
+
+            long delta = DateTime.UtcNow.Ticks - ticks;
+            return delta > 0 ? TimeSpan.FromTicks(delta) : TimeSpan.Zero;
+        }
 
         public void MarkStreamingCompleted()
         {

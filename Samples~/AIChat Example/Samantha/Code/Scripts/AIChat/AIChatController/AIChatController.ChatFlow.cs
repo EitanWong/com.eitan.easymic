@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Collections.Generic;
@@ -25,6 +25,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            long generation = Interlocked.Increment(ref _responseGeneration);
+
             if (_openAiClient == null)
             {
                 InitializeOpenAiClient();
@@ -37,8 +39,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            await CancelActiveResponseAsync();
+            await CancelActiveResponseAsync(advanceGeneration: false).ConfigureAwait(false);
+            if (!IsCurrentResponseGeneration(generation))
+            {
+                return;
+            }
+
             _requestOrchestrator?.ResetCurrentResponse();
+            ResetResponseLatencyTracking();
 
             _llmInFlight = true;
             _totalRequestCount++;
@@ -52,42 +60,26 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (!_conversationStarted)
             {
                 _conversationStarted = true;
-                if (IsOnUnityThread)
-                {
-                    _pluginHost?.NotifyConversationStarted(isProactive);
-                }
-                else
-                {
-                    PostToUnityThread(() => _pluginHost?.NotifyConversationStarted(isProactive));
-                }
+                NotifyPluginHost(host => host.NotifyConversationStarted(isProactive));
             }
 
             if (recordUserMessage)
             {
-                if (IsOnUnityThread)
-                {
-                    _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive);
-                }
-                else
-                {
-                    PostToUnityThread(() => _pluginHost?.NotifyUserMessageSubmitted(userInput, isProactive));
-                }
+                NotifyPluginHost(host => host.NotifyUserMessageSubmitted(userInput, isProactive));
             }
 
-            if (IsOnUnityThread)
-            {
-                _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive);
-            }
-            else
-            {
-                PostToUnityThread(() => _pluginHost?.NotifyAssistantRequestStarted(userInput, isProactive));
-            }
+            NotifyPluginHost(host => host.NotifyAssistantRequestStarted(userInput, isProactive));
 
-            _ = RunChatCompletionAsync(userInput, token, recordUserMessage, isProactive);
+            _ = RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive);
         }
 
-        private async Task CancelActiveResponseAsync()
+        private async Task CancelActiveResponseAsync(bool advanceGeneration = true)
         {
+            if (advanceGeneration)
+            {
+                Interlocked.Increment(ref _responseGeneration);
+            }
+
             CancelAndDisposeCts(TakeResponseCancellationTokenSource());
 
             if (_ttsPipeline != null)
@@ -119,7 +111,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             UpdateIdleState();
         }
 
-        private async Task RunChatCompletionAsync(string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
+        private async Task RunChatCompletionAsync(long generation, string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
         {
             if (_initializationFailed)
             {
@@ -134,13 +126,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
+                string model = ResolveLlmModel();
                 var chatRequest = new OpenAIChatRequest
                 {
-                    Model = string.IsNullOrWhiteSpace(Config.LlmModel)
-                        ? "gpt-5.2"
-                        : Config.LlmModel.Trim(),
+                    Model = model,
                     Stream = true,
                     Temperature = Config.LlmTemperature,
+                    EnableThinkingOverride = false,
                     Messages = BuildMessages(userInput)
                 };
 
@@ -152,6 +144,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         firstChunkReceived = true;
                         float latencyMs = (float)stopwatch.Elapsed.TotalMilliseconds;
+                        TryCaptureLatencyMilestone(ref _lastFirstTokenLatencyMs, generation);
                         _networkHandler.RecordLatency(latencyMs);
                         UpdateAverageLatency(latencyMs);
 
@@ -172,10 +165,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                         if (!string.IsNullOrEmpty(normalizedChunk))
                         {
+                            if (!IsCurrentResponseGeneration(generation))
+                            {
+                                break;
+                            }
+
                             ProcessStreamingChunk(normalizedChunk);
                             NotifyChatStateChanged(ChatState.AssistantResponseStreaming, normalizedChunk);
                         }
                     }
+                }
+
+                if (!IsCurrentResponseGeneration(generation))
+                {
+                    return;
                 }
 
                 FlushPendingSentences();
@@ -212,25 +215,30 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             finally
             {
                 stopwatch.Stop();
-                _llmInFlight = false;
-                UpdateIdleState();
-                PostToUnityThread(() =>
-                    _pluginHost?.NotifyAssistantResponseFinished(
+                bool isCurrentGeneration = IsCurrentResponseGeneration(generation);
+                if (isCurrentGeneration)
+                {
+                    _llmInFlight = false;
+                    UpdateIdleState();
+                    NotifyPluginHost(host => host.NotifyAssistantResponseFinished(
                         responseSucceeded ? finalResponse : null,
                         responseSucceeded,
                         errorMessage));
 
-                if (_ttsPipeline != null)
-                {
-                    try
+                    if (_ttsPipeline != null)
                     {
-                        await _ttsPipeline.WaitForIdleAsync().ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"[AIChat] Error waiting for TTS idle: {ex.Message}");
+                        try
+                        {
+                            await _ttsPipeline.WaitForIdleAsync().ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"[AIChat] Error waiting for TTS idle: {ex.Message}");
+                        }
                     }
                 }
+
+                EndResponseLatencyTracking(generation);
             }
         }
 
@@ -254,7 +262,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            _ = plugin.RefreshInstructionFromContextAsync(client, Config.LlmModel, userInput, binding, token);
+            _ = plugin.RefreshInstructionFromContextAsync(client, ResolveLlmModel(), userInput, binding, token);
         }
 
         private void AppendConversationHistory(string userMessage, string assistantMessage)
@@ -295,6 +303,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Debug.Log($"[AIChat][Sentence] {cleaned}");
             }
 
+            TryCaptureLatencyMilestone(ref _lastFirstSentenceLatencyMs, Interlocked.Read(ref _responseGeneration));
             _ttsPipeline?.Enqueue(cleaned);
         }
 

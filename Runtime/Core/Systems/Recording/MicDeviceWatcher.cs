@@ -89,23 +89,25 @@ namespace Eitan.EasyMic.Runtime
                 }
                 else
                 {
-#if UNITY_ANDROID && !UNITY_EDITOR
-                    // Android device enumeration may call JNI paths that are unsafe from worker timer threads.
-                    Interlocked.Exchange(ref _isTicking, 0);
-                    return;
-#else
+                    if (EasyMicPlatformSupport.RequiresAndroidMainThread)
+                    {
+                        // Android device enumeration may call JNI paths that are unsafe from worker timer threads.
+                        Interlocked.Exchange(ref _isTicking, 0);
+                        return;
+                    }
+
                     ExecuteRefresh(this);
-#endif
                 }
             }
             catch
             {
-#if UNITY_ANDROID && !UNITY_EDITOR
-                Interlocked.Exchange(ref _isTicking, 0);
-                return;
-#else
+                if (EasyMicPlatformSupport.RequiresAndroidMainThread)
+                {
+                    Interlocked.Exchange(ref _isTicking, 0);
+                    return;
+                }
+
                 ExecuteRefresh(this);
-#endif
             }
         }
 
@@ -148,12 +150,10 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (!watcher._disposed && watcher._system != null)
                 {
-#if UNITY_ANDROID && !UNITY_EDITOR
-                    if (!EasyMicUnityThread.IsMainThread)
+                    if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
                     {
                         return;
                     }
-#endif
                     watcher._system.Refresh();
                 }
             }

@@ -1,11 +1,18 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Threading;
+using System;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
+        private const string DefaultLlmModel = "gpt-5.4";
+        private const string LegacyDefaultLlmModel = "gpt-5.2";
+        private const string DefaultSiliconFlowLlmModel = "Qwen/Qwen3.5-9B";
+
         private string GetSystemPrompt()
         {
             return _systemPromptCache;
@@ -70,6 +77,100 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
 
             return cleaned;
+        }
+
+        private void ResetResponseLatencyTracking()
+        {
+            lock (_stateLock)
+            {
+                _activeResponseStopwatch = Stopwatch.StartNew();
+                _lastFirstTokenLatencyMs = 0f;
+                _lastFirstSentenceLatencyMs = 0f;
+                _lastFirstAudioLatencyMs = 0f;
+                _lastPlaybackBufferedSeconds = 0f;
+            }
+        }
+
+        private void EndResponseLatencyTracking(long generation)
+        {
+            lock (_stateLock)
+            {
+                if (!IsCurrentResponseGeneration(generation))
+                {
+                    return;
+                }
+
+                _activeResponseStopwatch = null;
+            }
+        }
+
+        private void TryCaptureLatencyMilestone(ref float targetField, long generation)
+        {
+            lock (_stateLock)
+            {
+                if (!IsCurrentResponseGeneration(generation) || targetField > 0f || _activeResponseStopwatch == null)
+                {
+                    return;
+                }
+
+                targetField = (float)_activeResponseStopwatch.Elapsed.TotalMilliseconds;
+            }
+        }
+
+        private bool IsCurrentResponseGeneration(long generation)
+        {
+            return Interlocked.Read(ref _responseGeneration) == generation;
+        }
+
+        private string ResolveLlmModel(string requestedModel = null)
+        {
+            string model = string.IsNullOrWhiteSpace(requestedModel) ? Config.LlmModel : requestedModel;
+            model = string.IsNullOrWhiteSpace(model) ? DefaultLlmModel : model.Trim();
+
+            if (!SiliconFlowExpressiveTtsInputPlugin.IsSiliconFlowApiBaseUrl(Config.ApiBaseUrl))
+            {
+                return model;
+            }
+
+            if (IsOpenAIDefaultModelPlaceholder(model))
+            {
+                return DefaultSiliconFlowLlmModel;
+            }
+
+            return model;
+        }
+
+        private static bool IsOpenAIDefaultModelPlaceholder(string model)
+        {
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                return true;
+            }
+
+            return string.Equals(model, DefaultLlmModel, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(model, LegacyDefaultLlmModel, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void NotifyPluginHost(Action<AIChatPluginHost> notify)
+        {
+            if (notify == null || _pluginHost == null)
+            {
+                return;
+            }
+
+            if (IsOnUnityThread)
+            {
+                notify(_pluginHost);
+                return;
+            }
+
+            PostToUnityThread(() =>
+            {
+                if (_pluginHost != null)
+                {
+                    notify(_pluginHost);
+                }
+            });
         }
     }
 }

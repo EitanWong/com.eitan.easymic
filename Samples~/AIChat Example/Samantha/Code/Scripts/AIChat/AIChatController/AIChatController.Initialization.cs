@@ -1,8 +1,9 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using System.Collections.Generic;
-using Eitan.EasyMic.Runtime.Mono.Components.ASR;
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using System.Threading;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -18,6 +19,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 [SERVICE_TTS_INIT_KEY] = 0f
             };
 
+            _fixedSettingsOverride = GetComponent<AIChatConfigurationPolicy>();
             _runtimeConfigStore = new JsonAIChatRuntimeConfigStore();
             _requestOrchestrator = new AIChatRequestOrchestrator(
                 historyTurnProvider: () => Config.MaxHistoryTurns,
@@ -56,6 +58,35 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             catch (Exception ex)
             {
                 Debug.LogWarning($"[AIChat] Failed to load runtime config: {ex.Message}");
+            }
+        }
+
+        private void ApplyFixedSettingsOverrideIfPresent()
+        {
+            if (_initializationFailed || _fixedSettingsOverride == null || !_fixedSettingsOverride.EnabledOverride)
+            {
+                return;
+            }
+
+            _fixedSettingsOverride.ApplyTo(Config);
+            PersistRuntimeConfigSnapshot();
+        }
+
+        private void PersistRuntimeConfigSnapshot()
+        {
+            if (_runtimeConfigStore == null)
+            {
+                return;
+            }
+
+            try
+            {
+                AIChatRuntimeConfig snapshot = _runtimeConfigStore.Capture(Config);
+                _runtimeConfigStore.TrySave(RuntimeConfigPath, snapshot, out _);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AIChat] Failed to persist runtime config snapshot: {ex.Message}");
             }
         }
 
@@ -216,6 +247,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _ttsPipeline.OnSpeakingStateChanged -= OnPipelineSpeakingStateChanged;
+            _ttsPipeline.OnSentenceStarted -= OnTtsSentenceStarted;
+            _ttsPipeline.OnSentenceCompleted -= OnTtsSentenceCompleted;
+            _ttsPipeline.OnBufferProgress -= OnTtsBufferProgress;
             _ttsPipeline.Dispose();
             _ttsPipeline = null;
         }
@@ -243,6 +277,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _ttsPipeline.OnSpeakingStateChanged += OnPipelineSpeakingStateChanged;
                 _ttsPipeline.OnSentenceStarted += OnTtsSentenceStarted;
                 _ttsPipeline.OnSentenceCompleted += OnTtsSentenceCompleted;
+                _ttsPipeline.OnBufferProgress += OnTtsBufferProgress;
             }
 
             if (_openAiClient != null)
@@ -343,6 +378,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnTtsSentenceStarted(string sentence)
         {
+            TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, Interlocked.Read(ref _responseGeneration));
+
             if (Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][TTS] Speaking: {sentence}");
@@ -355,6 +392,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 Debug.Log($"[AIChat][TTS] Completed: {sentence}");
             }
+        }
+
+        private void OnTtsBufferProgress(float bufferedSeconds)
+        {
+            _lastPlaybackBufferedSeconds = bufferedSeconds;
         }
     }
 }

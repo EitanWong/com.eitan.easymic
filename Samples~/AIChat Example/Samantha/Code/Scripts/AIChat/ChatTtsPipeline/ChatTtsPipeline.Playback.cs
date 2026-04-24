@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Threading;
@@ -213,9 +213,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            EnqueueSinkSamples(sink, job.AudioSamples, job.AudioSamples.Length, job.Channels, job.SampleRate, false);
+            SafeInvoke(() => OnSentenceStarted?.Invoke(job.Sentence));
 
-            await WaitForBufferDrainAsync(sessionId, token).ConfigureAwait(false);
+            int channels = Math.Max(1, job.Channels);
+            int sampleRate = Math.Max(1, job.SampleRate);
+            int chunkSamples = Math.Max(channels, (int)Math.Ceiling(BufferedPlaybackChunkSeconds * channels * sampleRate));
+            chunkSamples -= chunkSamples % channels;
+            if (chunkSamples <= 0)
+            {
+                chunkSamples = job.AudioSamples.Length;
+            }
+
+            float[] chunkBuffer = null;
+            for (int offset = 0; offset < job.AudioSamples.Length && !token.IsCancellationRequested; offset += chunkSamples)
+            {
+                int count = Math.Min(chunkSamples, job.AudioSamples.Length - offset);
+                double bufferBudget = GetAdaptiveBufferBudgetSeconds();
+                await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
+                chunkBuffer = CopyChunk(job.AudioSamples, offset, count, ref chunkBuffer);
+                EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
+                ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
+            }
         }
 
         private async Task PlayStreamingJobAsync(long sessionId, TtsJob job, CancellationToken token)
@@ -231,6 +249,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             const int maxIdleCycles = 300;
             int channels = job.Channels > 0 ? job.Channels : RemoteDefaultChannels;
             int sampleRate = job.SampleRate > 0 ? job.SampleRate : RemoteDefaultSampleRate;
+            bool warnedAboutStall = false;
+            bool sentenceStarted = false;
+            float[] pendingBatch = null;
+            int pendingBatchCount = 0;
 
             while (!token.IsCancellationRequested)
             {
@@ -242,39 +264,72 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (job.TryDequeueStreamChunk(out var samples))
                 {
-                    double bufferBudget = GetAdaptiveBufferBudgetSeconds();
-                    await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
-                    EnqueueSinkSamples(sink, samples, samples.Length, channels, sampleRate, false);
-                    double bufferedAfterEnqueue = GetSinkBufferedSeconds(sink);
-                    SafeInvoke(() => OnBufferProgress?.Invoke((float)bufferedAfterEnqueue));
-
-                    if (bufferedAfterEnqueue <= AdaptiveUnderrunThresholdSeconds)
+                    AppendBatchSamples(ref pendingBatch, ref pendingBatchCount, samples);
+                    double batchedSeconds = channels > 0 && sampleRate > 0
+                        ? (double)pendingBatchCount / (channels * sampleRate)
+                        : 0d;
+                    bool shouldFlushNow = sentenceStarted
+                        ? batchedSeconds >= MinimumStreamingChunkSeconds || job.StreamingCompleted
+                        : batchedSeconds >= InitialStreamingPrebufferSeconds || job.StreamingCompleted;
+                    if (shouldFlushNow)
                     {
-                        ReportAdaptiveUnderrun();
-                    }
-                    else
-                    {
-                        ReportAdaptiveStability(bufferedAfterEnqueue);
+                        pendingBatch = await FlushStreamingBatchAsync(
+                            sink,
+                            pendingBatch,
+                            pendingBatchCount,
+                            channels,
+                            sampleRate,
+                            sentenceStarted,
+                            job.Sentence,
+                            token).ConfigureAwait(false);
+
+                        pendingBatchCount = 0;
+                        sentenceStarted = true;
                     }
 
+                    warnedAboutStall = false;
                     idleCycles = 0;
                     continue;
                 }
 
-                if (job.StreamingCompleted && !job.HasPendingChunks)
+                if (pendingBatchCount > 0 &&
+                    (job.StreamingCompleted || job.GetIdleDuration().TotalMilliseconds >= StreamingFlushTimeoutMs))
+                {
+                    pendingBatch = await FlushStreamingBatchAsync(
+                        sink,
+                        pendingBatch,
+                        pendingBatchCount,
+                        channels,
+                        sampleRate,
+                        sentenceStarted,
+                        job.Sentence,
+                        token).ConfigureAwait(false);
+
+                    pendingBatchCount = 0;
+                    sentenceStarted = true;
+                }
+
+                if (job.StreamingCompleted && !job.HasPendingChunks && pendingBatchCount == 0)
                 {
                     break;
                 }
 
                 double buffered = GetSinkBufferedSeconds(sink);
-                SafeInvoke(() => OnBufferProgress?.Invoke((float)buffered));
-                if (buffered <= AdaptiveUnderrunThresholdSeconds)
+                ReportPlaybackBuffer(buffered, trackAdaptive: true);
+
+                TimeSpan idleDuration = job.GetIdleDuration();
+                double idleSeconds = idleDuration.TotalSeconds;
+                if (!warnedAboutStall && idleSeconds >= StreamingStallWarningSeconds)
                 {
-                    ReportAdaptiveUnderrun();
+                    string phase = sentenceStarted ? "after audio start" : "before first chunk";
+                    Debug.LogWarning($"[ParallelTtsPipeline] Streaming playback waiting for TTS chunks ({phase}, idle {idleSeconds:0.00}s).");
+                    warnedAboutStall = true;
                 }
-                else
+
+                if (idleSeconds >= StreamingStallAbortSeconds)
                 {
-                    ReportAdaptiveStability(buffered);
+                    Debug.LogWarning("[ParallelTtsPipeline] Streaming playback aborted after prolonged chunk starvation.");
+                    break;
                 }
 
                 idleCycles++;
@@ -294,7 +349,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            await WaitForBufferDrainAsync(sessionId, token).ConfigureAwait(false);
+            if (pendingBatchCount > 0)
+            {
+                pendingBatch = await FlushStreamingBatchAsync(
+                    sink,
+                    pendingBatch,
+                    pendingBatchCount,
+                    channels,
+                    sampleRate,
+                    sentenceStarted,
+                    job.Sentence,
+                    token).ConfigureAwait(false);
+
+                pendingBatchCount = 0;
+            }
         }
 
         private PlaybackSink EnsurePlaybackHandle(long sessionId)
@@ -511,11 +579,94 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void EnqueueSinkSamples(PlaybackSink sink, float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
         {
-            if (!sink.IsValid)
+            if (!sink.IsValid || samples == null || count <= 0)
             {
                 return;
             }
             sink.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+        }
+
+        private async Task<float[]> FlushStreamingBatchAsync(
+            PlaybackSink sink,
+            float[] pendingBatch,
+            int pendingBatchCount,
+            int channels,
+            int sampleRate,
+            bool sentenceStarted,
+            string sentence,
+            CancellationToken token)
+        {
+            if (pendingBatchCount <= 0 || !sink.IsValid)
+            {
+                return pendingBatch;
+            }
+
+            double bufferBudget = GetAdaptiveBufferBudgetSeconds();
+            await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
+
+            if (!sentenceStarted)
+            {
+                SafeInvoke(() => OnSentenceStarted?.Invoke(sentence));
+            }
+
+            EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
+            ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
+
+            return null;
+        }
+
+        private void ReportPlaybackBuffer(double bufferedSeconds, bool trackAdaptive)
+        {
+            SafeInvoke(() => OnBufferProgress?.Invoke((float)bufferedSeconds));
+
+            if (!trackAdaptive)
+            {
+                return;
+            }
+
+            if (bufferedSeconds <= AdaptiveUnderrunThresholdSeconds)
+            {
+                ReportAdaptiveUnderrun();
+            }
+            else
+            {
+                ReportAdaptiveStability(bufferedSeconds);
+            }
+        }
+
+        private static void AppendBatchSamples(ref float[] batch, ref int batchCount, float[] samples)
+        {
+            if (samples == null || samples.Length == 0)
+            {
+                return;
+            }
+
+            int required = batchCount + samples.Length;
+            if (batch == null || batch.Length < required)
+            {
+                int newSize = batch == null ? required : Math.Max(required, batch.Length * 2);
+                var expanded = new float[newSize];
+                if (batchCount > 0 && batch != null)
+                {
+                    Array.Copy(batch, 0, expanded, 0, batchCount);
+                }
+
+                batch = expanded;
+            }
+
+            Array.Copy(samples, 0, batch, batchCount, samples.Length);
+            batchCount += samples.Length;
+        }
+
+        private static float[] CopyChunk(float[] source, int offset, int count, ref float[] buffer)
+        {
+            if (buffer == null || buffer.Length < count)
+            {
+                buffer = new float[count];
+            }
+
+            Array.Copy(source, offset, buffer, 0, count);
+            return buffer;
         }
 
         private void StopSink(PlaybackSink sink)

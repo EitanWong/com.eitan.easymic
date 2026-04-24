@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Collections.Generic;
@@ -11,6 +11,7 @@ using UnityEngine.UI;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
+    [AddComponentMenu("Examples/EasyMic/AI Chat/UI/Runtime Config Panel")]
     public sealed class AIChatRuntimeConfigPanel : MonoBehaviour
     {
         [Header("Wiring")]
@@ -609,6 +610,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 : null;
 
             return RectTransformUtility.RectangleContainsScreenPoint(target, Input.mousePosition, eventCamera);
+        }
+    }
+}
+#else
+using UnityEngine;
+
+namespace Eitan.EasyMic.Demo.AIChat.Samantha
+{
+    public sealed class AIChatRuntimeConfigPanel : MonoBehaviour
+    {
+        [SerializeField] private AIChatController _controller;
+        [SerializeField] private GameObject _panelRoot;
+
+        private void Awake()
+        {
+            if (_panelRoot != null)
+            {
+                _panelRoot.SetActive(false);
+            }
         }
     }
 }

@@ -2,7 +2,7 @@
 
 # 🧩 Mono 组件指南
 
-本页聚焦 `Runtime/Mono/Components` 下的组件化工作流。
+本页聚焦 `Runtime/Unity/Components` 下的组件化工作流。
 
 ## 范围
 
@@ -60,7 +60,7 @@ public class MicRecorderExample : MonoBehaviour
 
 `VoiceMicrophone` 继承自 `EasyMicrophone`，负责 Sherpa-ONNX ASR 的模型生命周期和麦克风驱动识别流程。
 
-> 需要 `EASYMIC_SHERPA_ONNX_INTEGRATION` 编译宏以及 `com.eitan.sherpa-onnx-unity`。
+> 需要 `EITAN_SHERPA_ONNX_UNITY_PRESENT` 编译宏以及 `com.eitan.sherpa-onnx-unity`。
 
 ### 主要能力
 
@@ -133,7 +133,7 @@ public class VoiceMicExample : MonoBehaviour
 
 队列化 TTS 组件，会将文本合成并推流到 `PlaybackAudioSourceBehaviour`。
 
-> 需要 `EASYMIC_SHERPA_ONNX_INTEGRATION` 编译宏以及 `com.eitan.sherpa-onnx-unity`。
+> 需要 `EITAN_SHERPA_ONNX_UNITY_PRESENT` 编译宏以及 `com.eitan.sherpa-onnx-unity`。
 
 ### 主要能力
 
@@ -174,4 +174,3 @@ public class TtsExample : MonoBehaviour
 - 需要 ASR/关键词/轮次检测：用 `VoiceMicrophone`
 - 需要低延迟片段或流式播放：用 `PlaybackAudioSourceBehaviour`
 - 需要场景内队列化 TTS：用 `SpeechSynthesizer`
-

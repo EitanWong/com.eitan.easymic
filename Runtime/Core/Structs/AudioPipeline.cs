@@ -38,7 +38,7 @@ namespace Eitan.EasyMic.Runtime
                 throw new ObjectDisposedException(nameof(AudioPipeline));
             }
 
-            _initializeState = new AudioContext(state.ChannelCount, state.SampleRate, 0);
+            _initializeState = new AudioContext(state.ChannelCount, state.SampleRate, state.Length);
             var stages = Volatile.Read(ref _stagesSnap);
             for (int i = 0; i < stages.Length; i++)
             {
@@ -243,7 +243,10 @@ namespace Eitan.EasyMic.Runtime
                 ScheduleRetiredDrain();
             }
 
-            DrainRetiredWorkersNow();
+            if (!EasyMicThreading.IsAudioThread)
+            {
+                DrainRetiredWorkersNow();
+            }
             base.Dispose();
         }
 
@@ -287,6 +290,13 @@ namespace Eitan.EasyMic.Runtime
 
         private void DrainRetiredWorkersNow()
         {
+            if (EasyMicThreading.IsAudioThread)
+            {
+                Interlocked.Exchange(ref _retiredDrainScheduled, 0);
+                ScheduleRetiredDrain();
+                return;
+            }
+
             try
             {
                 var spinner = new SpinWait();

@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Threading;
@@ -81,8 +81,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             try
             {
-                SafeInvoke(() => OnSentenceStarted?.Invoke(job.Sentence));
-
                 var client = _clientAccessor?.Invoke();
                 if (client == null)
                 {

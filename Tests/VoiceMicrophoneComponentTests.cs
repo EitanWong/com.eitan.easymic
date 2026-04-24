@@ -1,8 +1,8 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System.Collections.Generic;
 using Eitan.EasyMic.Runtime.Mono;
-using Eitan.EasyMic.Runtime.Mono.ASR;
-using Eitan.EasyMic.Runtime.SherpaONNXUnity;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
+using Eitan.SherpaONNXUnity.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Eitan.EasyMic.Runtime.Exceptions;
 
 namespace Eitan.EasyMic.Runtime
@@ -14,33 +13,32 @@ namespace Eitan.EasyMic.Runtime
 
         public RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints)
         {
-            ThrowIfDisposed();
-
-            var chosen = ResolveDevice(device);
-            if (!chosen.HasValidId)
-            {
-                throw new EasyMicDeviceNotFoundException("No valid capture device available.");
-            }
-
-            // check if the microphone has been in recording status.
-            var IsRecording = IsDeviceRecording(device);
-            if (IsRecording)
-            {
-                throw new EasyMicDeviceConflictException("A recording session is already in progress. Please stop the current recording before starting a new one.");
-            }
-
-            var recordingId = _nextRecordingId++;
-            var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger);
             lock (_operateLock)
             {
-                _activeRecordings[recordingId] = session;
-            }
+                ThrowIfDisposed();
 
-            return new RecordingHandle(recordingId);
+                var chosen = ResolveDevice(device);
+                if (!chosen.HasValidId)
+                {
+                    throw new EasyMicDeviceNotFoundException("No valid capture device available.");
+                }
+
+                if (IsDeviceRecordingLocked(chosen))
+                {
+                    throw new EasyMicDeviceConflictException("A recording session is already in progress for this capture device. Stop it before starting another recording.");
+                }
+
+                var recordingId = _nextRecordingId++;
+                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger);
+                _activeRecordings[recordingId] = session;
+                return new RecordingHandle(recordingId);
+            }
         }
 
         public void StopRecording(RecordingHandle handle)
         {
+            ThrowIfDisposed();
+
             if (!handle.IsValid)
             {
                 return;
@@ -175,32 +173,14 @@ namespace Eitan.EasyMic.Runtime
         /// <returns></returns> <summary>
         public bool IsDeviceRecording(MicDevice device)
         {
-            if (_activeRecordings == null || _activeRecordings.Count == 0)
-            {
-                return false;
-            }
-
             lock (_operateLock)
             {
-                foreach (var session in _activeRecordings.Values)
-                {
-                    if (session.IsSameDevice(device))
-                    {
-                        return true;
-                    }
-                }
+                return IsDeviceRecordingLocked(device);
             }
-
-            return false;
         }
 
         public bool IsHandleAlive(RecordingHandle handle)
         {
-
-            if (_activeRecordings == null || _activeRecordings.Count <= 0)
-            {
-                return false;
-            }
             if (!handle.IsValid)
             {
                 return false;
@@ -209,6 +189,24 @@ namespace Eitan.EasyMic.Runtime
             lock (_operateLock)
             {
                 if (_activeRecordings.TryGetValue(handle.Id, out var session))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsDeviceRecordingLocked(MicDevice device)
+        {
+            if (_activeRecordings.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var session in _activeRecordings.Values)
+            {
+                if (session.IsSameDevice(device))
                 {
                     return true;
                 }

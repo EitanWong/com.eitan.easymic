@@ -77,7 +77,7 @@ Easy Mic 配备了全面的音频处理器套件：
 
 ### Mono 组件工作流
 
-如果你偏向场景组件方式开发，可直接使用 `Runtime/Mono/Components` 下的组件：
+如果你偏向场景组件方式开发，可直接使用 `Runtime/Unity/Components` 下的组件：
 
 - `EasyMicrophone`：麦克风采集与录音输出
 - `VoiceMicrophone`：ASR + 关键词/轮次检测编排

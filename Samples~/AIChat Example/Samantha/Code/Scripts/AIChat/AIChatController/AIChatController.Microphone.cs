@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
 using System.Collections;
@@ -126,8 +126,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (isSpeaking &&
                 Config.InterruptAssistantOnUserSpeech &&
-                (_llmInFlight || _isAssistantSpeaking))
+                (_llmInFlight || _isAssistantSpeaking) &&
+                !IsResponseCancellationPending())
             {
+                _interruptionCount++;
                 await CancelActiveResponseAsync().ConfigureAwait(false);
             }
         }

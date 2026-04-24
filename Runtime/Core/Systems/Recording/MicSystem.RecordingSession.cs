@@ -10,7 +10,6 @@ namespace Eitan.EasyMic.Runtime
         private sealed class RecordingSession : IDisposable
         {
             private static readonly Native.AudioCallback s_staticAudioCallback = StaticAudioCallback;
-            private static readonly Native.AudioCallbackEx s_staticAudioCallbackEx = StaticAudioCallbackEx;
             private const int MaxLegacyCallbackSessions = 16;
             private static readonly IntPtr s_legacyPendingKey = new IntPtr(-1);
             private static readonly IntPtr[] s_legacyDevicePtrs = new IntPtr[MaxLegacyCallbackSessions];
@@ -28,9 +27,7 @@ namespace Eitan.EasyMic.Runtime
             private readonly Channel _requestedChannel;
             private bool _usingFallback;
 
-            private GCHandle _gcHandle;
             private bool _disposed;
-            private bool _usingUserDataCallback;
             private IntPtr _devicePtr;
             private IntPtr _deviceConfig;
             private IntPtr _deviceIdHandle;
@@ -48,7 +45,6 @@ namespace Eitan.EasyMic.Runtime
             {
                 _context = context;
                 _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
-                _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
                 _preferredDevice = device;
                 _preferredIdentifier = device.GetIdentifier();
                 _requestedSampleRate = sampleRate;
@@ -150,11 +146,7 @@ namespace Eitan.EasyMic.Runtime
 
             public bool IsSameDevice(MicDevice device)
             {
-                if (this.MicDevice.HasValidId && this.MicDevice.DeviceId == device.DeviceId)
-                {
-                    return true;
-                }
-                return false;
+                return MicDevice.SameIdentityAs(device);
             }
 
             public void AddProcessor(AudioWorkerBlueprint blueprint)
@@ -228,18 +220,9 @@ namespace Eitan.EasyMic.Runtime
                 }
                 catch { }
 
-                foreach (var worker in _workerMap.Values)
-                {
-                    try { worker.Dispose(); } catch { }
-                }
-
                 _workerMap.Clear();
                 _blueprints.Clear();
 
-                if (_gcHandle.IsAllocated)
-                {
-                    _gcHandle.Free();
-                }
             }
 
             private void InitializePipeline(IEnumerable<AudioWorkerBlueprint> blueprints)
@@ -279,82 +262,44 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 _deviceIdHandle = MicDevice.AllocateDeviceIdHandle();
-                GCHandle subHandle = default;
-                GCHandle dtoHandle = default;
-                GCHandle openSlHandle = default;
-                GCHandle aaudioHandle = default;
 
-                try
+                _deviceConfig = Native.AllocateDeviceConfig(
+                    Native.DeviceType.Record,
+                    Native.SampleFormat.F32,
+                    _channelCount,
+                    _sampleRate,
+                    IntPtr.Zero,
+                    _deviceIdHandle,
+                    s_staticAudioCallback,
+                    out _);
+                if (_deviceConfig == IntPtr.Zero)
                 {
-                    IntPtr legacyConfig = CreateLegacyDeviceConfig(out subHandle, out dtoHandle, out openSlHandle, out aaudioHandle);
-                    _deviceConfig = Native.AllocateDeviceConfig(
-                        Native.DeviceType.Record,
-                        Native.SampleFormat.F32,
-                        _channelCount,
-                        _sampleRate,
-                        s_staticAudioCallbackEx,
-                        GCHandle.ToIntPtr(_gcHandle),
-                        IntPtr.Zero,
-                        _deviceIdHandle,
-                        s_staticAudioCallback,
-                        legacyConfig,
-                        out _usingUserDataCallback);
-                    if (_deviceConfig == IntPtr.Zero)
-                    {
-                        throw new InvalidOperationException("Unable to allocate device config.");
-                    }
-
-                    _devicePtr = Native.AllocateDevice();
-                    if (_devicePtr == IntPtr.Zero)
-                    {
-                        throw new InvalidOperationException("Unable to allocate device.");
-                    }
-
-                    var initResult = Native.DeviceInit(_context, _deviceConfig, _devicePtr);
-                    if (initResult != Native.Result.Success)
-                    {
-                        throw new InvalidOperationException($"Unable to init device. {initResult}");
-                    }
-
-                    var startResult = Native.DeviceStart(_devicePtr);
-                    if (startResult != Native.Result.Success)
-                    {
-                        throw new InvalidOperationException($"Unable to start device. {startResult}");
-                    }
-
-                    if (!_usingUserDataCallback)
-                    {
-                        RegisterLegacyCallbackSession(_devicePtr, this);
-                    }
+                    throw new InvalidOperationException("Unable to allocate device config.");
                 }
-                finally
+
+                _devicePtr = Native.AllocateDevice();
+                if (_devicePtr == IntPtr.Zero)
                 {
-                    if (aaudioHandle.IsAllocated) { aaudioHandle.Free(); }
-                    if (openSlHandle.IsAllocated) { openSlHandle.Free(); }
-                    if (dtoHandle.IsAllocated) { dtoHandle.Free(); }
-                    if (subHandle.IsAllocated) { subHandle.Free(); }
+                    throw new InvalidOperationException("Unable to allocate device.");
+                }
+
+                var initResult = Native.DeviceInit(_context, _deviceConfig, _devicePtr);
+                if (initResult != Native.Result.Success)
+                {
+                    throw new InvalidOperationException($"Unable to init device. {initResult}");
+                }
+
+                RegisterLegacyCallbackSession(_devicePtr, this);
+
+                var startResult = Native.DeviceStart(_devicePtr);
+                if (startResult != Native.Result.Success)
+                {
+                    throw new InvalidOperationException($"Unable to start device. {startResult}");
                 }
 
                 _audioPipeline.Initialize(_state);
 
                 Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
-            }
-
-            private IntPtr CreateLegacyDeviceConfig(
-                out GCHandle subHandle,
-                out GCHandle dtoHandle,
-                out GCHandle openSlHandle,
-                out GCHandle aaudioHandle)
-            {
-                return AndroidLegacyDeviceConfig.CreateCaptureLegacyConfig(
-                    Native.SampleFormat.F32,
-                    _channelCount,
-                    _sampleRate,
-                    _deviceIdHandle,
-                    out subHandle,
-                    out dtoHandle,
-                    out openSlHandle,
-                    out aaudioHandle);
             }
 
             private void ApplyFormat(MicDevice device, SampleRate sampleRate, Channel channel)
@@ -375,13 +320,10 @@ namespace Eitan.EasyMic.Runtime
                 if (_devicePtr != IntPtr.Zero)
                 {
                     var oldDevicePtr = _devicePtr;
+                    UnregisterLegacyCallbackSession(oldDevicePtr);
                     try { Native.DeviceStop(_devicePtr); } catch { }
                     try { Native.DeviceUninit(_devicePtr); } catch { }
                     try { Native.Free(_devicePtr); } catch { }
-                    if (!_usingUserDataCallback)
-                    {
-                        UnregisterLegacyCallbackSession(oldDevicePtr);
-                    }
                     _devicePtr = IntPtr.Zero;
                 }
 
@@ -396,8 +338,6 @@ namespace Eitan.EasyMic.Runtime
                     try { Marshal.FreeHGlobal(_deviceIdHandle); } catch { }
                     _deviceIdHandle = IntPtr.Zero;
                 }
-
-                _usingUserDataCallback = false;
             }
 
 #if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
@@ -407,24 +347,6 @@ namespace Eitan.EasyMic.Runtime
             {
                 var session = FindLegacyCallbackSession(device);
                 if (session != null)
-                {
-                    session.HandleAudioCallback(device, output, input, length);
-                }
-            }
-
-#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
-            [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
-#endif
-            private static void StaticAudioCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
-            {
-                if (userData == IntPtr.Zero)
-                {
-                    StaticAudioCallback(device, output, input, length);
-                    return;
-                }
-
-                var handle = GCHandle.FromIntPtr(userData);
-                if (handle.Target is RecordingSession session && !Volatile.Read(ref session._disposed))
                 {
                     session.HandleAudioCallback(device, output, input, length);
                 }
@@ -450,7 +372,11 @@ namespace Eitan.EasyMic.Runtime
                 _state.SampleRate = (int)_sampleRate;
                 _state.Length = sampleCount;
 
-                ProcessAudioBuffer(GetSpan<float>(input, sampleCount), _state);
+                try
+                {
+                    ProcessAudioBuffer(GetSpan<float>(input, sampleCount), _state);
+                }
+                catch { }
             }
 
             private void ProcessAudioBuffer(Span<float> buffer, AudioContext state)

@@ -4,7 +4,11 @@ The `Assets/Samples/AIChat` sample depends on:
 
 - `com.eitan.sherpa-onnx-unity`
 
-When this package is missing, the sample intentionally hides runtime scripts/components with compile guards (`EASYMIC_SHERPA_ONNX_INTEGRATION`) to keep the project compile-safe.
+When this package is missing, the sample now stays import-safe across Unity versions and platforms by keeping scene/component references alive in a compatibility mode. In that mode:
+
+- scene scripts are preserved instead of degrading into `Missing Script`
+- AI Chat runtime components report the missing dependency at runtime
+- ASR and local TTS features remain unavailable until `com.eitan.sherpa-onnx-unity` is installed
 
 ## Developer Guidance
 

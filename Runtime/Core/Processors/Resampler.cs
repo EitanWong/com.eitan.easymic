@@ -12,18 +12,17 @@ namespace Eitan.EasyMic.Runtime
     {
         private readonly int _targetSampleRate;
 
-        // Native path (preferred)
         private Native.LinearResamplerHandle _native;
         private bool _useNative;
         private int _nativeChannels;
         private int _nativeSourceSampleRate;
         private float[] _scratch;
 
-        // Managed fallback (only when native is unavailable)
         private int _lastSourceSampleRate;
         private double _sourcePosition; // may be in [-1, 0) at block start to allow cross-block interpolation
         private float[] _prevFrame;     // last source frame (per channel)
         private bool _hasPrevFrame;
+        private bool _loggedNativeUnavailable;
 
         private const uint DefaultLpfOrder = 4;
         private const float DefaultNyquistFactor = 0.9f;
@@ -49,8 +48,8 @@ namespace Eitan.EasyMic.Runtime
             _prevFrame = new float[channels];
             _hasPrevFrame = false;
             _sourcePosition = 0d;
-
             _useNative = false;
+            _loggedNativeUnavailable = false;
             _nativeChannels = 0;
             _nativeSourceSampleRate = 0;
 
@@ -61,10 +60,14 @@ namespace Eitan.EasyMic.Runtime
                 state.SampleRate = _targetSampleRate;
             }
 
-            // Try native init for downsampling. If it fails, we'll transparently fall back to managed.
             if (sourceSampleRate > _targetSampleRate)
             {
                 TryEnsureNative(channels, sourceSampleRate);
+                if (!_useNative)
+                {
+                    LogNativeUnavailableOnce("native resampler unavailable");
+                }
+                EnsureScratch(Math.Max(channels, state.Length));
             }
         }
 
@@ -153,8 +156,6 @@ namespace Eitan.EasyMic.Runtime
 
             if (TryResampleNative(audiobuffer.Slice(0, usableSamples), state))
             {
-                // Native path updated state.Length and state.SampleRate.
-                // Keep managed streaming state in sync for future fallback use.
                 for (int ch = 0; ch < channels; ch++)
                 {
                     _prevFrame[ch] = audiobuffer[(inFrames - 1) * channels + ch];
@@ -286,10 +287,7 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (_useNative &&
-                _native.IsValid &&
-                _nativeChannels == channels &&
-                _nativeSourceSampleRate == sourceSampleRate)
+            if (_useNative && _native.IsValid && _nativeChannels == channels && _nativeSourceSampleRate == sourceSampleRate)
             {
                 return;
             }
@@ -328,25 +326,21 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
+        private void LogNativeUnavailableOnce(string reason)
+        {
+            if (_loggedNativeUnavailable) return;
+            _loggedNativeUnavailable = true;
+            UnityEngine.Debug.LogWarning($"[{nameof(Resampler)}] Native resampler disabled ({reason}). Managed fallback will be used.");
+        }
+
         private bool TryResampleNative(Span<float> buffer, AudioContext state)
         {
-            if (!_useNative)
-            {
-                return false;
-            }
+            if (!_useNative) return false;
 
             int channels = Math.Max(1, state.ChannelCount);
             int sourceSampleRate = Math.Max(1, state.SampleRate);
-            if (sourceSampleRate <= _targetSampleRate)
-            {
-                return false;
-            }
-
-            TryEnsureNative(channels, sourceSampleRate);
-            if (!_useNative || !_native.IsValid)
-            {
-                return false;
-            }
+            if (sourceSampleRate <= _targetSampleRate) return false;
+            if (!_native.IsValid || _nativeChannels != channels || _nativeSourceSampleRate != sourceSampleRate) return false;
 
             int framesIn = buffer.Length / channels;
             if (framesIn <= 0)
@@ -357,19 +351,13 @@ namespace Eitan.EasyMic.Runtime
             }
 
             int estimatedOutFrames = Native.LinearResamplerHandle.EstimateOutputFrames(ref _native, framesIn);
-            if (estimatedOutFrames <= 0)
-            {
-                return false;
-            }
+            if (estimatedOutFrames <= 0) return false;
 
             int requiredSamples = estimatedOutFrames * channels;
-            EnsureScratch(requiredSamples);
+            if (_scratch == null || _scratch.Length < requiredSamples) return false;
 
             int writtenFrames = Native.LinearResamplerHandle.Process(ref _native, buffer, framesIn, _scratch);
-            if (writtenFrames <= 0)
-            {
-                return false;
-            }
+            if (writtenFrames <= 0) return false;
 
             int outSamples = writtenFrames * channels;
             var dst = buffer.Slice(0, Math.Min(outSamples, buffer.Length));
@@ -385,10 +373,7 @@ namespace Eitan.EasyMic.Runtime
 
         private void EnsureScratch(int requiredSamples)
         {
-            if (requiredSamples <= 0)
-            {
-                return;
-            }
+            if (requiredSamples <= 0) return;
 
             if (_scratch == null || _scratch.Length < requiredSamples)
             {

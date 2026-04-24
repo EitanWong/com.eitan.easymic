@@ -43,12 +43,10 @@ namespace Eitan.EasyMic.Runtime
             ThrowIfDisposed();
             EasyMicUnityThread.TryCaptureFromCurrentThread();
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-            if (!EasyMicUnityThread.IsMainThread)
+            if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
             {
                 return;
             }
-#endif
 
             var previous = Devices ?? Array.Empty<MicDevice>();
             var current = EnumerateDevices();
@@ -77,35 +75,47 @@ namespace Eitan.EasyMic.Runtime
         {
             ThrowIfDisposed();
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-            if (!EasyMicUnityThread.IsMainThread)
+            if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
             {
                 // Avoid JNI device-enumeration calls on worker threads (can crash in GetMethodID on some Android builds).
                 return Devices ?? Array.Empty<MicDevice>();
             }
 
-            return EnumerateDevicesAndroid();
-#else
             IntPtr playbackInfos;
             uint playbackCount;
             IntPtr captureInfos;
             uint captureCount;
 
-            var result = Native.ContextGetDevices(
-                _context,
-                out playbackInfos,
-                out playbackCount,
-                out captureInfos,
-                out captureCount);
+            Native.Result result;
+            try
+            {
+                result = Native.ContextGetDevices(
+                    _context,
+                    out playbackInfos,
+                    out playbackCount,
+                    out captureInfos,
+                    out captureCount);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return EnumerateDevicesUnityFallback();
+            }
 
             if (result != Native.Result.Success)
             {
+                var unityDevices = EnumerateDevicesUnityFallback();
+                if (unityDevices.Length > 0)
+                {
+                    return unityDevices;
+                }
+
                 throw new InvalidOperationException($"Unable to enumerate devices. {result}");
             }
 
             if (captureInfos == IntPtr.Zero || captureCount == 0)
             {
-                return Array.Empty<MicDevice>();
+                var unityDevices = EnumerateDevicesUnityFallback();
+                return unityDevices.Length > 0 ? unityDevices : Array.Empty<MicDevice>();
             }
 
             var captureDevices = new MicDevice[(int)captureCount];
@@ -113,20 +123,27 @@ namespace Eitan.EasyMic.Runtime
             {
                 var basicInfo = Native.ReadDeviceInfo(captureInfos, i);
 
-                Native.NativeDeviceInfo detailedInfo;
-                var tempIdHandle = Marshal.AllocHGlobal(Native.DeviceIdSizeInBytes);
+                Native.NativeDeviceInfo detailedInfo = basicInfo;
                 try
                 {
-                    Marshal.Copy(basicInfo.Id, 0, tempIdHandle, basicInfo.Id.Length);
-                    var infoResult = Native.ContextGetDeviceInfo(_context, Native.DeviceType.Record, tempIdHandle, out detailedInfo);
-                    if (infoResult != Native.Result.Success)
+                    var tempIdHandle = Marshal.AllocHGlobal(Native.DeviceIdSizeInBytes);
+                    try
                     {
-                        detailedInfo = basicInfo;
+                        Marshal.Copy(basicInfo.Id, 0, tempIdHandle, basicInfo.Id.Length);
+                        var infoResult = Native.ContextGetDeviceInfo(_context, Native.DeviceType.Record, tempIdHandle, out detailedInfo);
+                        if (infoResult != Native.Result.Success)
+                        {
+                            detailedInfo = basicInfo;
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(tempIdHandle);
                     }
                 }
-                finally
+                catch (EntryPointNotFoundException)
                 {
-                    Marshal.FreeHGlobal(tempIdHandle);
+                    detailedInfo = basicInfo;
                 }
 
                 var name = detailedInfo.Name;
@@ -145,80 +162,41 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return captureDevices;
-#endif
         }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-        private MicDevice[] EnumerateDevicesAndroid()
+        private MicDevice[] EnumerateDevicesUnityFallback()
         {
-            IntPtr playbackInfos = IntPtr.Zero;
-            IntPtr captureInfos = IntPtr.Zero;
-            uint playbackCount = 0;
-            uint captureCount = 0;
-
-            var result = Native.GetDevices(
-                _context,
-                out playbackInfos,
-                out captureInfos,
-                out playbackCount,
-                out captureCount);
-
+            string[] unityDevices;
             try
             {
-                if (result != Native.Result.Success)
-                {
-                    throw new InvalidOperationException($"Unable to enumerate devices. {result}");
-                }
-
-                if (captureInfos == IntPtr.Zero || captureCount == 0)
-                {
-                    return Array.Empty<MicDevice>();
-                }
-
-                var captureDevices = new MicDevice[(int)captureCount];
-                for (int i = 0; i < captureDevices.Length; i++)
-                {
-                    var deviceInfo = Native.ReadSfDeviceInfo(captureInfos, i);
-
-                    var id = new byte[Native.DeviceIdSizeInBytes];
-                    if (deviceInfo.Id != IntPtr.Zero)
-                    {
-                        try
-                        {
-                            Marshal.Copy(deviceInfo.Id, id, 0, id.Length);
-                        }
-                        catch
-                        {
-                            // Fall back to zeroed id (default endpoint).
-                            id = new byte[Native.DeviceIdSizeInBytes];
-                        }
-                    }
-
-                    captureDevices[i] = new MicDevice
-                    {
-                        Name = deviceInfo.Name ?? string.Empty,
-                        IsDefault = deviceInfo.IsDefault != 0,
-                        DeviceId = id,
-                        NativeFormats = Native.ReadNativeDataFormats(deviceInfo.NativeDataFormats, deviceInfo.NativeDataFormatCount)
-                    };
-                }
-
-                return captureDevices;
+                unityDevices = UnityEngine.Microphone.devices;
             }
-            finally
+            catch
             {
-                if (playbackInfos != IntPtr.Zero)
-                {
-                    try { Native.FreeDeviceInfos(playbackInfos, playbackCount); } catch { }
-                }
-
-                if (captureInfos != IntPtr.Zero)
-                {
-                    try { Native.FreeDeviceInfos(captureInfos, captureCount); } catch { }
-                }
+                return Array.Empty<MicDevice>();
             }
+
+            if (unityDevices == null || unityDevices.Length == 0)
+            {
+                return Array.Empty<MicDevice>();
+            }
+
+            var devices = new MicDevice[unityDevices.Length];
+            for (int i = 0; i < unityDevices.Length; i++)
+            {
+                devices[i] = new MicDevice
+                {
+                    Name = unityDevices[i] ?? string.Empty,
+                    IsDefault = i == 0,
+                    // Without native device ids we can enumerate names, but opening a specific non-default
+                    // endpoint may still resolve to the platform default device.
+                    DeviceId = new byte[Native.DeviceIdSizeInBytes],
+                    NativeFormats = Array.Empty<Native.NativeDataFormat>()
+                };
+            }
+
+            return devices;
         }
-#endif
 
         private MicDevicesChangedEventArgs BuildChangeArgs(MicDevice[] previous, MicDevice[] current)
         {

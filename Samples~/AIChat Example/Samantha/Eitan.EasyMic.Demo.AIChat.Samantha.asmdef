@@ -4,7 +4,9 @@
     "references": [
         "Eitan.EasyMic",
         "Eitan.EasyMic.Mono",
-        "Unity.TextMeshPro"
+        "Eitan.EasyMic.Integration.SherpaONNXUnity",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -12,13 +14,15 @@
     "overrideReferences": true,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+    ],
 
     "versionDefines": [
         {
             "name": "com.eitan.sherpa-onnx-unity",
             "expression": "",
-            "define": "EASYMIC_SHERPA_ONNX_INTEGRATION"
+            "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
         }
     ],
     "noEngineReferences": false

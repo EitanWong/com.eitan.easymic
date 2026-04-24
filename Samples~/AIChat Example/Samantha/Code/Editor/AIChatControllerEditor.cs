@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System.IO;
 using UnityEditor;
@@ -8,7 +8,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     [CanEditMultipleObjects]
     [CustomEditor(typeof(AIChatController))]
-    internal class AIChatControllerEditor : Editor
+    internal class AIChatControllerEditor : UnityEditor.Editor
     {
         private SerializedProperty _configProp;
         private bool _runtimeSnapshotFoldout = true;
@@ -113,6 +113,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     EditorGUILayout.HelpBox("Validation details are shown for single-object editing only.", MessageType.Info);
                     return;
+                }
+
+                var controller = target as AIChatController;
+                if (controller != null)
+                {
+                    var fixedOverride = controller.GetComponent<AIChatConfigurationPolicy>();
+                    if (fixedOverride != null && fixedOverride.EnabledOverride)
+                    {
+                        EditorGUILayout.HelpBox($"Configuration policy is active. Preset: {fixedOverride.Preset}. Matching runtime config values will be overridden at startup.", MessageType.Info);
+                    }
                 }
 
                 bool hasIssues = false;

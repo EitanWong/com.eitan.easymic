@@ -1,8 +1,6 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
-
 using System;
-using Eitan.EasyMic.Runtime.Mono.Components.ASR;
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -19,7 +17,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         [Header("LLM Settings")]
         public string ApiBaseUrl = "https://api.openai.com/v1/";
-        public string LlmModel = "gpt-5.2";
+        public string LlmModel = "gpt-5.4";
         [Range(0f, 1.5f)] public float LlmTemperature = 0.7f;
         public PromptProfile SystemPromptProfile;
         public bool LogStreamingChunks;
@@ -67,5 +65,3 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
     }
 }
-
-#endif

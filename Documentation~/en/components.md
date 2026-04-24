@@ -2,7 +2,7 @@
 
 # 🧩 Mono Components Guide
 
-This page focuses on component-based workflows under `Runtime/Mono/Components`.
+This page focuses on component-based workflows under `Runtime/Unity/Components`.
 
 ## Scope
 
@@ -60,7 +60,7 @@ public class MicRecorderExample : MonoBehaviour
 
 `VoiceMicrophone` extends `EasyMicrophone` and manages Sherpa-ONNX ASR model lifecycle + microphone-driven transcription.
 
-> Requires `EASYMIC_SHERPA_ONNX_INTEGRATION` and `com.eitan.sherpa-onnx-unity`.
+> Requires `EITAN_SHERPA_ONNX_UNITY_PRESENT` and `com.eitan.sherpa-onnx-unity`.
 
 ### Main capabilities
 
@@ -133,7 +133,7 @@ Unity-facing playback wrapper around `PlaybackAudioSession`.
 
 Queue-based TTS component that synthesizes text and streams it to `PlaybackAudioSourceBehaviour`.
 
-> Requires `EASYMIC_SHERPA_ONNX_INTEGRATION` and `com.eitan.sherpa-onnx-unity`.
+> Requires `EITAN_SHERPA_ONNX_UNITY_PRESENT` and `com.eitan.sherpa-onnx-unity`.
 
 ### Main capabilities
 
@@ -174,4 +174,3 @@ public class TtsExample : MonoBehaviour
 - Use `VoiceMicrophone` if you need ASR/keyword/turn-detection orchestration.
 - Use `PlaybackAudioSourceBehaviour` for low-latency clip/stream playback.
 - Use `SpeechSynthesizer` for queued TTS playback in scene workflows.
-

@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System.Threading.Tasks;
 
@@ -84,8 +84,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 TotalRequests = _totalRequestCount,
                 FailedRequests = _failedRequestCount,
                 AverageResponseLatencyMs = _averageResponseLatencyMs,
+                LastFirstTokenLatencyMs = _lastFirstTokenLatencyMs,
+                LastFirstSentenceLatencyMs = _lastFirstSentenceLatencyMs,
+                LastFirstAudioLatencyMs = _lastFirstAudioLatencyMs,
+                LastPlaybackBufferedSeconds = _lastPlaybackBufferedSeconds,
+                InterruptionCount = _interruptionCount,
                 NetworkQuality = CurrentNetworkQuality
             };
+        }
+
+        public AIChatResolvedConfiguration GetResolvedConfiguration()
+        {
+            return AIChatConfigurationPolicy.CaptureResolvedConfiguration(Config);
         }
 
     }

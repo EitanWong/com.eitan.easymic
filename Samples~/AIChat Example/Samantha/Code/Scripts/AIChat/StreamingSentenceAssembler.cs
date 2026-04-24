@@ -18,7 +18,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private const int MinSentenceLength = 2;
         private const int MaxSentenceLength = 500;
-        private const int SoftBreakThreshold = 100;
+        private const int SoftBreakThreshold = 64;
+        private const int EarlyClauseBreakThreshold = 20;
 
         private readonly StringBuilder _buffer = new StringBuilder(256);
         private readonly List<string> _pendingSentences = new List<string>();
@@ -90,9 +91,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 EmitSentence();
             }
-            else if (_buffer.Length > SoftBreakThreshold && IsSoftBreak(c) && IsBalanced())
+            else if (IsSoftBreak(c) && IsBalanced())
             {
-                if (_buffer.Length > MaxSentenceLength / 2)
+                int breakThreshold = IsEarlyClauseBreak(c) ? EarlyClauseBreakThreshold : SoftBreakThreshold;
+                if (_buffer.Length >= breakThreshold)
                 {
                     EmitSentence();
                 }
@@ -157,6 +159,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
             return false;
+        }
+
+        private static bool IsEarlyClauseBreak(char c)
+        {
+            return c == '，' || c == '、' || c == '：' || c == ':' || c == ';' || c == '；';
         }
 
         private bool IsBalanced()

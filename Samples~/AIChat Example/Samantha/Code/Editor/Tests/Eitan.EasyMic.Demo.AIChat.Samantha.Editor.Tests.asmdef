@@ -12,8 +12,16 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
-    "versionDefines": [],
+    "defineConstraints": [
+        "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+        }
+    ],
     "noEngineReferences": false,
     "optionalUnityReferences": [
         "TestAssemblies"

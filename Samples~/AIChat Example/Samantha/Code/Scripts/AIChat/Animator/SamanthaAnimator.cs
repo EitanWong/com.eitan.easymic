@@ -1,5 +1,3 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
-
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -70,4 +68,3 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
     }
 }
-#endif

@@ -9,6 +9,7 @@ namespace Eitan.EasyMic.Samples.Playback
     using UnityEngine.EventSystems;
     using Eitan.EasyMic.Runtime;
 
+    [AddComponentMenu("Examples/EasyMic/Playback/AudioPlayback API Example")]
     public class EasyMicAudioPlaybackAPIExample : MonoBehaviour
     {
         [Header("Clip Playback UI")]

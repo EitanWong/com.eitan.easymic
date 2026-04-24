@@ -1,12 +1,13 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Eitan.EasyMic.Runtime.Mono.Components.ASR;
-using Eitan.EasyMic.Runtime.Mono.Components.TTS;
+using System.Diagnostics;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -15,6 +16,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     /// Main controller for AI chat functionality with speech-to-text and text-to-speech support.
     /// Optimized for low latency with adaptive network handling and parallel TTS processing.
     /// </summary>
+    [AddComponentMenu("Examples/EasyMic/AI Chat/Controller")]
     public partial class AIChatController : MonoBehaviour
     {
         #region Serialized Fields
@@ -62,6 +64,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 string.IsNullOrWhiteSpace(Config.RuntimeConfigFileName) ? "ai_chat_config.json" : Config.RuntimeConfigFileName);
         public string LastErrorMessage => _lastErrorMessage;
         public AIChatControllerConfig CurrentConfig => Config;
+        public bool HasConfigurationPolicy => _fixedSettingsOverride != null && _fixedSettingsOverride.EnabledOverride;
+        public AIChatConfigurationPolicy.PolicyPreset ConfigurationPolicyPreset =>
+            _fixedSettingsOverride != null ? _fixedSettingsOverride.Preset : AIChatConfigurationPolicy.PolicyPreset.Custom;
 
         public void SetApiKey(string apiKey)
         {
@@ -103,6 +108,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private CancellationTokenSource _responseCts;
         private ChatTtsPipeline _ttsPipeline;
         private Coroutine _pendingMicStartupCoroutine;
+        private AIChatConfigurationPolicy _fixedSettingsOverride;
 
         private bool _localTtsCallbacksRegistered;
         private bool _conversationStarted;
@@ -121,6 +127,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private AIChatPluginContext _pluginContext;
         private SiliconFlowExpressiveTtsInputPlugin _activeSiliconFlowTtsInputPlugin;
         private SiliconFlowExpressiveTtsInputPlugin.RuntimeBinding _activeSiliconFlowTtsInputBinding;
+        private long _responseGeneration;
+        private Stopwatch _activeResponseStopwatch;
+        private float _lastFirstTokenLatencyMs;
+        private float _lastFirstSentenceLatencyMs;
+        private float _lastFirstAudioLatencyMs;
+        private float _lastPlaybackBufferedSeconds;
+        private int _interruptionCount;
 
         private bool _llmInFlight
         {
@@ -185,6 +198,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 return;
             }
+            ApplyFixedSettingsOverrideIfPresent();
             InitializeOpenAiClient();
             if (_initializationFailed)
             {
@@ -269,6 +283,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             public int TotalRequests;
             public int FailedRequests;
             public float AverageResponseLatencyMs;
+            public float LastFirstTokenLatencyMs;
+            public float LastFirstSentenceLatencyMs;
+            public float LastFirstAudioLatencyMs;
+            public float LastPlaybackBufferedSeconds;
+            public int InterruptionCount;
             public NetworkQualityInfo NetworkQuality;
         }
         #endregion
@@ -361,6 +380,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             CancelAndDisposeCts(previous);
         }
 
+        private bool IsResponseCancellationPending()
+        {
+            lock (_stateLock)
+            {
+                return _responseCts == null || _responseCts.IsCancellationRequested;
+            }
+        }
+
         private static void CancelAndDisposeCts(CancellationTokenSource cts)
         {
             if (cts == null)
@@ -426,6 +453,88 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
         #endregion
+    }
+}
+
+#else
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+namespace Eitan.EasyMic.Demo.AIChat.Samantha
+{
+    [DisallowMultipleComponent]
+    public partial class AIChatController : MonoBehaviour
+    {
+        [Header("Configuration")]
+        [SerializeField] private AIChatControllerConfig _config = new AIChatControllerConfig();
+
+        [Header("Plugins")]
+        [SerializeField] private List<MonoBehaviour> _pluginBehaviours = new List<MonoBehaviour>();
+
+        public enum ChatState
+        {
+            Idle,
+            UserInput,
+            AssistantResponseStreaming,
+            AssistantResponseFinish,
+            Failed
+        }
+
+        public event Action<ChatState, string> OnChatStateChanged;
+        public event Action<string[]> OnWebLinksExtracted;
+        public event Action<float> OnLoadingCallback;
+        public event Action<bool> OnIdleStateChanged;
+        public event Action<bool> OnUserSpeakingStateChanged;
+        public event Action<NetworkQualityInfo> OnNetworkQualityChanged;
+
+        public bool IsIdle => true;
+        public bool IsChatActive => false;
+        public bool IsUserSpeaking => false;
+        public bool IsAssistantSpeaking => false;
+        public bool IsInitialized => false;
+        public float MicStartupDelaySeconds => CurrentConfig.MicStartupDelay;
+        public NetworkQualityInfo CurrentNetworkQuality => NetworkQualityInfo.Default;
+        public float TimeSinceLastUserActivity => 0f;
+        public float TimeSinceLastAssistantResponse => 0f;
+        public float LastLoadingProgress => 0f;
+        public bool HasConversationHistory => false;
+        public string RuntimeConfigPath =>
+            Path.Combine(
+                Application.persistentDataPath,
+                string.IsNullOrWhiteSpace(CurrentConfig.RuntimeConfigFileName) ? "ai_chat_config.json" : CurrentConfig.RuntimeConfigFileName);
+        public string LastErrorMessage => GetMissingDependencyMessage();
+        public AIChatControllerConfig CurrentConfig => _config ??= new AIChatControllerConfig();
+        public bool HasConfigurationPolicy => TryGetComponent(out AIChatConfigurationPolicy policy) && policy.EnabledOverride;
+        public AIChatConfigurationPolicy.PolicyPreset ConfigurationPolicyPreset =>
+            TryGetComponent(out AIChatConfigurationPolicy policy) ? policy.Preset : AIChatConfigurationPolicy.PolicyPreset.Custom;
+
+        private void Start()
+        {
+            ReportMissingDependency();
+        }
+
+        public void SetApiKey(string apiKey)
+        {
+            CurrentConfig.SetApiKeyOverride(apiKey);
+        }
+
+        private void ReportMissingDependency()
+        {
+            string message = GetMissingDependencyMessage();
+            Debug.LogWarning($"[AIChat] {message}", this);
+            OnLoadingCallback?.Invoke(0f);
+            OnIdleStateChanged?.Invoke(true);
+            OnNetworkQualityChanged?.Invoke(NetworkQualityInfo.Default);
+            OnChatStateChanged?.Invoke(ChatState.Failed, message);
+        }
+
+        private static string GetMissingDependencyMessage()
+        {
+            return "AI Chat sample is in compatibility mode because com.eitan.sherpa-onnx-unity is not installed. " +
+                   "Scene references are preserved, but ASR and local TTS features are unavailable.";
+        }
     }
 }
 

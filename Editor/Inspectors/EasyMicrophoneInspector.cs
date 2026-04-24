@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.IO;
+using Eitan.EasyMic.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -9,6 +10,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
     [CustomEditor(typeof(EasyMicrophone))]
     public class EasyMicrophoneInspector : UnityEditor.Editor
     {
+        private const double EditModeRepaintIntervalSeconds = 0.25d;
+
         private EasyMicrophone _mic;
 
         private SerializedProperty _microphoneOptionsProp;
@@ -36,6 +39,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private float _waveformViewEnd;
         private float _waveformZoom = 1f;
         private float _waveformScroll;
+        private double _nextEditModeRepaintTime;
 
         private const int WaveformHeight = 72;
         private const float WaveformZoomMin = 1f;
@@ -71,9 +75,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         [MenuItem("GameObject/Audio/Input/Easy Microphone", false, -1)]
         public static void AddEasyMicrophone()
         {
-            var go = new GameObject("Easy Microphone");
+            var go = new GameObject(EasyMicEditorLocalization.Text(EasyMicEditorTextKey.EasyMicMenuGameObjectName));
             go.AddComponent<EasyMicrophone>();
-            Undo.RegisterCreatedObjectUndo(go, "Create Easy Microphone");
+            Undo.RegisterCreatedObjectUndo(go, EasyMicEditorLocalization.Text(EasyMicEditorTextKey.EasyMicMenuCreate));
 
             Selection.activeGameObject = go;
             EditorApplication.delayCall += () => EditorApplication.ExecuteMenuItem("Edit/Rename");
@@ -111,8 +115,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Runtime Controls", Styles.SectionHeader);
-                EditorGUILayout.HelpBox("Enter Play Mode to monitor microphone status, control recording, and preview captured clips.", MessageType.Info);
+                EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSectionRuntimeControls), Styles.SectionHeader);
+                EditorGUILayout.HelpBox(T(EasyMicEditorTextKey.EasyMicPlayModeNotice), MessageType.Info);
             }
         }
 
@@ -120,19 +124,19 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Status", Styles.SectionHeader);
+                EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSectionStatus), Styles.SectionHeader);
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    DrawStatusBadge(mic.Initialized ? "Initialized" : "Not Initialized", mic.Initialized);
-                    DrawStatusBadge(mic.IsRecording ? "Recording" : "Idle", mic.IsRecording);
+                    DrawStatusBadge(mic.Initialized ? T(EasyMicEditorTextKey.EasyMicStatusInitialized) : T(EasyMicEditorTextKey.EasyMicStatusNotInitialized), mic.Initialized);
+                    DrawStatusBadge(mic.IsRecording ? T(EasyMicEditorTextKey.EasyMicStatusRecording) : T(EasyMicEditorTextKey.EasyMicStatusIdle), mic.IsRecording);
                 }
 
                 EditorGUILayout.Space(Styles.HeaderBodySpacing);
 
                 using (new EditorGUI.DisabledScope(true))
                 {
-                    EditorGUILayout.IntField("Available Devices", mic.AvailableDevices.Length);
+                    EditorGUILayout.IntField(T(EasyMicEditorTextKey.EasyMicAvailableDevices), mic.AvailableDevices.Length);
                 }
             }
         }
@@ -141,7 +145,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Configuration", Styles.SectionHeader);
+                EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSectionConfiguration), Styles.SectionHeader);
 
                 if (_microphoneOptionsProp != null)
                 {
@@ -155,7 +159,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
                 if (_enableLogProp != null)
                 {
-                    EditorGUILayout.PropertyField(_enableLogProp, new GUIContent("Enable Log"));
+                    EditorGUILayout.PropertyField(_enableLogProp, EasyMicEditorLocalization.Content(EasyMicEditorTextKey.CommonEnableLog));
                 }
 
 #if EASYMIC_APM_INTEGRATION
@@ -172,7 +176,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Recording Control", Styles.SectionHeader);
+                EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSectionRecordingControl), Styles.SectionHeader);
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
@@ -214,7 +218,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             using (new EditorGUILayout.VerticalScope(Styles.Section))
             {
-                EditorGUILayout.LabelField("Recording Preview", Styles.SectionHeader);
+                EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSectionRecordingPreview), Styles.SectionHeader);
 
                 var clip = mic.LatestRecordingClip;
                 if (clip != null)
@@ -224,7 +228,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
                 if (clip == null)
                 {
-                    EditorGUILayout.HelpBox("Stop recording to generate a preview clip.", MessageType.Info);
+                    EditorGUILayout.HelpBox(T(EasyMicEditorTextKey.EasyMicPreviewUnavailableNotice), MessageType.Info);
                     return;
                 }
 
@@ -312,9 +316,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
         private void DrawClipMetadata(AudioClip clip)
         {
-            EditorGUILayout.LabelField("Length", $"{clip.length:F2} s", Styles.MutedLabel);
-            EditorGUILayout.LabelField("Sample Rate", $"{clip.frequency} Hz", Styles.MutedLabel);
-            EditorGUILayout.LabelField("Channels", clip.channels.ToString(), Styles.MutedLabel);
+            EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicLengthLabel), $"{clip.length:F2} s", Styles.MutedLabel);
+            EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicSampleRateLabel), $"{clip.frequency} Hz", Styles.MutedLabel);
+            EditorGUILayout.LabelField(T(EasyMicEditorTextKey.EasyMicChannelsLabel), clip.channels.ToString(), Styles.MutedLabel);
         }
 
         private void HandleWaveformInput(Rect rect, AudioClip clip, float normalizedStart, float normalizedEnd)
@@ -784,7 +788,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         }
 
         public override bool HasPreviewGUI() => false; // All preview UI is in the inspector.
-        public override GUIContent GetPreviewTitle() => new GUIContent("Recording Preview");
+        public override GUIContent GetPreviewTitle() => EasyMicEditorLocalization.Content(EasyMicEditorTextKey.EasyMicPreviewTitle);
         public override void OnPreviewGUI(Rect r, GUIStyle background) { }
         public override void OnPreviewSettings() { }
 
@@ -798,7 +802,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             var tempPath = mic.LatestRecordingTempPath;
             if (string.IsNullOrWhiteSpace(tempPath) || !File.Exists(tempPath))
             {
-                EditorUtility.DisplayDialog("Save Recording", "No recording is available to save.", "OK");
+                EditorUtility.DisplayDialog(T(EasyMicEditorTextKey.EasyMicSaveRecordingTitle), T(EasyMicEditorTextKey.EasyMicSaveRecordingUnavailable), T(EasyMicEditorTextKey.CommonOk));
                 return;
             }
 
@@ -814,7 +818,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 saveDirectory = Application.persistentDataPath;
             }
 
-            string targetPath = EditorUtility.SaveFilePanel("Save Recording", saveDirectory, defaultName, "wav");
+            string targetPath = EditorUtility.SaveFilePanel(T(EasyMicEditorTextKey.EasyMicSaveRecordingTitle), saveDirectory, defaultName, "wav");
             if (string.IsNullOrEmpty(targetPath))
             {
                 return; // user canceled
@@ -823,12 +827,17 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             bool success = mic.TrySaveLatestRecording(targetPath);
             if (!success)
             {
-                EditorUtility.DisplayDialog("Save Recording", "Failed to save the recording. Check the console for details.", "OK");
+                EditorUtility.DisplayDialog(T(EasyMicEditorTextKey.EasyMicSaveRecordingTitle), T(EasyMicEditorTextKey.EasyMicSaveRecordingFailed), T(EasyMicEditorTextKey.CommonOk));
             }
             else
             {
                 AssetDatabase.Refresh();
             }
+        }
+
+        private static string T(EasyMicEditorTextKey key)
+        {
+            return EasyMicEditorLocalization.Text(key);
         }
 
         private void SubscribeToRuntimeEvents()
@@ -870,6 +879,22 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
         private void EditorUpdate()
         {
+            if (!Application.isPlaying)
+            {
+#if EASYMIC_APM_INTEGRATION
+                if (_audioProcessingOptionsProp != null)
+                {
+                    double now = EditorApplication.timeSinceStartup;
+                    if (now >= _nextEditModeRepaintTime)
+                    {
+                        _nextEditModeRepaintTime = now + EditModeRepaintIntervalSeconds;
+                        Repaint();
+                    }
+                }
+#endif
+                return;
+            }
+
             if (_player == null)
             {
                 return;
@@ -1196,12 +1221,12 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             public static Color WaveformOverlayBackground => EditorGUIUtility.isProSkin ? new Color(0f, 0f, 0f, 0.6f) : new Color(1f, 1f, 1f, 0.85f);
             public static Color WaveformOverlayBorder => EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.08f) : new Color(0f, 0f, 0f, 0.12f);
 
-            public static GUIContent PlayIcon => _playIcon ??= MakeIcon("PlayButton", "Play", ">");
-            public static GUIContent PauseIcon => _pauseIcon ??= MakeIcon("PauseButton", "Pause", "||");
-            public static GUIContent LoopOnIcon => _loopOnIcon ??= MakeIcon("preAudioLoopOn", "Loop Enabled", "Loop");
-            public static GUIContent LoopOffIcon => _loopOffIcon ??= MakeIcon("preAudioLoopOff", "Loop Disabled", "Loop");
-            public static GUIContent JumpStartIcon => _jumpStartIcon ??= MakeIcon("beginButton", "Go To Start", "|<");
-            public static GUIContent JumpEndIcon => _jumpEndIcon ??= MakeIcon("endButton", "Go To End", ">|");
+            public static GUIContent PlayIcon => _playIcon ??= MakeIcon("PlayButton", T(EasyMicEditorTextKey.EasyMicPlay), ">");
+            public static GUIContent PauseIcon => _pauseIcon ??= MakeIcon("PauseButton", T(EasyMicEditorTextKey.EasyMicPause), "||");
+            public static GUIContent LoopOnIcon => _loopOnIcon ??= MakeIcon("preAudioLoopOn", T(EasyMicEditorTextKey.EasyMicLoopEnabled), "Loop");
+            public static GUIContent LoopOffIcon => _loopOffIcon ??= MakeIcon("preAudioLoopOff", T(EasyMicEditorTextKey.EasyMicLoopDisabled), "Loop");
+            public static GUIContent JumpStartIcon => _jumpStartIcon ??= MakeIcon("beginButton", T(EasyMicEditorTextKey.EasyMicGoToStart), "|<");
+            public static GUIContent JumpEndIcon => _jumpEndIcon ??= MakeIcon("endButton", T(EasyMicEditorTextKey.EasyMicGoToEnd), ">|");
             public static GUIStyle WaveformInfoLabel
             {
                 get
@@ -1250,11 +1275,11 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 }
             }
 
-            public static GUIContent WaveformHintContent => _waveformHintContent ??= new GUIContent("Scroll to zoom · Alt+Drag to pan · Click to scrub");
-            public static GUIContent InitializeContent => _initializeContent ??= MakeLabeledIcon("Refresh", "Initialize", "Initialize the Easy Microphone component", "Initialize");
-            public static GUIContent StartRecordingContent => _startRecordingContent ??= MakeLabeledIcon("Animation.Record", "Start", "Begin recording", "Start");
-            public static GUIContent StopRecordingContent => _stopRecordingContent ??= MakeLabeledIcon("PauseButton", "Stop", "Stop recording", "Stop");
-            public static GUIContent SaveRecordingContent => _saveRecordingContent ??= MakeLabeledIcon("SaveActive", "Save", "Export the last recording to disk", "Save");
+            public static GUIContent WaveformHintContent => _waveformHintContent ??= EasyMicEditorLocalization.Content(EasyMicEditorTextKey.EasyMicWaveformHint);
+            public static GUIContent InitializeContent => _initializeContent ??= MakeLabeledIcon("Refresh", T(EasyMicEditorTextKey.EasyMicInitialize), T(EasyMicEditorTextKey.EasyMicInitializeTooltip), T(EasyMicEditorTextKey.EasyMicInitialize));
+            public static GUIContent StartRecordingContent => _startRecordingContent ??= MakeLabeledIcon("Animation.Record", T(EasyMicEditorTextKey.EasyMicStart), T(EasyMicEditorTextKey.EasyMicStartTooltip), T(EasyMicEditorTextKey.EasyMicStart));
+            public static GUIContent StopRecordingContent => _stopRecordingContent ??= MakeLabeledIcon("PauseButton", T(EasyMicEditorTextKey.EasyMicStop), T(EasyMicEditorTextKey.EasyMicStopTooltip), T(EasyMicEditorTextKey.EasyMicStop));
+            public static GUIContent SaveRecordingContent => _saveRecordingContent ??= MakeLabeledIcon("SaveActive", T(EasyMicEditorTextKey.EasyMicSave), T(EasyMicEditorTextKey.EasyMicSaveTooltip), T(EasyMicEditorTextKey.EasyMicSave));
 
             private static GUIContent MakeLabeledIcon(string iconName, string text, string tooltip, string fallbackText)
             {

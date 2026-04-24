@@ -10,6 +10,7 @@ namespace Eitan.EasyMic.Runtime
     public static class PermissionUtils
     {
         private static bool IsGranted;
+        private static bool s_iOSAuthorizationRequested;
         // 安卓权限的字符串常量
 
 #if UNITY_ANDROID
@@ -24,7 +25,7 @@ namespace Eitan.EasyMic.Runtime
             // 针对非 Android 平台：Unity 会自行弹出权限窗或无需权限，直接视为已授权。
 #if UNITY_ANDROID && !UNITY_EDITOR
             EasyMicUnityThread.TryCaptureFromCurrentThread();
-            if (!EasyMicUnityThread.IsMainThread)
+            if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
             {
                 // Android permission APIs must run on Unity main thread.
                 return IsGranted;
@@ -43,8 +44,19 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return IsGranted;
-#else
+#elif UNITY_IOS && !UNITY_EDITOR
+            if (UnityEngine.Application.HasUserAuthorization(UnityEngine.UserAuthorization.Microphone))
+            {
+                IsGranted = true;
+                return true;
+            }
+
+            RequestPlatformPermission();
+            return false;
+#elif UNITY_STANDALONE || UNITY_EDITOR
             return true;
+#else
+            return false;
 #endif
         }
 
@@ -54,7 +66,7 @@ namespace Eitan.EasyMic.Runtime
 #if UNITY_STANDALONE || UNITY_EDITOR
             return;
 #elif UNITY_ANDROID && !UNITY_EDITOR
-        if (!EasyMicUnityThread.IsMainThread)
+        if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
         {
             return;
         }
@@ -68,6 +80,14 @@ namespace Eitan.EasyMic.Runtime
             callbacks.PermissionDeniedAndDontAskAgain += s => OnPermissionResult(false);
             Permission.RequestUserPermission(Permission.Microphone, callbacks); // not working
         }
+#elif UNITY_IOS && !UNITY_EDITOR
+        if (s_iOSAuthorizationRequested)
+        {
+            return;
+        }
+
+        s_iOSAuthorizationRequested = true;
+        UnityEngine.Application.RequestUserAuthorization(UnityEngine.UserAuthorization.Microphone);
 #endif
         }
 
@@ -76,7 +96,7 @@ namespace Eitan.EasyMic.Runtime
             IsGranted = granted;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (EasyMicUnityThread.IsMainThread)
+            if (!EasyMicPlatformSupport.RequiresAndroidMainThread || EasyMicUnityThread.IsMainThread)
             {
                 UnityEngine.Microphone.End(null); // stop Recording for permission request
             }
