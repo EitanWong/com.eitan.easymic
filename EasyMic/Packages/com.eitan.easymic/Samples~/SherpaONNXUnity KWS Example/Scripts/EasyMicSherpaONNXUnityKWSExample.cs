@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
 {
     using System;
@@ -8,12 +8,13 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.KWS
     using System.Threading.Tasks;
     using Eitan.EasyMic.Runtime;
     using Eitan.EasyMic.Runtime.Mono;
-    using Eitan.EasyMic.Runtime.Mono.Components.ASR;
+    using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
     using Eitan.SherpaONNXUnity.Runtime;
     using Eitan.SherpaONNXUnity.Runtime.Modules;
     using UnityEngine;
     using UnityEngine.UI;
 
+    [AddComponentMenu("Examples/EasyMic/Sherpa ONNX/KWS Example")]
     public class EasyMicSherpaONNXUnityKWSExample : MonoBehaviour
     {
         #region UI Constants

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Collections;
 using System.IO;
+using System.Reflection;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Apm;
 using Eitan.EasyMic.Runtime.Mono;
@@ -21,35 +22,55 @@ namespace Eitan.EasyMic.Apm.Samples
     /// </summary>
     [RequireComponent(typeof(EasyMicrophone))]
     [RequireComponent(typeof(PlaybackAudioSourceBehaviour))]
+    [AddComponentMenu("Examples/EasyMic/APM/Audio Processing Example")]
     public class EasyMicAudioProcessingExample : MonoBehaviour
     {
         [Header("Recording Option")]
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Dropdown _selectDeviceDropdown;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Dropdown _sampleRateDropdown;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Dropdown _channelDropdown;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Toggle _agcToggle;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Toggle _ansToggle;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Toggle _aecToggle;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Toggle _loopbackToggle;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Toggle _playMusicToggle;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Button _refreshButton;
 
         [Header("Recording Status")]
+        [Obfuscation(Exclude = true)]
         [SerializeField] private RawImage _recordingStateImage;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Text _recordingStateText;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Button _recordButton;
 
         [Header("Recording Result")]
+        [Obfuscation(Exclude = true)]
         [SerializeField] private RectTransform _resultPanel;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Text _audioNameText;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Button _playOrStopButton;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Button _saveButton;
 
         [Header("Audio Sound")]
+        [Obfuscation(Exclude = true)]
         [SerializeField] private AudioClip _speechAudioClip;
 
         [Header("UI Components")]
+        [Obfuscation(Exclude = true)]
         [SerializeField] private InputField _licenseKeyInputField;
+        [Obfuscation(Exclude = true)]
         [SerializeField] private Text _machineCodeText;
 
         private EasyMicrophone _easyMicrophone;

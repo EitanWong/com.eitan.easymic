@@ -1,5 +1,3 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
-
 using System;
 using System.Collections;
 using System.Diagnostics;
@@ -13,6 +11,7 @@ using UnityEngine.UI;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
+    [AddComponentMenu("Examples/EasyMic/AI Chat/UI/View")]
     public class AIChatUIView : MonoBehaviour
     {
         // [SerializeField] private UIMobiusStripe stripe;
@@ -622,4 +621,3 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #endregion
     }
 }
-#endif

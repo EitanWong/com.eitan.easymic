@@ -13,6 +13,7 @@ namespace Eitan.EasyMic
         private static MicSystem _micSystem;
         private static bool _eventsHooked;
         private static List<AudioWorkerBlueprint> _defaultWorkers;
+        private static Exception _initializationException;
 
         public static event Action<MicDevicesChangedEventArgs> DevicesChanged;
 
@@ -20,20 +21,88 @@ namespace Eitan.EasyMic
         {
             get
             {
-                if (_micSystem == null)
+                return RequireMicSys();
+            }
+        }
+
+        public static bool IsAvailable => TryGetMicSys(out _, logFailure: false);
+
+        public static string UnavailabilityReason => _initializationException?.Message;
+
+        private static MicSystem RequireMicSys()
+        {
+            if (TryGetMicSys(out var system))
+            {
+                return system;
+            }
+
+            throw new InvalidOperationException(
+                _initializationException?.Message ?? "EasyMic microphone system is unavailable.",
+                _initializationException);
+        }
+
+        private static bool TryGetMicSys(out MicSystem system, bool logFailure = true)
+        {
+            var current = _micSystem;
+            if (current != null && !current.IsDisposed)
+            {
+                system = current;
+                return true;
+            }
+
+            lock (_lock)
+            {
+                current = _micSystem;
+                if (current != null)
                 {
-                    lock (_lock)
+                    if (!current.IsDisposed)
                     {
-                        if (_micSystem == null)
-                        {
-                            _micSystem = new MicSystem();
-                            HookSystemEvents(_micSystem);
-                        }
+                        system = current;
+                        return true;
+                    }
+
+                    ReleaseMicSystemReference(current, dispose: false);
+                }
+
+                if (_initializationException == null)
+                {
+                    if (!EasyMicPlatformSupport.IsCurrentPlatformSupported(out string unsupportedReason))
+                    {
+                        _initializationException = new PlatformNotSupportedException(unsupportedReason);
+                    }
+
+                    if (_initializationException != null)
+                    {
+                        system = _micSystem;
+                        goto EndLock;
+                    }
+
+                    try
+                    {
+                        _micSystem = new MicSystem();
+                        HookSystemEvents(_micSystem);
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException || ex is EntryPointNotFoundException || ex is DllNotFoundException || ex is PlatformNotSupportedException)
+                    {
+                        _initializationException = ex;
                     }
                 }
 
-                return _micSystem;
+            EndLock:
+                system = _micSystem;
             }
+
+            if (system != null)
+            {
+                return true;
+            }
+
+            if (logFailure && _initializationException != null)
+            {
+                Debug.LogWarning($"EasyMic is unavailable: {_initializationException.Message}");
+            }
+
+            return false;
         }
 
         private static void HookSystemEvents(MicSystem system)
@@ -45,6 +114,27 @@ namespace Eitan.EasyMic
 
             system.DevicesChanged += RaiseDevicesChanged;
             _eventsHooked = true;
+        }
+
+        private static void ReleaseMicSystemReference(MicSystem system, bool dispose)
+        {
+            if (system == null || !ReferenceEquals(_micSystem, system))
+            {
+                return;
+            }
+
+            if (_eventsHooked)
+            {
+                system.DevicesChanged -= RaiseDevicesChanged;
+                _eventsHooked = false;
+            }
+
+            if (dispose)
+            {
+                system.Dispose();
+            }
+
+            _micSystem = null;
         }
 
         private static void RaiseDevicesChanged(MicDevicesChangedEventArgs args)
@@ -61,7 +151,9 @@ namespace Eitan.EasyMic
                     return Array.Empty<MicDevice>();
                 }
 
-                return MicSys.Devices;
+                return TryGetMicSys(out var system, logFailure: false)
+                    ? system.Devices
+                    : Array.Empty<MicDevice>();
             }
         }
 
@@ -69,6 +161,11 @@ namespace Eitan.EasyMic
         {
             get
             {
+                if (!TryGetMicSys(out _, logFailure: false) && _initializationException != null)
+                {
+                    throw new InvalidOperationException(_initializationException.Message, _initializationException);
+                }
+
                 Refresh();
                 if (Devices == null || Devices.Length <= 0)
                 {
@@ -85,7 +182,7 @@ namespace Eitan.EasyMic
             }
         }
 
-        public static bool isWorking => MicSys.HasActiveRecordings;
+        public static bool isWorking => TryGetMicSys(out var system, logFailure: false) && system.HasActiveRecordings;
 
         public static void Refresh()
         {
@@ -94,17 +191,26 @@ namespace Eitan.EasyMic
                 return;
             }
 
-            MicSys.Refresh();
+            if (TryGetMicSys(out var system, logFailure: false))
+            {
+                system.Refresh();
+            }
         }
 
         public static void EnableDeviceAutoRefresh(float seconds = 1f)
         {
-            MicSys.EnableAutoRefresh(Math.Max(0.25f, seconds));
+            if (TryGetMicSys(out var system, logFailure: false))
+            {
+                system.EnableAutoRefresh(Math.Max(0.25f, seconds));
+            }
         }
 
         public static void DisableDeviceAutoRefresh()
         {
-            MicSys.DisableAutoRefresh();
+            if (TryGetMicSys(out var system, logFailure: false))
+            {
+                system.DisableAutoRefresh();
+            }
         }
 
         public static RecordingHandle StartRecording(SampleRate sampleRate = SampleRate.Hz16000)
@@ -142,36 +248,68 @@ namespace Eitan.EasyMic
             get => _defaultWorkers;
             set => _defaultWorkers = value?.Distinct().ToList();
         }
-        public static void StopRecording(RecordingHandle handle) => MicSys.StopRecording(handle);
-        public static void StopAllRecordings() => MicSys.StopAllRecordings();
+        public static void StopRecording(RecordingHandle handle)
+        {
+            if (TryGetMicSys(out var system, logFailure: false))
+            {
+                system.StopRecording(handle);
+            }
+        }
 
-        public static bool IsDeviceRecording(MicDevice device) => MicSys.IsDeviceRecording(device);
-        public static bool IsHandleAlive(RecordingHandle handle) => MicSys.IsHandleAlive(handle);
-        public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint) => MicSys.AddProcessor(handle, blueprint);
-        public static void RemoveProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint) => MicSys.RemoveProcessor(handle, blueprint);
-        public static RecordingInfo GetRecordingInfo(RecordingHandle handle) => MicSys.GetRecordingInfo(handle);
+        public static void StopAllRecordings()
+        {
+            if (TryGetMicSys(out var system, logFailure: false))
+            {
+                system.StopAllRecordings();
+            }
+        }
+
+        public static bool IsDeviceRecording(MicDevice device)
+        {
+            return TryGetMicSys(out var system, logFailure: false) && system.IsDeviceRecording(device);
+        }
+
+        public static bool IsHandleAlive(RecordingHandle handle)
+        {
+            return TryGetMicSys(out var system, logFailure: false) && system.IsHandleAlive(handle);
+        }
+
+        public static void AddProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
+        {
+            RequireMicSys().AddProcessor(handle, blueprint);
+        }
+
+        public static void RemoveProcessor(RecordingHandle handle, AudioWorkerBlueprint blueprint)
+        {
+            RequireMicSys().RemoveProcessor(handle, blueprint);
+        }
+
+        public static RecordingInfo GetRecordingInfo(RecordingHandle handle)
+        {
+            return RequireMicSys().GetRecordingInfo(handle);
+        }
 
         public static T GetProcessor<T>(RecordingHandle handle, AudioWorkerBlueprint blueprint) where T : class, IAudioWorker
         {
-            return MicSys.GetProcessor<T>(handle, blueprint);
+            return RequireMicSys().GetProcessor<T>(handle, blueprint);
         }
 
         public static void Cleanup()
         {
             lock (_lock)
             {
-                if (_micSystem != null)
-                {
-                    if (_eventsHooked)
-                    {
-                        _micSystem.DevicesChanged -= RaiseDevicesChanged;
-                        _eventsHooked = false;
-                    }
+                ReleaseMicSystemReference(_micSystem, dispose: true);
 
-                    _micSystem.Dispose();
-                    _micSystem = null;
-                }
+                _initializationException = null;
             }
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetForRuntimeLoad()
+        {
+            Cleanup();
+            DevicesChanged = null;
+            _defaultWorkers = null;
         }
 
         private static RecordingHandle StartRecordingInternal(MicDevice? preferredDevice, string deviceName, SampleRate sampleRate, Channel? requestedChannel, IEnumerable<AudioWorkerBlueprint> workers)

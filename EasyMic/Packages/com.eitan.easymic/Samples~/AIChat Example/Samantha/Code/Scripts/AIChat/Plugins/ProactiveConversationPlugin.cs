@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
+    [AddComponentMenu("Examples/EasyMic/AI Chat/Plugins/Proactive Conversation Plugin")]
     public sealed class ProactiveConversationPlugin : MonoBehaviour, IAIChatPlugin, IAIChatLifecycleListener
     {
         private static readonly Stopwatch s_clock = Stopwatch.StartNew();

@@ -1,2 +1,16 @@
 # Unity/Mono crash dumps generated during editor or runtime failures
 mono_crash.*.json
+/Assets/EasyMicApmLicenseToken.cs
+/Assets/EasyMicApmLicenseToken.cs.meta
+/Assets/StreamingAssets/EasyMic/Licenses/easymic_apm_license.eamlic
+/Assets/StreamingAssets/EasyMic/Licenses/easymic_apm_license.eamlic.meta
+/Assets/StreamingAssets/**/*.eamlic
+/Assets/StreamingAssets/**/*.eamlic.meta
+
+/Assets/EasyMic/Generated/Licensing/EasyMicApmEmbeddedBuildIdentity.g.cs
+/Assets/EasyMic/Generated/Licensing/EasyMicApmEmbeddedBuildIdentity.g.cs.meta
+/Assets/EasyMic/Generated/Licensing/Eitan.EasyMic.Apm.Generated.asmdef
+/Assets/EasyMic/Generated/Licensing/Eitan.EasyMic.Apm.Generated.asmdef.meta
+
+/Assets/EasyMicApmProjectLicenseProvider.cs
+/Assets/EasyMicApmProjectLicenseProvider.cs.meta

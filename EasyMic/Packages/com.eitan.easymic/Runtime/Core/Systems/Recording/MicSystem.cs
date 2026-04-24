@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -12,6 +11,7 @@ namespace Eitan.EasyMic.Runtime
     public sealed partial class MicSystem : IDisposable
     {
         private IntPtr _context;
+        private Native.NativeAllocationSource _contextAllocationSource;
         private bool _disposed;
         private int _nextRecordingId = 1;
 
@@ -31,7 +31,16 @@ namespace Eitan.EasyMic.Runtime
 
         public event Action<MicDevicesChangedEventArgs> DevicesChanged;
 
-        private GCHandle _gcHandle;
+        internal bool IsDisposed
+        {
+            get
+            {
+                lock (_operateLock)
+                {
+                    return _disposed;
+                }
+            }
+        }
 
         public bool HasActiveRecordings
         {
@@ -48,11 +57,30 @@ namespace Eitan.EasyMic.Runtime
         {
             EasyMicUnityThread.TryCaptureFromCurrentThread();
 
-            _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-            _context = Native.AllocateContext();
+            try
+            {
+                _context = Native.AllocateContext(out _contextAllocationSource);
+            }
+            catch (EntryPointNotFoundException ex)
+            {
+                throw new InvalidOperationException(
+                    "EasyMic miniaudio plugin is incompatible with this package build. " +
+                    "The loaded native plugin does not export required miniaudio APIs.",
+                    ex);
+            }
+            catch (DllNotFoundException ex)
+            {
+                throw new InvalidOperationException(
+                    "EasyMic miniaudio plugin could not be loaded. " +
+                    "The required miniaudio native plugin is missing or not available for this platform.",
+                    ex);
+            }
+
             var result = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, _context);
             if (result != Native.Result.Success)
             {
+                Native.FreeAllocated(_context, _contextAllocationSource);
+                _context = IntPtr.Zero;
                 throw new InvalidOperationException($"Unable to init context. {result}");
             }
 
@@ -62,22 +90,16 @@ namespace Eitan.EasyMic.Runtime
             EnableAutoRefresh();
         }
 
-        ~MicSystem()
-        {
-            Dispose(false);
-        }
-
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        private void Dispose(bool disposing)
-        {
-            if (_disposed)
+            lock (_operateLock)
             {
-                return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
             }
 
             UnityEngine.Application.quitting -= OnApplicationQuitting;
@@ -87,31 +109,16 @@ namespace Eitan.EasyMic.Runtime
 
             if (_context != IntPtr.Zero)
             {
-                try
-                {
-                    Native.ContextUninit(_context);
-                }
-                catch (Exception)
-                {
-                    // Debug.LogError($"Error uninitializing context: {ex.Message}");
-                    throw;
-                }
+                try { Native.ContextUninit(_context); } catch { }
 
-                try { Native.Free(_context); } catch { }
+                try { Native.FreeAllocated(_context, _contextAllocationSource); } catch { }
                 _context = IntPtr.Zero;
             }
-
-            if (_gcHandle.IsAllocated)
-            {
-                _gcHandle.Free();
-            }
-
-            _disposed = true;
         }
 
         private void OnApplicationQuitting()
         {
-            StopAllRecordings();
+            Dispose();
         }
 
         private void ThrowIfDisposed()

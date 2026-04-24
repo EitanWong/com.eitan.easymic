@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
@@ -42,13 +41,12 @@ namespace Eitan.EasyMic.Runtime
 
         // miniaudio state
         private IntPtr _context = IntPtr.Zero;
+        private Native.NativeAllocationSource _contextAllocationSource;
         private IntPtr _device = IntPtr.Zero;
         private IntPtr _deviceConfig = IntPtr.Zero;
 #pragma warning disable 0414
         private Native.AudioCallback _cb;
-        private Native.AudioCallbackEx _cbEx;
 #pragma warning restore 0414
-        private GCHandle _selfHandle;
         private bool _running;
         private bool _setRunInBackground;
         private bool _previousRunInBackground;
@@ -113,7 +111,7 @@ namespace Eitan.EasyMic.Runtime
                 _masterMixer.name = "Master";
                 _masterMixer.Pipeline.AddWorker(new SoftLimiter());
 
-                _context = Native.AllocateContext();
+                _context = Native.AllocateContext(out _contextAllocationSource);
                 Check(_context != IntPtr.Zero, "AllocateContext");
                 var initContext = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, _context);
                 Check(initContext == Native.Result.Success, $"ContextInit: {initContext}");
@@ -166,11 +164,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 ReleaseDeviceHandles();
                 try { if (_context != IntPtr.Zero) { Native.ContextUninit(_context); } } catch { }
-                if (_context != IntPtr.Zero) { try { Native.Free(_context); } catch { } _context = IntPtr.Zero; }
-                if (_selfHandle.IsAllocated)
-                {
-                    _selfHandle.Free();
-                }
+                if (_context != IntPtr.Zero) { try { Native.FreeAllocated(_context, _contextAllocationSource); } catch { } _context = IntPtr.Zero; }
                 if (_setRunInBackground)
                 {
                     try { UnityEngine.Application.runInBackground = _previousRunInBackground; } catch { }
@@ -183,7 +177,7 @@ namespace Eitan.EasyMic.Runtime
                 // Dispose mixer and release references to sources/pipelines
                 try { _masterMixer?.Dispose(); } catch { }
                 _masterMixer = null;
-                _cbEx = null;
+                _cb = null;
                 _running = false;
             }
         }
@@ -259,23 +253,15 @@ namespace Eitan.EasyMic.Runtime
 #endif
         private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
         {
-            var self = Volatile.Read(ref s_instanceNoLock);
-            if (self != null)
+            try
             {
-                self.Render(output, length);
+                var self = Volatile.Read(ref s_instanceNoLock);
+                if (self != null)
+                {
+                    self.Render(output, length);
+                }
             }
-        }
-
-#if UNITY_IOS || UNITY_ANDROID || ENABLE_IL2CPP
-        [AOT.MonoPInvokeCallback(typeof(Native.AudioCallbackEx))]
-#endif
-        private static void OnCallbackEx(IntPtr device, IntPtr output, IntPtr input, uint length, IntPtr userData)
-        {
-            var handle = GCHandle.FromIntPtr(userData);
-            if (handle.Target is AudioSystem self)
-            {
-                self.Render(output, length);
-            }
+            catch { }
         }
 
         private static void Check(bool cond, string msg)
@@ -294,93 +280,24 @@ namespace Eitan.EasyMic.Runtime
             var rate = Math.Max(8000u, desiredSampleRate);
             var channels = Math.Max(1u, desiredChannels);
 
-            _cbEx = OnCallbackEx;
             _cb = OnCallback;
-            if (!_selfHandle.IsAllocated)
-            {
-                _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-            }
 
-            bool usesExtendedCallback;
-            GCHandle legacySubHandle = default;
-            GCHandle legacyConfigHandle = default;
-            GCHandle legacyOpenSlHandle = default;
-            GCHandle legacyAaudioHandle = default;
-            IntPtr legacyConfig = IntPtr.Zero;
-            try
-            {
-#if UNITY_ANDROID && !UNITY_EDITOR
-                legacyConfig = AndroidLegacyDeviceConfig.CreatePlaybackLegacyConfig(
-                    Native.SampleFormat.F32,
-                    channels,
-                    rate,
-                    out legacySubHandle,
-                    out legacyConfigHandle,
-                    out legacyOpenSlHandle,
-                    out legacyAaudioHandle);
-#endif
-                _deviceConfig = Native.AllocateDeviceConfig(
-                    Native.DeviceType.Playback,
-                    Native.SampleFormat.F32,
-                    channels,
-                    rate,
-                    _cbEx,
-                    GCHandle.ToIntPtr(_selfHandle),
-                    IntPtr.Zero,
-                    IntPtr.Zero,
-                    _cb,
-                    legacyConfig,
-                    out usesExtendedCallback);
-            }
-            catch
-            {
-                if (_selfHandle.IsAllocated)
-                {
-                    _selfHandle.Free();
-                }
-                throw;
-            }
-            finally
-            {
-                if (legacyAaudioHandle.IsAllocated)
-                {
-                    legacyAaudioHandle.Free();
-                }
-                if (legacyOpenSlHandle.IsAllocated)
-                {
-                    legacyOpenSlHandle.Free();
-                }
-                if (legacyConfigHandle.IsAllocated)
-                {
-                    legacyConfigHandle.Free();
-                }
-                if (legacySubHandle.IsAllocated)
-                {
-                    legacySubHandle.Free();
-                }
-            }
-
-            if (!usesExtendedCallback && _selfHandle.IsAllocated)
-            {
-                _selfHandle.Free();
-            }
+            _deviceConfig = Native.AllocateDeviceConfig(
+                Native.DeviceType.Playback,
+                Native.SampleFormat.F32,
+                channels,
+                rate,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                _cb,
+                out _);
 
             if (_deviceConfig == IntPtr.Zero)
-            {
-                if (_selfHandle.IsAllocated)
-                {
-                    _selfHandle.Free();
-                }
                 return false;
-            }
 
             _device = Native.AllocateDevice();
             if (_device == IntPtr.Zero)
             {
-                if (_selfHandle.IsAllocated)
-                {
-                    _selfHandle.Free();
-                }
                 if (_deviceConfig != IntPtr.Zero)
                 {
                     try { Native.Free(_deviceConfig); } catch { }
@@ -398,10 +315,6 @@ namespace Eitan.EasyMic.Runtime
                 {
                     try { Native.Free(_deviceConfig); } catch { }
                     _deviceConfig = IntPtr.Zero;
-                }
-                if (_selfHandle.IsAllocated)
-                {
-                    _selfHandle.Free();
                 }
                 return false;
             }

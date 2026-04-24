@@ -80,7 +80,7 @@ For production-ready applications requiring studio-quality audio, consider the *
 
 ### Component Workflow (Mono)
 
-If you prefer a scene-component workflow, use the built-in Mono components under `Runtime/Mono/Components`:
+If you prefer a scene-component workflow, use the built-in Unity components under `Runtime/Unity/Components`:
 
 - `EasyMicrophone` for microphone capture and recording output
 - `VoiceMicrophone` for ASR + keyword/turn-detection orchestration

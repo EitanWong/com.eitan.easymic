@@ -13,6 +13,7 @@ namespace Eitan.EasyMic.Samples.Recording
     /// Example script demonstrating the usage of EasyMicrophone for audio recording.
     /// /// Provides a complete UI workflow for device selection, recording, playback, and saving.
     /// </summary>
+    [AddComponentMenu("Examples/EasyMic/Recording/Recording Example")]
     public class EasyMicrophoneRecordingExample : MonoBehaviour
     {
         #region Serialized Fields

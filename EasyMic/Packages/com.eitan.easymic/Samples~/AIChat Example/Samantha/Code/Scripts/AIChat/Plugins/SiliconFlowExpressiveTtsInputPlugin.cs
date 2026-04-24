@@ -13,6 +13,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     /// 2) injects end marker,
     /// 3) inserts expressive pitch markers.
     /// </summary>
+    [AddComponentMenu("Examples/EasyMic/AI Chat/Plugins/SiliconFlow Expressive TTS Input Plugin")]
     public sealed class SiliconFlowExpressiveTtsInputPlugin : MonoBehaviour
     {
         public const string EndOfPromptMarker = "<|endofprompt|>";
@@ -167,6 +168,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Stream = false,
                 Temperature = InstructionTemperature,
                 MaxTokens = InstructionRequestMaxTokens,
+                EnableThinkingOverride = false,
                 Messages = BuildInstructionMessages(userContext)
             };
 

@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added Mono component stack under `Runtime/Mono/Components`, including:
+- Added Unity component stack under `Runtime/Unity/Components`, including:
   - `EasyMicrophone` for recorder lifecycle and temporary WAV persistence.
   - `VoiceMicrophone` for ASR orchestration (streaming/offline/VAD/keyword modes).
   - `PlaybackAudioSourceBehaviour` for clip and PCM stream playback.

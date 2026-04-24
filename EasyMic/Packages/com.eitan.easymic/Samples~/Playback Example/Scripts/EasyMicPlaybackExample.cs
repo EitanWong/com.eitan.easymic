@@ -6,6 +6,7 @@ using UnityEngine.UI;
 
 namespace Eitan.EasyMic.Samples.Playback
 {
+    [AddComponentMenu("Examples/EasyMic/Playback/Playback Example")]
     public class EasyMicPlaybackExample : MonoBehaviour
     {
         [SerializeField] private Button clipPlayButton;

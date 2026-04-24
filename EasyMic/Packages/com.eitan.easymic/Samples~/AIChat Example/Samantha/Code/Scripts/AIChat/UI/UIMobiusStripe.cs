@@ -6,7 +6,7 @@ namespace Radishmouse
     /// <summary>
     /// Single-curve Möbius / Lissajous-style stripe driven by UILineRenderer smoothing.
     /// </summary>
-    [ExecuteAlways, DisallowMultipleComponent, AddComponentMenu("UI/Effects/Möbius Stripe (UILine)")]
+    [ExecuteAlways, DisallowMultipleComponent, AddComponentMenu("UI/EasyMic/AI Chat/Mobius Stripe")]
     [RequireComponent(typeof(RectTransform))]
     public sealed class UIMobiusStripe : MonoBehaviour
     {

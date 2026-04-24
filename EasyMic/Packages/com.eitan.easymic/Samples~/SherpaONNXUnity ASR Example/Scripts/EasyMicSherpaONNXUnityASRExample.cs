@@ -1,4 +1,4 @@
-#if EASYMIC_SHERPA_ONNX_INTEGRATION
+#if EITAN_SHERPA_ONNX_UNITY_PRESENT
 namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
 {
     using System;
@@ -7,7 +7,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
     using System.Threading.Tasks;
     using Eitan.EasyMic.Runtime;
     using Eitan.EasyMic.Runtime.Mono.Components;
-    using Eitan.EasyMic.Runtime.Mono.Components.ASR;
+    using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
     using Eitan.SherpaONNXUnity.Runtime;
     using UnityEngine;
     using UnityEngine.UI;
@@ -25,6 +25,7 @@ namespace Eitan.EasyMic.Samples.SherpaONNXUnity.ASR
     /// The heavy lifting (model loading, audio processing, turn detection) is handled
     /// by VoiceMicrophone, resulting in much cleaner application code.
     /// </summary>
+    [AddComponentMenu("Examples/EasyMic/Sherpa ONNX/ASR Example")]
     public class EasyMicSherpaONNXUnityASRExample : MonoBehaviour
     {
         #region UI Text Constants
