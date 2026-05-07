@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Globalization;
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEditor;
 using UnityEngine;
@@ -22,7 +23,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         public static void AddPlaybackAudioSource()
         {
             var go = new UnityEngine.GameObject("Playback Audio Source");
-            go.AddComponent<PlaybackAudioSourceBehaviour>();
+            var source = go.AddComponent<PlaybackAudioSourceBehaviour>();
+            EasyMicComponentIconInstaller.ApplyTemporaryIcon(source);
             Undo.RegisterCreatedObjectUndo(go, "Create Playback Audio Source");
 
             // Select the newly created GameObject and start rename

@@ -11,7 +11,19 @@
   <img src="Documentation~/images/easymic-logo.png" alt="Easy Mic Logo" width="200"/>
 </p>
 
-**Easy Mic** is a high-performance, low-latency audio recording plugin for Unity that revolutionizes audio capture and processing. It provides direct access to raw microphone data and introduces a powerful programmable audio processing pipeline, enabling developers to create sophisticated real-time audio workflows with ease.
+**Easy Mic** is a high-performance, low-latency audio recording plugin for Unity. It provides direct access to raw microphone data and introduces a programmable audio processing pipeline, enabling developers to build real-time recording, playback, speech recognition, and voice interaction workflows with a clean Unity-first API.
+
+> **Package scope:** this repository contains the open-source Easy Mic core package. It does **not** include AEC, AGC, or ANS. Those features belong to **EasyMic APM**, a separate paid extension package. If you need acoustic echo cancellation, automatic gain control, or automatic noise suppression, please contact the author separately.
+
+## At a Glance
+
+| Area | Included in this repository | Notes |
+| --- | --- | --- |
+| Microphone capture | Yes | Low-latency native capture with raw buffer access. |
+| Processing pipeline | Yes | Compose runtime processors such as capture, downmix, gate, and loopback. |
+| Unity components | Yes | Scene-friendly components for recording, playback, ASR orchestration, and TTS playback. |
+| Sherpa ONNX integration | Optional | Requires [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity). |
+| AEC / AGC / ANS | No | Provided only by the paid EasyMic APM extension package. |
 
 ## ✨ Core Features
 
@@ -19,8 +31,8 @@
 *   **🔊 Raw Audio Buffer Access**: Direct access to unprocessed audio data from the microphone, giving you complete control over audio manipulation and processing.
 *   **⛓️ Programmable Processing Pipeline**: The heart of Easy Mic - dynamically build, modify, and optimize chains of audio processors. Add, remove, or reorder processors in real-time without interrupting the audio stream.
 *   **💻 True Cross-Platform Support**: Unified API across Windows, macOS, Linux, Android, and iOS with platform-optimized native implementations.
-*   **🧩 Rich Built-in Processor Library**: Comprehensive collection of pre-built processors for common audio tasks, ready to use out of the box.
-*   **🔌 Extensible Architecture**: Designed for future expansion with custom processor support and third-party integrations.
+*   **🧩 Practical Built-in Processor Library**: Includes common processors such as capture, downmix, volume gate, and loopback monitoring.
+*   **🔌 Extensible Architecture**: Designed for custom processors, third-party integrations, and optional add-on packages.
 
 ## 🚀 The Audio Processing Pipeline
 
@@ -50,17 +62,20 @@ Easy Mic ships with a comprehensive suite of audio processors:
 *   **🗣️ `SherpaRealtimeSpeechRecognizer`**: Cutting-edge real-time speech-to-text using the Sherpa-ONNX engine. **Requires:** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
 *   **👂 `SherpaKeywordDetector`**: Keyword/wake-word detector for creating voice activation features. **Requires:** [com.eitan.sherpa-onnx-unity](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)
 
-### Professional Audio Enhancement 💎
-For production-ready applications requiring studio-quality audio, consider the **EasyMic Audio Processing Module (APM)**:
+### Optional Paid Audio Enhancement 💎
+
+For production applications that require voice communication cleanup, consider **EasyMic Audio Processing Module (APM)**.
+
+**Important:** EasyMic APM is a separate paid extension package. This open-source repository does **not** contain AEC, AGC, or ANS implementation code, binaries, samples, or licenses.
 
 *   **🚫 AEC (Acoustic Echo Cancellation)**: Eliminates acoustic echoes for crystal-clear voice communication
 *   **🔇 ANS (Automatic Noise Suppression)**: Removes background noise while preserving speech quality  
 *   **📊 AGC (Automatic Gain Control)**: Maintains consistent audio levels automatically
 
-**Perfect for AI Digital Humans & Virtual Anchors**: Solves the critical echo problem in Unity-based conversational AI applications where system output interferes with microphone input.
+**Recommended for AI Digital Humans & Virtual Anchors**: Solves the common echo problem in Unity-based conversational AI applications where system output is captured again by the microphone.
 
-💰 APM is a paid add-on. Please contact the author to purchase a license.  
-📧 Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)  
+💰 EasyMic APM is a paid add-on. Please contact the author to purchase a license.<br>
+📧 Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)<br>
 🛒 A third-party store is coming soon for convenient purchase and licensing.
 
 ## 📦 Installation
@@ -169,6 +184,7 @@ EasyMic includes ready-to-run samples under `Samples~/` so developers can quickl
 - The `AIChat Example` is designed as a production-oriented reference pipeline for conversational digital humans.
 - It demonstrates end-to-end flow from microphone input to speech recognition, LLM response generation, and speech synthesis playback.
 - Install [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) before importing/running this sample.
+- Echo cancellation, gain control, and noise suppression are not included in this repository. For those capabilities, use the separate paid EasyMic APM extension.
 
 ## 🎯 Use Cases
 
@@ -199,6 +215,7 @@ EasyMic includes ready-to-run samples under `Samples~/` so developers can quickl
 - 📖 **[Full Documentation](Documentation~/README.md)**: Comprehensive guides and API reference
 - 🧩 **[Mono Components Guide](Documentation~/en/components.md)**: Component usage for microphone, ASR, playback, and TTS
 - 💻 **[Sample Projects](Samples~/)**: Ready-to-run examples and tutorials  
+- 💎 **EasyMic APM**: Paid extension for AEC, AGC, and ANS. Contact [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)
 - 🐛 **[Issue Tracker](https://github.com/EitanWong/com.eitan.easymic/issues)**: Bug reports and feature requests
 - 💬 **[Discussions](https://github.com/EitanWong/com.eitan.easymic/discussions)**: Community support and tips
 
@@ -209,6 +226,8 @@ We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING
 ## 📄 License
 
 This project is licensed under the **GPLv3 License**. See [LICENSE.md](LICENSE.md) for details.
+
+EasyMic APM is not part of this repository and is distributed separately as a paid extension under its own commercial licensing terms.
 
 ### Key License Points:
 - ✅ **Free to use** for personal and commercial projects

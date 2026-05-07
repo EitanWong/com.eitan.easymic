@@ -1,6 +1,7 @@
 #if UNITY_EDITOR && EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using Eitan.EasyMic.Editor;
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
 using UnityEditor;
 using UnityEngine;
@@ -369,14 +370,18 @@ namespace Eitan.EasyMic.Editor.Integration.SherpaONNXUnity
 
             private static GUIContent CreateIconContent(string iconName, string fallbackText, SherpaAsrEditorTextKey tooltipKey)
             {
-                GUIContent content = EditorGUIUtility.IconContent(iconName);
                 string tooltip = EasyMicEditorLocalization.SherpaAsrText(tooltipKey);
-                if (content == null || content.image == null)
+                switch (iconName)
                 {
-                    return new GUIContent(fallbackText, tooltip);
+                    case "Toolbar Plus":
+                        return EasyMicIcons.BuiltInContent(EasyMicBuiltInIconId.Add, EasyMicIconId.Add, fallbackText, tooltip);
+                    case "TreeEditor.Duplicate":
+                        return EasyMicIcons.BuiltInContent(EasyMicBuiltInIconId.Duplicate, EasyMicIconId.Duplicate, fallbackText, tooltip);
+                    case "Toolbar Minus":
+                        return EasyMicIcons.BuiltInContent(EasyMicBuiltInIconId.Remove, EasyMicIconId.Remove, fallbackText, tooltip);
+                    default:
+                        return EasyMicIcons.Content(EasyMicIconId.Settings, tooltip);
                 }
-
-                return new GUIContent(content.image, tooltip);
             }
         }
     }

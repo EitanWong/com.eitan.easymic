@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Mono;
 using UnityEditor;
 using UnityEngine;
@@ -120,13 +121,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             public static GUIContent MakeLabel(string text, string iconName)
             {
-                var content = EditorGUIUtility.IconContent(iconName);
-                if (content == null || content.image == null)
-                {
-                    return new GUIContent(text);
-
-                }
-                return new GUIContent($" {text}", content.image);
+                return EasyMicIcons.LabeledContent(EasyMicIconId.Settings, text);
             }
         }
     }

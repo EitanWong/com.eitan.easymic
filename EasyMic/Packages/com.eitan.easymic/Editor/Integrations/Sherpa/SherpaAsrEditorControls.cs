@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Eitan.EasyMic.Editor.Icons;
 using UnityEditor;
 using UnityEngine;
 using Eitan.EasyMic.Editor;
@@ -757,13 +758,41 @@ namespace Eitan.EasyMic.Editor.Integration.SherpaONNXUnity
 
             private static GUIContent CreateIconContent(string iconName, string fallbackText, string tooltip)
             {
-                GUIContent content = EditorGUIUtility.IconContent(iconName);
-                if (content == null || content.image == null)
-                {
-                    return new GUIContent(fallbackText, tooltip);
-                }
+                return EasyMicIcons.BuiltInContent(ResolveBuiltInIcon(iconName), ResolveFallbackIcon(iconName), fallbackText, tooltip);
+            }
 
-                return new GUIContent(content.image, tooltip);
+            private static EasyMicBuiltInIconId ResolveBuiltInIcon(string iconName)
+            {
+                switch (iconName)
+                {
+                    case "Toolbar Plus":
+                        return EasyMicBuiltInIconId.Add;
+                    case "Toolbar Minus":
+                        return EasyMicBuiltInIconId.Remove;
+                    case "editicon.sml":
+                        return EasyMicBuiltInIconId.Edit;
+                    case "_Popup":
+                        return EasyMicBuiltInIconId.Pick;
+                    default:
+                        return EasyMicBuiltInIconId.Settings;
+                }
+            }
+
+            private static EasyMicIconId ResolveFallbackIcon(string iconName)
+            {
+                switch (iconName)
+                {
+                    case "Toolbar Plus":
+                        return EasyMicIconId.Add;
+                    case "Toolbar Minus":
+                        return EasyMicIconId.Remove;
+                    case "editicon.sml":
+                        return EasyMicIconId.Edit;
+                    case "_Popup":
+                        return EasyMicIconId.Pick;
+                    default:
+                        return EasyMicIconId.Settings;
+                }
             }
 
             private static void EnsureKeywordIcons()

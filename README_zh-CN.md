@@ -19,8 +19,39 @@
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
   </p>
   <p align="center">
-    <em>完美适配 AI 数字人 • 语音交互应用 • 实时音频处理</em>
+    <em>适配 AI 数字人 • 语音交互应用 • 实时音频采集</em>
   </p>
+</div>
+
+---
+
+> **仓库范围说明：** 本仓库仅包含开源的 Easy Mic 核心包，**不包含 AEC、AGC、ANS 功能**。这些能力属于 **EasyMic APM**，它是单独提供的付费扩展包。如需声学回声消除、自动增益控制或自动噪声抑制，请单独联系作者获取。
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="25%">
+        <strong>本仓库包含</strong><br>
+        麦克风采集<br>
+        原始音频缓冲区
+      </td>
+      <td align="center" width="25%">
+        <strong>本仓库包含</strong><br>
+        运行时音频流水线<br>
+        内置处理器
+      </td>
+      <td align="center" width="25%">
+        <strong>可选集成</strong><br>
+        Sherpa ONNX<br>
+        ASR / KWS 工作流
+      </td>
+      <td align="center" width="25%">
+        <strong>付费扩展</strong><br>
+        EasyMic APM<br>
+        AEC / AGC / ANS
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
@@ -28,7 +59,7 @@
 <div align="center">
   <h2>🎯 什么是 Easy Mic？</h2>
   
-  <p><strong>Easy Mic</strong> 是专为 Unity 开发者设计的<strong>专业实时音频录制和处理插件</strong>，特别适用于开发<strong>语音交互应用</strong>、<strong>AI 数字人</strong>和<strong>实时音频处理项目</strong>。</p>
+  <p><strong>Easy Mic</strong> 是专为 Unity 开发者设计的<strong>专业实时音频录制与可编程音频流水线插件</strong>，特别适用于开发<strong>语音交互应用</strong>、<strong>AI 数字人</strong>和<strong>实时音频项目</strong>。</p>
 </div>
 
 <table align="center">
@@ -84,10 +115,10 @@
     <img src="https://img.shields.io/badge/🎥_观看演示-B站-ff69b4.svg?style=for-the-badge" alt="观看演示">
   </a>
   
-  <p><strong>Unity数字人麦克风录音插件</strong><br>
-  <em>解决数字人对话打断回声消除问题</em></p>
+  <p><strong>Unity 数字人麦克风录音插件</strong><br>
+  <em>Easy Mic 核心包 + 可选 EasyMic APM 的对话式 AI 工作流</em></p>
   
-  <p>这个视频演示了 Easy Mic 如何解决 AI 对话系统中的关键音频挑战，特别是由回声和音频反馈引起的<strong>对话打断问题</strong>。</p>
+  <p>这个视频演示了对话式 AI 音频工作流。回声消除、增益控制、噪声抑制不包含在本仓库中；这些能力需要单独付费的 EasyMic APM 扩展包。</p>
 </div>
 
 ---
@@ -110,7 +141,7 @@
         <ul align="left">
           <li>✅ 模块化设计与可链式处理器</li>
           <li>✅ 动态运行时配置</li>
-          <li>✅ 内置和自定义处理器</li>
+          <li>✅ 内置与自定义处理器</li>
         </ul>
       </td>
     </tr>
@@ -137,12 +168,13 @@
 
 ---
 
-## 💎 EasyMic APM 扩展包 - 专业 3A 音频处理
+## 💎 EasyMic APM 扩展包 - 付费专业 3A 音频处理
 
 <div align="center">
   <img src="https://img.shields.io/badge/🔊_解决_AI_对话打断问题-专业解决方案-gold.svg?style=for-the-badge" alt="APM解决方案">
   
-  <p>对于从事 <strong>Unity AI 数字人项目</strong>的开发者，我们提供 <strong>EasyMic APM（音频处理模块）</strong>扩展包。</p>
+  <p>对于从事 <strong>Unity AI 数字人项目</strong>的开发者，<strong>EasyMic APM（Audio Processing Module）</strong>作为<strong>单独付费扩展包</strong>提供。</p>
+  <p><strong>本仓库不包含 AEC、AGC、ANS 的实现代码、二进制文件、示例或授权。</strong></p>
 </div>
 
 <div align="center">
@@ -172,6 +204,7 @@
 
 <div align="center">
   <p><strong>📧 联系：</strong> <a href="mailto:unease-equity-5c@icloud.com">unease-equity-5c@icloud.com</a> | <strong>💬 B站：</strong> 发送私信</p>
+  <p><em>如项目需要 AEC、AGC、ANS，请单独联系获取 EasyMic APM。</em></p>
   
   <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
     <img src="https://img.shields.io/badge/🎥_演示视频-在B站观看-ff69b4.svg" alt="演示视频">
@@ -249,6 +282,7 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
 - `AIChat Example` 以“可落地”的对话系统流程为目标，适合作为数字人项目脚手架。
 - 示例覆盖从麦克风输入、语音识别、LLM 生成回复，到 TTS 合成播放的完整链路。
 - 运行前请先安装 [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity)。
+- 本仓库不包含 AEC、AGC、ANS。如需这些能力，请使用单独付费的 EasyMic APM 扩展包。
 
 ---
 
@@ -337,7 +371,8 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
         <strong>AI 数字人</strong>
         <ul align="left">
           <li>实时语音交互</li>
-          <li>带回声消除的对话AI</li>
+          <li>对话式 AI 工作流</li>
+          <li>可选 APM 扩展用于回声消除</li>
           <li>自然语言处理</li>
         </ul>
       </td>
@@ -406,6 +441,7 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
 
 <div align="center">
   <p>本项目采用 <strong>GPLv3 许可证</strong> - 详见 <a href="LICENSE.md">LICENSE.md</a> 文件。</p>
+  <p><strong>EasyMic APM 不属于本仓库内容。</strong>它作为付费扩展包单独分发，并适用独立的商业授权条款。</p>
   
   <table>
     <tr>
@@ -451,7 +487,7 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
         📧<br>
         <strong>专业支持</strong><br>
         <a href="mailto:unease-equity-5c@icloud.com">邮件</a> | B站私信<br>
-        <em>提供技术指导</em>
+        <em>技术支持与 EasyMic APM 咨询</em>
       </td>
     </tr>
   </table>

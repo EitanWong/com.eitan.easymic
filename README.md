@@ -19,8 +19,39 @@
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
   </p>
   <p align="center">
-    <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Processing</em>
+    <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Capture</em>
   </p>
+</div>
+
+---
+
+> **Repository scope:** this repository contains the open-source Easy Mic core package. It does **not** include AEC, AGC, or ANS. Those features are provided by **EasyMic APM**, a separate paid extension package. If you need acoustic echo cancellation, automatic gain control, or automatic noise suppression, please contact the author separately.
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="25%">
+        <strong>Included</strong><br>
+        Microphone capture<br>
+        Raw audio buffers
+      </td>
+      <td align="center" width="25%">
+        <strong>Included</strong><br>
+        Runtime audio pipeline<br>
+        Built-in processors
+      </td>
+      <td align="center" width="25%">
+        <strong>Optional</strong><br>
+        Sherpa ONNX integration<br>
+        ASR / KWS workflows
+      </td>
+      <td align="center" width="25%">
+        <strong>Paid Add-on</strong><br>
+        EasyMic APM<br>
+        AEC / AGC / ANS
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
@@ -28,7 +59,7 @@
 <div align="center">
   <h2>🎯 What is Easy Mic?</h2>
   
-  <p><strong>Easy Mic</strong> is a professional <strong>real-time audio recording and processing plugin</strong> designed specifically for Unity developers working on <strong>voice-interactive applications</strong>, <strong>AI digital humans</strong>, and <strong>real-time audio processing projects</strong>.</p>
+  <p><strong>Easy Mic</strong> is a professional <strong>real-time audio recording and programmable audio pipeline plugin</strong> designed specifically for Unity developers working on <strong>voice-interactive applications</strong>, <strong>AI digital humans</strong>, and <strong>real-time audio projects</strong>.</p>
 </div>
 
 <table align="center">
@@ -85,9 +116,9 @@
   </a>
   
   <p><strong>Unity Digital Human Microphone Recording Plugin</strong><br>
-  <em>Solving Echo Cancellation for Conversational AI</em></p>
+  <em>Easy Mic core + optional EasyMic APM workflow for conversational AI</em></p>
   
-  <p>This video demonstrates how Easy Mic solves critical audio challenges in AI conversation systems, particularly the <strong>conversation interruption problem</strong> caused by echo and audio feedback.</p>
+  <p>This video demonstrates a conversational AI audio workflow. Echo cancellation, gain control, and noise suppression are not included in this repository; they require the separate paid EasyMic APM extension.</p>
 </div>
 
 ---
@@ -110,7 +141,7 @@
         <ul align="left">
           <li>✅ Modular design with chainable processors</li>
           <li>✅ Dynamic runtime configuration</li>
-          <li>✅ Built-in & custom processors</li>
+          <li>✅ Built-in and custom processors</li>
         </ul>
       </td>
     </tr>
@@ -137,12 +168,13 @@
 
 ---
 
-## 💎 EasyMic APM Extension - Professional 3A Audio Processing
+## 💎 EasyMic APM Extension - Paid Professional 3A Audio Processing
 
 <div align="center">
   <img src="https://img.shields.io/badge/🔊_Solve_AI_Conversation_Interruption-Professional_Solution-gold.svg?style=for-the-badge" alt="APM Solution">
   
-  <p>For developers working on <strong>Unity AI digital human projects</strong>, we offer the <strong>EasyMic APM (Audio Processing Module)</strong> extension.</p>
+  <p>For developers working on <strong>Unity AI digital human projects</strong>, <strong>EasyMic APM (Audio Processing Module)</strong> is available as a <strong>separate paid extension package</strong>.</p>
+  <p><strong>This repository does not contain AEC, AGC, or ANS implementation code, binaries, samples, or licenses.</strong></p>
 </div>
 
 <div align="center">
@@ -172,6 +204,7 @@
 
 <div align="center">
   <p><strong>📧 Contact:</strong> <a href="mailto:unease-equity-5c@icloud.com">unease-equity-5c@icloud.com</a> | <strong>💬 Bilibili:</strong> Send private message</p>
+  <p><em>Please contact separately if your project needs AEC, AGC, or ANS.</em></p>
   
   <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
     <img src="https://img.shields.io/badge/🎥_Demo_Video-Watch_on_Bilibili-ff69b4.svg" alt="Demo Video">
@@ -249,6 +282,7 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
 - The `AIChat Example` is designed as a production-oriented reference pipeline for conversational digital humans.
 - It demonstrates end-to-end flow from microphone input to speech recognition, LLM response generation, and speech synthesis playback.
 - Install [`com.eitan.sherpa-onnx-unity`](https://github.com/EitanWong/com.eitan.sherpa-onnx-unity) before importing/running this sample.
+- AEC, AGC, and ANS are not included in this repository. Use the separate paid EasyMic APM extension for those capabilities.
 
 ---
 
@@ -337,7 +371,8 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
         <strong>AI Digital Humans</strong>
         <ul align="left">
           <li>Real-time voice interaction</li>
-          <li>Conversation AI with echo cancellation</li>
+          <li>Conversation AI workflows</li>
+          <li>Optional APM add-on for echo cancellation</li>
           <li>Natural language processing</li>
         </ul>
       </td>
@@ -406,6 +441,7 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
 
 <div align="center">
   <p>This project is licensed under the <strong>GPLv3 License</strong> - see the <a href="LICENSE.md">LICENSE.md</a> file for details.</p>
+  <p><strong>EasyMic APM is not part of this repository.</strong> It is distributed separately as a paid extension under its own commercial licensing terms.</p>
   
   <table>
     <tr>
@@ -451,7 +487,7 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
         📧<br>
         <strong>Professional Support</strong><br>
         <a href="mailto:unease-equity-5c@icloud.com">Email</a> | Bilibili PM<br>
-        <em>Provide technical support</em>
+        <em>Technical support and EasyMic APM inquiries</em>
       </td>
     </tr>
   </table>
