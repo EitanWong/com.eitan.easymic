@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using Eitan.EasyMic.Editor;
+using Eitan.EasyMic.Editor.Icons;
 using UnityEditor;
 using UnityEngine;
 
@@ -76,7 +77,8 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         public static void AddEasyMicrophone()
         {
             var go = new GameObject(EasyMicEditorLocalization.Text(EasyMicEditorTextKey.EasyMicMenuGameObjectName));
-            go.AddComponent<EasyMicrophone>();
+            var mic = go.AddComponent<EasyMicrophone>();
+            EasyMicComponentIconInstaller.ApplyTemporaryIcon(mic);
             Undo.RegisterCreatedObjectUndo(go, EasyMicEditorLocalization.Text(EasyMicEditorTextKey.EasyMicMenuCreate));
 
             Selection.activeGameObject = go;
@@ -1283,31 +1285,43 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             private static GUIContent MakeLabeledIcon(string iconName, string text, string tooltip, string fallbackText)
             {
-                var content = EditorGUIUtility.IconContent(iconName);
-                if (content == null || content.image == null)
-                {
-                    return new GUIContent(fallbackText ?? text, tooltip);
-                }
-
-                return new GUIContent($" {text}", content.image, tooltip);
+                EasyMicIconId fallbackId = ResolveFallbackIcon(iconName);
+                return iconName == "Refresh"
+                    ? EasyMicIcons.LabeledBuiltInContent(EasyMicBuiltInIconId.Refresh, fallbackId, text, tooltip)
+                    : EasyMicIcons.LabeledContent(fallbackId, text, tooltip);
             }
 
             private static GUIContent MakeIcon(string name, string tooltip, string fallbackText)
             {
-                var content = EditorGUIUtility.IconContent(name);
-                if (content == null)
+                EasyMicIconId fallbackId = ResolveFallbackIcon(name);
+                return name == "Refresh"
+                    ? EasyMicIcons.BuiltInContent(EasyMicBuiltInIconId.Refresh, fallbackId, fallbackText, tooltip)
+                    : EasyMicIcons.Content(fallbackId, tooltip);
+            }
+
+            private static EasyMicIconId ResolveFallbackIcon(string iconName)
+            {
+                switch (iconName)
                 {
-                    content = new GUIContent(fallbackText, tooltip);
+                    case "PlayButton":
+                        return EasyMicIconId.AudioOutput;
+                    case "Animation.Record":
+                        return EasyMicIconId.AudioInput;
+                    case "PauseButton":
+                        return EasyMicIconId.Warning;
+                    case "SaveActive":
+                        return EasyMicIconId.Success;
+                    case "preAudioLoopOn":
+                    case "preAudioLoopOff":
+                        return EasyMicIconId.Refresh;
+                    case "beginButton":
+                    case "endButton":
+                        return EasyMicIconId.Pick;
+                    case "Refresh":
+                        return EasyMicIconId.Refresh;
+                    default:
+                        return EasyMicIconId.EasyMic;
                 }
-                else
-                {
-                    if (content.image == null && !string.IsNullOrEmpty(fallbackText))
-                    {
-                        content.text = fallbackText;
-                    }
-                    content.tooltip = tooltip;
-                }
-                return content;
             }
         }
     }

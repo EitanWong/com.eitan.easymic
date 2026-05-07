@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEditor;
 using UnityEngine;
@@ -75,6 +76,7 @@ namespace Eitan.EasyMic.Runtime.Editor
             EditorApplication.update += EditorUpdate;
             _nextRepaint = EditorApplication.timeSinceStartup;
             EditorApplication.hierarchyChanged += MarkSceneDirty;
+            titleContent = EasyMicIcons.LabeledContent(EasyMicIconId.Diagnostics, "AudioSystem Diagnostics");
         }
 
         private void OnDisable()
@@ -460,7 +462,7 @@ namespace Eitan.EasyMic.Runtime.Editor
             // Ping button
             var go = row.behaviour ? row.behaviour.gameObject : null;
             var pingRect = new Rect(x, r.y + 2, pingW, r.height - 4);
-            if (GUI.Button(pingRect, EditorGUIUtility.IconContent("d_UnityEditor.SceneHierarchyWindow")))
+            if (GUI.Button(pingRect, EasyMicIcons.BuiltInContent(EasyMicBuiltInIconId.Ping, EasyMicIconId.Ping)))
             {
                 if (go != null) { EditorGUIUtility.PingObject(go); Selection.activeObject = go; }
             }

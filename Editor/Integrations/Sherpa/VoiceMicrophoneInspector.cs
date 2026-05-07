@@ -1,6 +1,7 @@
 #if UNITY_EDITOR && EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using Eitan.EasyMic.Editor;
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
 using UnityEditor;
 using UnityEngine;
@@ -27,7 +28,8 @@ namespace Eitan.EasyMic.Editor.Integration.SherpaONNXUnity
         public static void AddVoiceMicrophone()
         {
             var go = new UnityEngine.GameObject(EasyMicEditorLocalization.Text(EasyMicEditorTextKey.VoiceMenuGameObjectName));
-            go.AddComponent<VoiceMicrophone>();
+            var voiceMic = go.AddComponent<VoiceMicrophone>();
+            EasyMicComponentIconInstaller.ApplyTemporaryIcon(voiceMic);
             Undo.RegisterCreatedObjectUndo(go, EasyMicEditorLocalization.Text(EasyMicEditorTextKey.VoiceMenuCreate));
 
             // Select the newly created GameObject and start rename

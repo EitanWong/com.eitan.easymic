@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Eitan.EasyMic;
+using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Mono;
 using UnityEditor;
@@ -365,24 +366,29 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             private static GUIContent MakeLabel(string text, string iconName)
             {
-                var content = EditorGUIUtility.IconContent(iconName);
-                if (content == null || content.image == null)
-                {
-                    return new GUIContent(text);
-                }
-
-                return new GUIContent($" {text}", content.image);
+                return EasyMicIcons.LabeledContent(ResolveFallbackIcon(iconName), text);
             }
 
             private static GUIContent MakeLabeledContent(string iconName, string text, string tooltip, string fallbackText)
             {
-                var content = EditorGUIUtility.IconContent(iconName);
-                if (content == null || content.image == null)
-                {
-                    return new GUIContent(fallbackText ?? text, tooltip);
-                }
+                return EasyMicIcons.LabeledBuiltInContent(EasyMicBuiltInIconId.Refresh, EasyMicIconId.Refresh, text, tooltip);
+            }
 
-                return new GUIContent($" {text}", content.image, tooltip);
+            private static EasyMicIconId ResolveFallbackIcon(string iconName)
+            {
+                switch (iconName)
+                {
+                    case "Microphone Icon":
+                        return EasyMicIconId.AudioInput;
+                    case "Animation.Record":
+                        return EasyMicIconId.RuntimeBridge;
+                    case "SceneViewOrtho":
+                        return EasyMicIconId.AudioOutput;
+                    case "Profiler.Audio":
+                        return EasyMicIconId.Waveform;
+                    default:
+                        return EasyMicIconId.EasyMic;
+                }
             }
         }
     }
