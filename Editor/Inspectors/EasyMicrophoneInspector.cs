@@ -47,7 +47,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private const float WaveformZoomMax = 32f;
         private static readonly int WaveformControlHint = "EasyMic_Waveform_Control".GetHashCode();
 
-        private void OnEnable()
+        protected virtual void OnEnable()
         {
             _mic = (EasyMicrophone)target;
 
@@ -63,7 +63,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             EditorApplication.update += EditorUpdate;
         }
 
-        private void OnDisable()
+        protected virtual void OnDisable()
         {
             UnsubscribeFromRuntimeEvents();
             EditorApplication.update -= EditorUpdate;
@@ -90,6 +90,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             serializedObject.Update();
 
             DrawConfigurationSection();
+            DrawAdditionalConfigurationSections();
 
             EditorGUILayout.Space(Styles.SectionSpacing);
 
@@ -108,9 +109,18 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 EditorGUILayout.Space(Styles.SectionSpacing);
 
                 DrawRecordingPreview(mic);
+                DrawAdditionalRuntimeSections(mic);
             }
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        protected virtual void DrawAdditionalConfigurationSections()
+        {
+        }
+
+        protected virtual void DrawAdditionalRuntimeSections(EasyMicrophone mic)
+        {
         }
 
         private void DrawPlayModeNotice()

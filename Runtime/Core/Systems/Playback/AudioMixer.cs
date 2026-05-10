@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
@@ -208,6 +209,62 @@ namespace Eitan.EasyMic.Runtime
         public void RenderAdditive(Span<float> buffer, int systemChannels, int systemSampleRate)
         {
             RenderAdditive(buffer, systemChannels, systemSampleRate, 1f);
+        }
+
+        internal void RenderMaster(Span<float> buffer, int systemChannels, int systemSampleRate)
+        {
+            if (buffer.IsEmpty || _mute)
+            {
+                return;
+            }
+
+            EnsureGainTable();
+            var table = Volatile.Read(ref _activeTable);
+            if (table.IsEmpty)
+            {
+                return;
+            }
+
+            var entries = table.Entries;
+            var runtime = Volatile.Read(ref _runtime);
+            if (entries.Length == 0 || runtime.Length < entries.Length)
+            {
+                return;
+            }
+
+            int rampSamples = CalculateRampSamples(systemSampleRate, systemChannels);
+            for (int i = 0; i < entries.Length; i++)
+            {
+                ref var envelope = ref runtime[i];
+                var entry = entries[i];
+                var node = entry.Node;
+                if (node == null)
+                {
+                    UpdateGainEnvelope(ref envelope, 0f, rampSamples);
+                    continue;
+                }
+
+                float targetGain = entry.EffectiveGain;
+                bool include = targetGain > GainEpsilon && node.IsActive && !node.Mute;
+                if (!include)
+                {
+                    UpdateGainEnvelope(ref envelope, 0f, rampSamples);
+                    continue;
+                }
+
+                try
+                {
+                    node.RenderInto(buffer, systemChannels, systemSampleRate, ref envelope, targetGain, rampSamples, Span<float>.Empty);
+                }
+                catch
+                {
+                    // Hard RT safety: swallow node exceptions to avoid device dropout.
+                }
+            }
+
+            _state.Length = buffer.Length;
+            try { Pipeline.OnAudioPass(buffer, _state); } catch { }
+            ApplySoftLimitIfNeeded(buffer);
         }
 
         internal void RenderAdditive(Span<float> buffer, int systemChannels, int systemSampleRate, float upstreamGain)
@@ -599,20 +656,10 @@ namespace Eitan.EasyMic.Runtime
 
             if (previousTable.Entries.Length > 0 && previousRuntime.Length > 0)
             {
-                var envelopeMap = new Dictionary<IMixNode, MixerGainEnvelope>(previousTable.Entries.Length);
-                for (int i = 0; i < previousTable.Entries.Length && i < previousRuntime.Length; i++)
-                {
-                    var prevNode = previousTable.Entries[i].Node;
-                    if (prevNode != null)
-                    {
-                        envelopeMap[prevNode] = previousRuntime[i];
-                    }
-                }
-
                 for (int i = 0; i < nodeCount; i++)
                 {
                     var node = entries[i].Node;
-                    runtime[i] = node != null && envelopeMap.TryGetValue(node, out var env) ? env : default;
+                    runtime[i] = FindPreviousEnvelope(node, previousTable.Entries, previousRuntime);
                 }
             }
             else
@@ -626,6 +673,25 @@ namespace Eitan.EasyMic.Runtime
 
             _activeEntriesAreA = !_activeEntriesAreA;
             _activeEnvelopesAreA = !_activeEnvelopesAreA;
+        }
+
+        private static MixerGainEnvelope FindPreviousEnvelope(IMixNode node, MixNodeEntry[] previousEntries, MixerGainEnvelope[] previousRuntime)
+        {
+            if (node == null)
+            {
+                return default;
+            }
+
+            int count = Math.Min(previousEntries.Length, previousRuntime.Length);
+            for (int i = 0; i < count; i++)
+            {
+                if (ReferenceEquals(previousEntries[i].Node, node))
+                {
+                    return previousRuntime[i];
+                }
+            }
+
+            return default;
         }
 
         private MixNodeEntry[] AcquireEntryBuffer(int required)
@@ -730,6 +796,13 @@ namespace Eitan.EasyMic.Runtime
             int remaining = envelope.SamplesRemaining;
             float target = envelope.Target;
 
+            if (remaining <= 0)
+            {
+                ApplyConstantGainAndAccumulate(destination, source, current);
+                envelope.Step = 0f;
+                return;
+            }
+
             for (int i = 0; i < source.Length; i++)
             {
                 float sample = source[i] * current;
@@ -751,6 +824,38 @@ namespace Eitan.EasyMic.Runtime
             if (remaining <= 0)
             {
                 envelope.Step = 0f;
+            }
+        }
+
+        private static void ApplyConstantGainAndAccumulate(Span<float> destination, Span<float> source, float gain)
+        {
+            if (Vector.IsHardwareAccelerated && source.Length >= 4)
+            {
+                var gainVector = new Vector4(gain, gain, gain, gain);
+                int vectorizedLength = source.Length - (source.Length % 4);
+
+                for (int i = 0; i < vectorizedLength; i += 4)
+                {
+                    var src = new Vector4(source[i], source[i + 1], source[i + 2], source[i + 3]);
+                    var dst = new Vector4(destination[i], destination[i + 1], destination[i + 2], destination[i + 3]);
+                    var mixed = dst + src * gainVector;
+                    destination[i] = mixed.X;
+                    destination[i + 1] = mixed.Y;
+                    destination[i + 2] = mixed.Z;
+                    destination[i + 3] = mixed.W;
+                }
+
+                for (int i = vectorizedLength; i < source.Length; i++)
+                {
+                    destination[i] += source[i] * gain;
+                }
+
+                return;
+            }
+
+            for (int i = 0; i < source.Length; i++)
+            {
+                destination[i] += source[i] * gain;
             }
         }
 

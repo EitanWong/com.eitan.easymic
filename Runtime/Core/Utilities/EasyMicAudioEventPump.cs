@@ -14,6 +14,7 @@ namespace Eitan.EasyMic.Runtime
         private const int HeaderFloats = 5; // type, id, channels, sampleRate, sampleCount
         private const int DefaultQueueCapacityFloats = 262144; // ~1MB float ring buffer
         private const int ZeroChunkFloats = 1024;
+        private const int MaxPooledArraysPerSize = 8;
 
         private enum EventType : int
         {
@@ -23,7 +24,7 @@ namespace Eitan.EasyMic.Runtime
         }
 
         private static readonly object s_initLock = new object();
-        private static AudioBuffer s_queue;
+        private static UnsafeAudioRingBuffer s_queue;
         private static AutoResetEvent s_signal;
         private static Thread s_thread;
         private static bool s_running;
@@ -34,6 +35,10 @@ namespace Eitan.EasyMic.Runtime
         private static int s_nextSourceId;
         private static readonly object s_sourcesLock = new object();
         private static readonly Dictionary<int, PlaybackAudioSource> s_sources = new Dictionary<int, PlaybackAudioSource>(64);
+        private static readonly object s_payloadPoolLock = new object();
+        private static readonly Dictionary<int, Stack<float[]>> s_payloadPool = new Dictionary<int, Stack<float[]>>(16);
+        private static readonly object s_dispatchItemPoolLock = new object();
+        private static readonly Stack<DispatchItem> s_dispatchItemPool = new Stack<DispatchItem>(32);
 
         private static readonly float[] s_zeroChunk = new float[ZeroChunkFloats];
 
@@ -135,10 +140,10 @@ namespace Eitan.EasyMic.Runtime
 
         internal ref struct AudioEventWriter
         {
-            private readonly AudioBuffer _queue;
+            private readonly UnsafeAudioRingBuffer _queue;
             private int _remaining;
 
-            internal AudioEventWriter(AudioBuffer queue, int remainingSamples)
+            internal AudioEventWriter(UnsafeAudioRingBuffer queue, int remainingSamples)
             {
                 _queue = queue;
                 _remaining = remainingSamples;
@@ -233,7 +238,7 @@ namespace Eitan.EasyMic.Runtime
                     return;
                 }
 
-                Volatile.Write(ref s_queue, new AudioBuffer(DefaultQueueCapacityFloats, 1));
+                Volatile.Write(ref s_queue, new UnsafeAudioRingBuffer(DefaultQueueCapacityFloats, 1));
                 Volatile.Write(ref s_signal, new AutoResetEvent(false));
                 Volatile.Write(ref s_running, true);
                 s_thread = new Thread(ThreadLoop)
@@ -276,50 +281,53 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            Span<float> headerSpan = header;
-
-            while (true)
+            while (TryDrainOne(queue, header))
             {
-                if (queue.ReadableCount < HeaderFloats)
-                {
-                    return;
-                }
-
-                int peeked = queue.Peek(headerSpan);
-                if (peeked < HeaderFloats)
-                {
-                    return;
-                }
-
-                int type = (int)header[0];
-                int id = (int)header[1];
-                int channels = (int)header[2];
-                int sampleRate = (int)header[3];
-                int sampleCount = (int)header[4];
-
-                if (sampleCount < 0)
-                {
-                    // Corrupt stream; drop header and attempt to resync.
-                    queue.Skip(HeaderFloats);
-                    continue;
-                }
-
-                int required = HeaderFloats + sampleCount;
-                if (queue.ReadableCount < required)
-                {
-                    return;
-                }
-
-                queue.Skip(HeaderFloats);
-
-                float[] payload = sampleCount == 0 ? Array.Empty<float>() : new float[sampleCount];
-                if (sampleCount > 0)
-                {
-                    queue.TryReadExact(payload, sampleCount);
-                }
-
-                Dispatch((EventType)type, id, channels, sampleRate, payload);
             }
+        }
+
+        private static bool TryDrainOne(UnsafeAudioRingBuffer queue, float[] header)
+        {
+            if (queue.ReadableCount < HeaderFloats)
+            {
+                return false;
+            }
+
+            int peeked = queue.Peek(header);
+            if (peeked < HeaderFloats)
+            {
+                return false;
+            }
+
+            int type = (int)header[0];
+            int id = (int)header[1];
+            int channels = (int)header[2];
+            int sampleRate = (int)header[3];
+            int sampleCount = (int)header[4];
+
+            if (sampleCount < 0)
+            {
+                // Corrupt stream; drop header and attempt to resync.
+                queue.Skip(HeaderFloats);
+                return true;
+            }
+
+            int required = HeaderFloats + sampleCount;
+            if (queue.ReadableCount < required)
+            {
+                return false;
+            }
+
+            queue.Skip(HeaderFloats);
+
+            float[] payload = sampleCount == 0 ? Array.Empty<float>() : RentPayload(sampleCount);
+            if (sampleCount > 0)
+            {
+                queue.TryReadExact(payload, sampleCount);
+            }
+
+            Dispatch((EventType)type, id, channels, sampleRate, payload);
+            return true;
         }
 
         private static void Dispatch(EventType type, int id, int channels, int sampleRate, float[] payload)
@@ -327,25 +335,48 @@ namespace Eitan.EasyMic.Runtime
             var ctx = Volatile.Read(ref s_mainContext);
             if (ctx != null)
             {
+                DispatchItem item = null;
                 try
                 {
-                    ctx.Post(DispatchOnMainThread, new DispatchItem(type, id, channels, sampleRate, payload));
+                    item = RentDispatchItem(type, id, channels, sampleRate, payload);
+                    ctx.Post(DispatchOnMainThread, item);
                     return;
                 }
                 catch
                 {
+                    if (item != null)
+                    {
+                        item.Clear();
+                        ReturnDispatchItem(item);
+                    }
                     // Fall through to direct dispatch.
                 }
             }
 
-            DispatchDirect(type, id, channels, sampleRate, payload);
+            try
+            {
+                DispatchDirect(type, id, channels, sampleRate, payload);
+            }
+            finally
+            {
+                ReturnPayload(payload);
+            }
         }
 
         private static void DispatchOnMainThread(object state)
         {
             if (state is DispatchItem item)
             {
-                DispatchDirect(item.Type, item.Id, item.Channels, item.SampleRate, item.Payload);
+                try
+                {
+                    DispatchDirect(item.Type, item.Id, item.Channels, item.SampleRate, item.Payload);
+                }
+                finally
+                {
+                    ReturnPayload(item.Payload);
+                    item.Clear();
+                    ReturnDispatchItem(item);
+                }
             }
         }
 
@@ -389,9 +420,85 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
+        private static float[] RentPayload(int sampleCount)
+        {
+            if (sampleCount <= 0)
+            {
+                return Array.Empty<float>();
+            }
+
+            lock (s_payloadPoolLock)
+            {
+                if (s_payloadPool.TryGetValue(sampleCount, out var stack) && stack.Count > 0)
+                {
+                    return stack.Pop();
+                }
+            }
+
+            return new float[sampleCount];
+        }
+
+        private static void ReturnPayload(float[] payload)
+        {
+            if (payload == null || payload.Length == 0)
+            {
+                return;
+            }
+
+            lock (s_payloadPoolLock)
+            {
+                if (!s_payloadPool.TryGetValue(payload.Length, out var stack))
+                {
+                    stack = new Stack<float[]>(MaxPooledArraysPerSize);
+                    s_payloadPool[payload.Length] = stack;
+                }
+
+                if (stack.Count < MaxPooledArraysPerSize)
+                {
+                    stack.Push(payload);
+                }
+            }
+        }
+
+        private static DispatchItem RentDispatchItem(EventType type, int id, int channels, int sampleRate, float[] payload)
+        {
+            DispatchItem item = null;
+            lock (s_dispatchItemPoolLock)
+            {
+                if (s_dispatchItemPool.Count > 0)
+                {
+                    item = s_dispatchItemPool.Pop();
+                }
+            }
+
+            if (item == null)
+            {
+                item = new DispatchItem();
+            }
+
+            item.Reset(type, id, channels, sampleRate, payload);
+            return item;
+        }
+
+        private static void ReturnDispatchItem(DispatchItem item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            lock (s_dispatchItemPoolLock)
+            {
+                if (s_dispatchItemPool.Count < 64)
+                {
+                    s_dispatchItemPool.Push(item);
+                }
+            }
+        }
+
         private sealed class DispatchItem
         {
-            public DispatchItem(EventType type, int id, int channels, int sampleRate, float[] payload)
+            public void Reset(EventType type, int id, int channels, int sampleRate, float[] payload)
             {
                 Type = type;
                 Id = id;
@@ -400,11 +507,16 @@ namespace Eitan.EasyMic.Runtime
                 Payload = payload;
             }
 
-            public EventType Type { get; }
-            public int Id { get; }
-            public int Channels { get; }
-            public int SampleRate { get; }
-            public float[] Payload { get; }
+            public void Clear()
+            {
+                Payload = null;
+            }
+
+            public EventType Type { get; private set; }
+            public int Id { get; private set; }
+            public int Channels { get; private set; }
+            public int SampleRate { get; private set; }
+            public float[] Payload { get; private set; }
         }
     }
 }

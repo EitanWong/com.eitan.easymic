@@ -5,7 +5,8 @@
         "GUID:ffbca9e1633ba48bca018caa0d7f0a71",
         "GUID:a84730b5b56004206b2dc853c0a4bca5",
         "GUID:eb89f919d52c74f21a0de0c5bd142fa3",
-        "GUID:09b0e0e33ee104f6d91e5dac395721d7"
+        "GUID:09b0e0e33ee104f6d91e5dac395721d7",
+        "GUID:74cf6593781c64404b25262eb518d09c"
     ],
     "includePlatforms": [
         "Editor"
@@ -23,6 +24,11 @@
             "name": "com.eitan.sherpa-onnx-unity",
             "expression": "",
             "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+        },
+        {
+            "name": "com.eitan.easymic.apm",
+            "expression": "",
+            "define": "EASYMIC_APM_INTEGRATION"
         }
     ],
     "noEngineReferences": false

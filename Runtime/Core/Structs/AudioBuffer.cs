@@ -26,9 +26,7 @@ namespace Eitan.EasyMic.Runtime
         // 内部数组长度 = Capacity + 1（空一格用于区分满/空）
         private readonly int _size;
 
-        // 若 _size 为 2 的幂，则使用掩码快速环绕
-        private readonly bool _useMask;
-        private readonly int _mask; // 仅在 _useMask=true 时有效
+        private readonly int _mask;
 
         private readonly float[] _buffer;
         private readonly int _frameStride;
@@ -72,17 +70,7 @@ namespace Eitan.EasyMic.Runtime
             Capacity = _size - 1;
             _buffer = new float[_size];
 
-            // 根据 _size 判断是否能走掩码路径（仅当 _size 是 2 的幂）
-            if (IsPowerOfTwo(_size))
-            {
-                _useMask = true;
-                _mask = _size - 1;
-            }
-            else
-            {
-                _useMask = false;
-                _mask = 0;
-            }
+            _mask = _size - 1;
 
             Volatile.Write(ref _writePos.Value, 0);
             Volatile.Write(ref _readPos.Value, 0);
@@ -418,19 +406,6 @@ namespace Eitan.EasyMic.Runtime
             => w >= r ? (_size - w + r - 1) : (r - w - 1);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int Advance(int pos, int n)
-        {
-            if (_useMask)
-            {
-                // _size 为 2 的幂：掩码环绕（更快）
-                return (pos + n) & _mask;
-            }
-            // 非 2 的幂：一次环绕足够（n 不会超过 _size-1）
-            pos += n;
-            return (pos >= _size) ? (pos - _size) : pos;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsPowerOfTwo(int x) => x > 0 && (x & (x - 1)) == 0;
+        private int Advance(int pos, int n) => (pos + n) & _mask;
     }
 }

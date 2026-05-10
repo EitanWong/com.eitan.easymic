@@ -9,7 +9,7 @@ namespace Eitan.EasyMic.Runtime
     /// </summary>
     public abstract class AudioReader : AudioWorkerBase
     {
-        private AudioBuffer _queue;
+        private UnsafeAudioRingBuffer _queue;
         private Thread _worker;
         private volatile bool _running;
         private AutoResetEvent _signal;
@@ -39,10 +39,10 @@ namespace Eitan.EasyMic.Runtime
             CurrentSampleRate = state.SampleRate;
             CurrentChannelCount = state.ChannelCount;
 
-            // Capacity: choose near power-of-two-1 to trigger mask fast-path in AudioBuffer (size=capacity+1 is power-of-two)
+            // Capacity: choose near power-of-two-1 so the unmanaged SPSC ring uses mask wrapping.
             int baseCap = Math.Max(1, state.SampleRate * state.ChannelCount * _capacitySeconds);
             int cap = ToPow2Minus1(baseCap);
-            _queue = new AudioBuffer(cap);
+            _queue = new UnsafeAudioRingBuffer(cap);
 
             // Initial worker buffer uses the current upstream frame length (may vary at runtime).
             int initial = Math.Max(1, state.Length);
@@ -121,56 +121,70 @@ namespace Eitan.EasyMic.Runtime
             {
                 // Wait for a signal from the producer or timeout to handle shutdown gracefully.
                 _signal?.WaitOne(100);
-
-                if (!_running)
-                {
-                    break;
-                }
-
-                // Drain all complete messages in the queue.
-                while (_running)
-                {
-                    if (_queue.ReadableCount < 1)
-                    {
-                        break;
-                    }
-
-                    if (_queue.Peek(_workerHeader) < 1)
-                    {
-                        break;
-                    }
-
-                    int needed = (int)_workerHeader[0];
-                    if (needed < 0)
-                    {
-                        _queue.Skip(1);
-                        continue;
-                    }
-
-                    if (_queue.ReadableCount < 1 + needed)
-                    {
-                        break; // wait for full payload
-                    }
-
-                    _queue.Skip(1); // consume header
-
-                    if (needed == 0)
-                    {
-                        try { OnAudioReadAsync(ReadOnlySpan<float>.Empty); } catch { }
-                        continue;
-                    }
-
-                    if (_workerFrame == null || _workerFrame.Length < needed)
-                    {
-                        _workerFrame = new float[needed];
-                    }
-
-                    if (_queue.TryReadExact(_workerFrame, needed))
-                    {
-                        try { OnAudioReadAsync(new ReadOnlySpan<float>(_workerFrame, 0, needed)); } catch { }
-                    }
-                }
+                DrainAvailableMessages(discardIncomplete: false);
             }
+
+            // The producer has stopped at this point. Drain complete messages to preserve the
+            // tail of short recordings, then discard any malformed partial frame so shutdown
+            // cannot spin forever.
+            DrainAvailableMessages(discardIncomplete: true);
+        }
+
+        private void DrainAvailableMessages(bool discardIncomplete)
+        {
+            var queue = _queue;
+            while (TryDrainOneMessage(queue, discardIncomplete))
+            {
+                // Intentionally empty: TryDrainOneMessage performs the bounded unit of work.
+            }
+        }
+
+        private bool TryDrainOneMessage(UnsafeAudioRingBuffer queue, bool discardIncomplete)
+        {
+            if (queue == null || queue.ReadableCount < 1 || queue.Peek(_workerHeader) < 1)
+            {
+                return false;
+            }
+
+            int needed = (int)_workerHeader[0];
+            if (needed < 0)
+            {
+                queue.Skip(1);
+                return true;
+            }
+
+            if (queue.ReadableCount < 1 + needed)
+            {
+                if (discardIncomplete)
+                {
+                    queue.Skip(queue.ReadableCount);
+                }
+
+                return false;
+            }
+
+            queue.Skip(1); // consume header
+
+            if (needed == 0)
+            {
+                try { OnAudioReadAsync(ReadOnlySpan<float>.Empty); } catch { }
+                return true;
+            }
+
+            var workerFrame = _workerFrame;
+            if (workerFrame == null || workerFrame.Length < needed)
+            {
+                workerFrame = new float[needed];
+                _workerFrame = workerFrame;
+            }
+
+            if (!queue.TryReadExact(workerFrame, needed))
+            {
+                return false;
+            }
+
+            try { OnAudioReadAsync(new ReadOnlySpan<float>(workerFrame, 0, needed)); } catch { }
+            return true;
         }
 
         /// <summary>
@@ -196,7 +210,7 @@ namespace Eitan.EasyMic.Runtime
                 {
                     if (worker.IsAlive)
                     {
-                        worker.Join(200);
+                        worker.Join(1000);
                     }
                 }
                 catch { }
@@ -205,6 +219,12 @@ namespace Eitan.EasyMic.Runtime
             if (signal != null)
             {
                 try { signal.Dispose(); } catch { }
+            }
+
+            var queue = _queue;
+            if (queue != null)
+            {
+                try { queue.Dispose(); } catch { }
             }
 
             _worker = null;

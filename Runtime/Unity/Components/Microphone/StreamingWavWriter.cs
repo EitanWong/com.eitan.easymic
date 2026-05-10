@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Text;
-using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.Recording
 {
@@ -69,8 +68,17 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
             int idx = 0;
             for (int i = 0; i < samples.Length; i++)
             {
-                float clamped = Mathf.Clamp(samples[i], -1f, 1f);
-                short quantized = (short)Mathf.RoundToInt(clamped * short.MaxValue);
+                float sample = samples[i];
+                if (sample > 1f)
+                {
+                    sample = 1f;
+                }
+                else if (sample < -1f)
+                {
+                    sample = -1f;
+                }
+
+                short quantized = (short)MathF.Round(sample * short.MaxValue);
                 _scratch[idx++] = (byte)(quantized & 0xFF);
                 _scratch[idx++] = (byte)((quantized >> 8) & 0xFF);
             }
@@ -103,7 +111,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
             {
                 if (!_reportedOpenFailure)
                 {
-                    Debug.LogWarning($"StreamingWavWriter: Unable to open '{_filePath}' for writing. {ex.Message}");
+                    UnityEngine.Debug.LogWarning($"StreamingWavWriter: Unable to open '{_filePath}' for writing. {ex.Message}");
                     _reportedOpenFailure = true;
                 }
                 return;

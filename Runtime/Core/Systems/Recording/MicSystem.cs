@@ -17,6 +17,7 @@ namespace Eitan.EasyMic.Runtime
 
         private readonly Dictionary<int, RecordingSession> _activeRecordings = new Dictionary<int, RecordingSession>();
         private readonly object _operateLock = new object();
+        private bool _recordingCallbackDiagnosticsEnabled;
 
         private MicDevice[] _devices = Array.Empty<MicDevice>();
         private MicDeviceWatcher _deviceWatcher;
@@ -49,6 +50,28 @@ namespace Eitan.EasyMic.Runtime
                 lock (_operateLock)
                 {
                     return _activeRecordings.Count > 0;
+                }
+            }
+        }
+
+        public bool RecordingCallbackDiagnosticsEnabled
+        {
+            get
+            {
+                lock (_operateLock)
+                {
+                    return _recordingCallbackDiagnosticsEnabled;
+                }
+            }
+            set
+            {
+                lock (_operateLock)
+                {
+                    _recordingCallbackDiagnosticsEnabled = value;
+                    foreach (var session in _activeRecordings.Values)
+                    {
+                        session.SetCallbackDiagnosticsEnabled(value);
+                    }
                 }
             }
         }

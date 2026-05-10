@@ -45,6 +45,8 @@ namespace Eitan.EasyMic.Runtime.Mono
         private string _latestRecordingTempPath;
         private Coroutine _pendingStartRecordingRoutine;
         private bool _pendingStartRecording;
+        private float _nextRecordingDiagnosticsLogTime;
+        private bool _reportedMacEditorSilentCapture;
 
 #if EASYMIC_APM_INTEGRATION
         private static string s_lastApmUnavailableReason = string.Empty;
@@ -94,7 +96,14 @@ namespace Eitan.EasyMic.Runtime.Mono
         public bool EnableLog
         {
             get => _enableLog;
-            set => _enableLog = value;
+            set
+            {
+                _enableLog = value;
+                if (_recordingHandle.IsValid)
+                {
+                    EasyMicAPI.SetRecordingCallbackDiagnostics(_recordingHandle, value);
+                }
+            }
         }
 
 #if EASYMIC_APM_INTEGRATION
@@ -223,6 +232,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             {
                 return;
             }
+            LogRecordingDiagnostics();
             OnMicrophoneUpdate();
 
         }
@@ -511,6 +521,10 @@ namespace Eitan.EasyMic.Runtime.Mono
         public string LatestRecordingTempPath => _latestRecordingTempPath;
 
         public string CurrentRecordingTempPath => _activeTempFilePath;
+
+        public RecordingInfo CurrentRecordingInfo => _recordingHandle.IsValid
+            ? EasyMicAPI.GetRecordingInfo(_recordingHandle)
+            : new RecordingInfo();
         #endregion
 
         #region Private Methods
@@ -551,7 +565,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         private IEnumerator WaitForInitializationAndStart()
         {
-            while (!Initialized)
+            while (!Initialized || !PermissionUtils.HasPermission())
             {
                 if (this == null || !isActiveAndEnabled)
                 {
@@ -577,8 +591,49 @@ namespace Eitan.EasyMic.Runtime.Mono
                 _pendingStartRecordingRoutine = null;
             }
         }
+
+        private void LogRecordingDiagnostics()
+        {
+            if (!LogEnabled || Time.unscaledTime < _nextRecordingDiagnosticsLogTime)
+            {
+                return;
+            }
+
+            _nextRecordingDiagnosticsLogTime = Time.unscaledTime + 1f;
+            var info = CurrentRecordingInfo;
+            bool unityMicAuthorized = Application.HasUserAuthorization(UserAuthorization.Microphone);
+            LogInfo(
+                $"Recording diagnostics: device='{info.Device.Name}', rate={(int)info.SampleRate}, channel={(int)info.Channel}, callbacks={info.NativeCallbackCount}, " +
+                $"inputNull={info.NativeInputNullCount}, outputNull={info.NativeOutputNullCount}, nonZeroCallbacks={info.NativeNonZeroCallbackCount}, " +
+                $"nonZeroByteCallbacks={info.NativeNonZeroByteCallbackCount}, nonZeroOutputByteCallbacks={info.NativeNonZeroOutputByteCallbackCount}, " +
+                $"lastRawPeak={info.LastRawInputPeak:0.000000}, maxRawPeak={info.MaxRawInputPeak:0.000000}, " +
+                $"lastNonZeroBytes={info.LastRawInputNonZeroBytes}, maxNonZeroBytes={info.MaxRawInputNonZeroBytes}, " +
+                $"lastOutputNonZeroBytes={info.LastRawOutputNonZeroBytes}, maxOutputNonZeroBytes={info.MaxRawOutputNonZeroBytes}, unityMicAuthorized={unityMicAuthorized}");
+
+#if UNITY_EDITOR_OSX
+            if (!_reportedMacEditorSilentCapture &&
+                unityMicAuthorized &&
+                info.NativeCallbackCount >= 300 &&
+                info.NativeInputNullCount == 0 &&
+                info.NativeNonZeroByteCallbackCount == 0)
+            {
+                _reportedMacEditorSilentCapture = true;
+                LogWarning(
+                    "EasyMicrophone: CoreAudio capture is running but delivering silent buffers in Unity Editor. " +
+                    "On macOS this usually means microphone access was granted to Unity Hub, but not to the Unity Editor process " +
+                    "(bundle id com.unity3d.UnityEditor5.x). This Unity Editor build may also lack NSMicrophoneUsageDescription in its Info.plist. " +
+                    "A Player build with microphone permission should not use the Editor's TCC state.");
+            }
+#endif
+        }
         private void InternalStartRecordingHandler()
         {
+            if (!PermissionUtils.HasPermission())
+            {
+                QueueStartRecording();
+                return;
+            }
+
             if (_pipelineBlueprint == null)
             {
                 InternalBuildAudioPipelineBlueprint();
@@ -633,6 +688,15 @@ namespace Eitan.EasyMic.Runtime.Mono
                 throw;
             }
 
+            if (!_recordingHandle.IsValid)
+            {
+                FinalizeStreamingWriter(logAsError: false);
+                _activeTempFilePath = null;
+                LogWarning("EasyMicrophone: Recording did not start. Microphone permission may still be pending or denied.");
+                return;
+            }
+
+            EasyMicAPI.SetRecordingCallbackDiagnostics(_recordingHandle, LogEnabled);
             OnRecordingStateChanged?.Invoke(true);
             OnStartRecording(_recordingHandle);
         }
@@ -644,6 +708,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
 
             var stoppedHandle = _recordingHandle;
+            EasyMicAPI.SetRecordingCallbackDiagnostics(stoppedHandle, false);
             StopOwnedRecording(finalizeClip: false);
             FinalizeStreamingWriter(logAsError: true);
 

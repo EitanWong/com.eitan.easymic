@@ -72,7 +72,8 @@ namespace Eitan.EasyMic.Runtime
             }
 
 
-            while (true)
+            bool exchanged;
+            do
             {
                 var cur = Volatile.Read(ref _stagesSnap);
                 // 去重
@@ -86,12 +87,9 @@ namespace Eitan.EasyMic.Runtime
                 Array.Copy(cur, next, cur.Length);
                 next[^1] = worker;
                 var prev = Interlocked.CompareExchange(ref _stagesSnap, next, cur);
-                if (ReferenceEquals(prev, cur))
-                {
-                    break;
-                }
-
+                exchanged = ReferenceEquals(prev, cur);
             }
+            while (!exchanged);
         }
 
         public void RemoveWorker(IAudioWorker worker)
@@ -101,13 +99,14 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            while (true)
+            bool exchanged;
+            do
             {
                 var cur = Volatile.Read(ref _stagesSnap);
                 int idx = Array.IndexOf(cur, worker);
                 if (idx < 0)
                 {
-                    break;
+                    return;
                 }
 
 
@@ -123,12 +122,13 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var prev = Interlocked.CompareExchange(ref _stagesSnap, next, cur);
-                if (ReferenceEquals(prev, cur))
+                exchanged = ReferenceEquals(prev, cur);
+                if (exchanged)
                 {
                     RetireWorker(worker);
-                    break;
                 }
             }
+            while (!exchanged);
         }
 
         protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
@@ -309,26 +309,31 @@ namespace Eitan.EasyMic.Runtime
                     }
                 }
 
-                while (true)
+                while (TryDequeueRetiredWorker(out var worker))
                 {
-                    IAudioWorker worker;
-                    lock (_retiredLock)
-                    {
-                        if (_retiredWorkers.Count == 0)
-                        {
-                            Interlocked.Exchange(ref _retiredDrainScheduled, 0);
-                            return;
-                        }
-
-                        worker = _retiredWorkers.Dequeue();
-                    }
-
                     SafeDispose(worker);
                 }
+
+                Interlocked.Exchange(ref _retiredDrainScheduled, 0);
             }
             catch
             {
                 Interlocked.Exchange(ref _retiredDrainScheduled, 0);
+            }
+        }
+
+        private bool TryDequeueRetiredWorker(out IAudioWorker worker)
+        {
+            lock (_retiredLock)
+            {
+                if (_retiredWorkers.Count == 0)
+                {
+                    worker = null;
+                    return false;
+                }
+
+                worker = _retiredWorkers.Dequeue();
+                return true;
             }
         }
 
