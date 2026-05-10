@@ -29,7 +29,7 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var recordingId = _nextRecordingId++;
-                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger);
+                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger, _recordingCallbackDiagnosticsEnabled);
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
             }
@@ -134,11 +134,27 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (_activeRecordings.TryGetValue(handle.Id, out var session))
                 {
-                    return new RecordingInfo(session.MicDevice, session.SampleRate, session.Channel, true, session.ProcessorCount);
+                    return session.GetInfo();
                 }
             }
 
             return new RecordingInfo();
+        }
+
+        public void SetRecordingCallbackDiagnostics(RecordingHandle handle, bool enabled)
+        {
+            if (!handle.IsValid)
+            {
+                return;
+            }
+
+            lock (_operateLock)
+            {
+                if (_activeRecordings.TryGetValue(handle.Id, out var session))
+                {
+                    session.SetCallbackDiagnosticsEnabled(enabled);
+                }
+            }
         }
 
         private MicDevice ResolveDevice(MicDevice preferred)

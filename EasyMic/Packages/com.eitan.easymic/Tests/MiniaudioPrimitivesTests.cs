@@ -1,5 +1,6 @@
 #if UNITY_INCLUDE_TESTS
 using System;
+using System.Runtime.InteropServices;
 using Eitan.EasyMic.Runtime;
 using NUnit.Framework;
 
@@ -7,6 +8,59 @@ namespace Eitan.EasyMic.Tests
 {
     public sealed class MiniaudioPrimitivesTests
     {
+        [Test]
+        public void DeviceConfigLayout_MatchesMiniaudioNativeLayout()
+        {
+            Assert.That(Marshal.SizeOf<Native.DeviceConfig>(), Is.EqualTo(296));
+            Assert.That(Marshal.SizeOf<Native.DeviceSubConfig>(), Is.EqualTo(40));
+            Assert.That(Marshal.SizeOf<Native.ResamplerConfig>(), Is.EqualTo(48));
+
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.DeviceType)).ToInt32(), Is.EqualTo(0));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.SampleRate)).ToInt32(), Is.EqualTo(4));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.DataCallback)).ToInt32(), Is.EqualTo(32));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.UserData)).ToInt32(), Is.EqualTo(56));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.Resampling)).ToInt32(), Is.EqualTo(64));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.Playback)).ToInt32(), Is.EqualTo(112));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.Capture)).ToInt32(), Is.EqualTo(152));
+            Assert.That(Marshal.OffsetOf<Native.DeviceConfig>(nameof(Native.DeviceConfig.CoreAudio)).ToInt32(), Is.EqualTo(248));
+            Assert.That(Marshal.OffsetOf<Native.ResamplerConfig>(nameof(Native.ResamplerConfig.Linear)).ToInt32(), Is.EqualTo(40));
+        }
+
+        [Test]
+        public void AllocateDeviceConfig_InitializesRecordConfigWithoutNativeStructReturn()
+        {
+            Native.AudioCallback callback = (_, _, _, _) => { };
+            IntPtr ptr = Native.AllocateDeviceConfig(
+                Native.DeviceType.Record,
+                Native.SampleFormat.F32,
+                channels: 1,
+                sampleRate: 48000,
+                playbackDevice: IntPtr.Zero,
+                captureDevice: IntPtr.Zero,
+                callback,
+                out bool usesExtendedCallback);
+
+            try
+            {
+                var config = Marshal.PtrToStructure<Native.DeviceConfig>(ptr);
+
+                Assert.That(usesExtendedCallback, Is.False);
+                Assert.That(config.DeviceType, Is.EqualTo(Native.DeviceType.Record));
+                Assert.That(config.SampleRate, Is.EqualTo(48000));
+                Assert.That(config.DataCallback, Is.Not.EqualTo(IntPtr.Zero));
+                Assert.That(config.Capture.Format, Is.EqualTo(Native.SampleFormat.F32));
+                Assert.That(config.Capture.Channels, Is.EqualTo(1));
+                Assert.That(config.Capture.DeviceId, Is.EqualTo(IntPtr.Zero));
+                Assert.That(config.Playback.Format, Is.EqualTo(Native.SampleFormat.Unknown));
+                Assert.That(config.Resampling.Format, Is.EqualTo(Native.SampleFormat.Unknown));
+                Assert.That(config.Resampling.Linear.LpfOrder, Is.EqualTo(4));
+            }
+            finally
+            {
+                Native.Free(ptr);
+            }
+        }
+
         [Test]
         public void Gainer_CanApplyGainInPlace()
         {

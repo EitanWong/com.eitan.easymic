@@ -37,8 +37,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.ASR
         private bool _requiresResample;
 
         // --- Buffering for Latency Compensation ---
-        private AudioBuffer _preBuffer;
-        private AudioBuffer _outBuffer;
+        private UnsafeAudioRingBuffer _preBuffer;
+        private UnsafeAudioRingBuffer _outBuffer;
         private int _preBufferCapacityInSamples;
 
         // Reusable buffer for efficiently transferring data between the two ring buffers.
@@ -75,8 +75,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.ASR
             int preBufferCapacity = _preBufferCapacityInSamples;
             int outBufferCapacity = Math.Max(preBufferCapacity + tailCapacity, preBufferCapacity * 2);
 
-            _preBuffer = new AudioBuffer(preBufferCapacity);
-            _outBuffer = new AudioBuffer(outBufferCapacity);
+            _preBuffer = new UnsafeAudioRingBuffer(preBufferCapacity);
+            _outBuffer = new UnsafeAudioRingBuffer(outBufferCapacity);
 
             // Pre-allocate the transfer buffer to the maximum possible size to avoid allocations on the hot path.
             _transferBuffer = new float[_preBuffer.Capacity];
@@ -297,7 +297,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.ASR
             return outputLength;
         }
 
-        private static void WriteAll(AudioBuffer buffer, ReadOnlySpan<float> data)
+        private static void WriteAll(UnsafeAudioRingBuffer buffer, ReadOnlySpan<float> data)
         {
             if (buffer == null || data.IsEmpty)
             {
@@ -367,21 +367,22 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.ASR
                 return;
             }
 
+            base.Dispose();
 
             _vadService.OnSpeakingStateChanged -= HandleVoiceActivityChanged;
-            _preBuffer?.Clear();
-            _outBuffer?.Clear();
+            _preBuffer?.Dispose();
+            _outBuffer?.Dispose();
+            _preBuffer = null;
+            _outBuffer = null;
             _transferBuffer = null;
             _monoBuffer = null;
             _resampleBuffer = null;
             _vadBuffer = null;
 
             OnVoiceActivityChanged = null;
-            base.Dispose();
         }
 
         #endregion
     }
 }
 #endif
-

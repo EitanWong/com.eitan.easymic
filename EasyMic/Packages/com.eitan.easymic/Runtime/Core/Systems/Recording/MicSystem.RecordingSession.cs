@@ -33,6 +33,19 @@ namespace Eitan.EasyMic.Runtime
             private IntPtr _deviceIdHandle;
             private uint _channelCount;
             private uint _sampleRate;
+            private long _nativeCallbackCount;
+            private long _nativeInputNullCount;
+            private long _nativeOutputNullCount;
+            private long _nativeNonZeroCallbackCount;
+            private long _nativeNonZeroByteCallbackCount;
+            private long _nativeNonZeroOutputByteCallbackCount;
+            private int _lastRawInputPeakPpm;
+            private int _maxRawInputPeakPpm;
+            private int _lastRawInputNonZeroBytes;
+            private int _maxRawInputNonZeroBytes;
+            private int _lastRawOutputNonZeroBytes;
+            private int _maxRawOutputNonZeroBytes;
+            private int _callbackDiagnosticsEnabled;
 
             public MicDevice MicDevice { get; private set; }
             public SampleRate SampleRate { get; private set; }
@@ -41,7 +54,7 @@ namespace Eitan.EasyMic.Runtime
             public int ProcessorCount => _audioPipeline.WorkerCount;
             private ILogger _logger;
 
-            public RecordingSession(IntPtr context, MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints, ILogger logger)
+            public RecordingSession(IntPtr context, MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints, ILogger logger, bool callbackDiagnosticsEnabled)
             {
                 _context = context;
                 _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
@@ -51,6 +64,7 @@ namespace Eitan.EasyMic.Runtime
                 _requestedChannel = channel;
                 _usingFallback = false;
                 _logger = logger;
+                _callbackDiagnosticsEnabled = callbackDiagnosticsEnabled ? 1 : 0;
 
                 ApplyFormat(device, sampleRate, channel);
                 InitializePipeline(blueprints);
@@ -71,6 +85,33 @@ namespace Eitan.EasyMic.Runtime
             public Channel RequestedChannel => _requestedChannel;
             public bool IsUsingPreferredDevice => MicDevice.SameIdentityAs(_preferredDevice);
             public bool IsUsingFallback => _usingFallback;
+
+            public void SetCallbackDiagnosticsEnabled(bool enabled)
+            {
+                Volatile.Write(ref _callbackDiagnosticsEnabled, enabled ? 1 : 0);
+            }
+
+            public RecordingInfo GetInfo()
+            {
+                return new RecordingInfo(
+                    MicDevice,
+                    SampleRate,
+                    Channel,
+                    true,
+                    ProcessorCount,
+                    Interlocked.Read(ref _nativeCallbackCount),
+                    Interlocked.Read(ref _nativeInputNullCount),
+                    Interlocked.Read(ref _nativeOutputNullCount),
+                    Interlocked.Read(ref _nativeNonZeroCallbackCount),
+                    Interlocked.Read(ref _nativeNonZeroByteCallbackCount),
+                    Interlocked.Read(ref _nativeNonZeroOutputByteCallbackCount),
+                    PeakPpmToFloat(Volatile.Read(ref _lastRawInputPeakPpm)),
+                    PeakPpmToFloat(Volatile.Read(ref _maxRawInputPeakPpm)),
+                    Volatile.Read(ref _lastRawInputNonZeroBytes),
+                    Volatile.Read(ref _maxRawInputNonZeroBytes),
+                    Volatile.Read(ref _lastRawOutputNonZeroBytes),
+                    Volatile.Read(ref _maxRawOutputNonZeroBytes));
+            }
 
             public bool TrySwitchDevice(MicDevice targetDevice, SampleRate sampleRate, Channel channel)
             {
@@ -355,9 +396,18 @@ namespace Eitan.EasyMic.Runtime
             private void HandleAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
                 using var _ = EasyMicThreading.EnterAudioThread();
+                Interlocked.Increment(ref _nativeCallbackCount);
+                if (output == IntPtr.Zero)
+                {
+                    Interlocked.Increment(ref _nativeOutputNullCount);
+                }
 
                 if (Volatile.Read(ref _disposed) || input == IntPtr.Zero)
                 {
+                    if (input == IntPtr.Zero)
+                    {
+                        Interlocked.Increment(ref _nativeInputNullCount);
+                    }
                     return;
                 }
 
@@ -374,7 +424,20 @@ namespace Eitan.EasyMic.Runtime
 
                 try
                 {
-                    ProcessAudioBuffer(GetSpan<float>(input, sampleCount), _state);
+                    bool diagnosticsEnabled = Volatile.Read(ref _callbackDiagnosticsEnabled) != 0;
+                    if (diagnosticsEnabled && output != IntPtr.Zero)
+                    {
+                        UpdateRawOutputByteStats(GetSpan<byte>(output, checked(sampleCount * sizeof(float))));
+                    }
+
+                    var inputSamples = GetSpan<float>(input, sampleCount);
+                    if (diagnosticsEnabled)
+                    {
+                        UpdateRawInputByteStats(GetSpan<byte>(input, checked(sampleCount * sizeof(float))));
+                        UpdateRawInputPeak(inputSamples);
+                    }
+
+                    ProcessAudioBuffer(inputSamples, _state);
                 }
                 catch { }
             }
@@ -387,6 +450,116 @@ namespace Eitan.EasyMic.Runtime
             private unsafe Span<T> GetSpan<T>(IntPtr ptr, int length) where T : unmanaged
             {
                 return new Span<T>((void*)ptr, length);
+            }
+
+            private void UpdateRawInputByteStats(Span<byte> bytes)
+            {
+                int nonZeroBytes = 0;
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    if (bytes[i] != 0)
+                    {
+                        nonZeroBytes++;
+                    }
+                }
+
+                Volatile.Write(ref _lastRawInputNonZeroBytes, nonZeroBytes);
+                if (nonZeroBytes > 0)
+                {
+                    Interlocked.Increment(ref _nativeNonZeroByteCallbackCount);
+                }
+
+                int currentMax;
+                do
+                {
+                    currentMax = Volatile.Read(ref _maxRawInputNonZeroBytes);
+                    if (nonZeroBytes <= currentMax)
+                    {
+                        return;
+                    }
+                }
+                while (Interlocked.CompareExchange(ref _maxRawInputNonZeroBytes, nonZeroBytes, currentMax) != currentMax);
+            }
+
+            private void UpdateRawOutputByteStats(Span<byte> bytes)
+            {
+                int nonZeroBytes = 0;
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    if (bytes[i] != 0)
+                    {
+                        nonZeroBytes++;
+                    }
+                }
+
+                Volatile.Write(ref _lastRawOutputNonZeroBytes, nonZeroBytes);
+                if (nonZeroBytes > 0)
+                {
+                    Interlocked.Increment(ref _nativeNonZeroOutputByteCallbackCount);
+                }
+
+                int currentMax;
+                do
+                {
+                    currentMax = Volatile.Read(ref _maxRawOutputNonZeroBytes);
+                    if (nonZeroBytes <= currentMax)
+                    {
+                        return;
+                    }
+                }
+                while (Interlocked.CompareExchange(ref _maxRawOutputNonZeroBytes, nonZeroBytes, currentMax) != currentMax);
+            }
+
+            private void UpdateRawInputPeak(Span<float> samples)
+            {
+                float peak = 0f;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    float value = samples[i];
+                    float abs = value < 0f ? -value : value;
+                    if (abs > peak)
+                    {
+                        peak = abs;
+                    }
+                }
+
+                int peakPpm = FloatToPeakPpm(peak);
+                Volatile.Write(ref _lastRawInputPeakPpm, peakPpm);
+                if (peakPpm > 0)
+                {
+                    Interlocked.Increment(ref _nativeNonZeroCallbackCount);
+                }
+
+                int currentMax;
+                do
+                {
+                    currentMax = Volatile.Read(ref _maxRawInputPeakPpm);
+                    if (peakPpm <= currentMax)
+                    {
+                        return;
+                    }
+                }
+                while (Interlocked.CompareExchange(ref _maxRawInputPeakPpm, peakPpm, currentMax) != currentMax);
+            }
+
+            private static int FloatToPeakPpm(float peak)
+            {
+                if (peak <= 0f)
+                {
+                    return 0;
+                }
+
+                if (peak >= 1f)
+                {
+                    return 1000000;
+                }
+
+                return (int)(peak * 1000000f);
+            }
+
+            private static float PeakPpmToFloat(int peakPpm)
+            {
+                return peakPpm <= 0 ? 0f : peakPpm / 1000000f;
             }
 
             private static void RegisterLegacyCallbackSession(IntPtr devicePtr, RecordingSession session)

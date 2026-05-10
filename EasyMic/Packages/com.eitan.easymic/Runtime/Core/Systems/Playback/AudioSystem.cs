@@ -54,6 +54,7 @@ namespace Eitan.EasyMic.Runtime
         // Diagnostics meters
         private float[] _peak; // per-channel
         private float[] _rms;  // per-channel
+        private int _meteringEnabled;
 
         private AudioSystem() { }
 
@@ -122,8 +123,10 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 _masterMixer.Initialize((int)_channels, (int)_sampleRate);
-                _peak = new float[Math.Max(1, (int)_channels)];
-                _rms = new float[Math.Max(1, (int)_channels)];
+                if (Volatile.Read(ref _meteringEnabled) != 0)
+                {
+                    EnsureMeterBuffers((int)_channels);
+                }
 
                 var startResult = Native.DeviceStart(_device);
                 Check(startResult == Native.Result.Success, $"DeviceStart: {startResult}");
@@ -196,6 +199,18 @@ namespace Eitan.EasyMic.Runtime
         public uint Channels => _channels;
         public bool IsRunning => _running;
         public AudioMixer MasterMixer => _masterMixer;
+        public bool MeteringEnabled
+        {
+            get => Volatile.Read(ref _meteringEnabled) != 0;
+            set
+            {
+                Volatile.Write(ref _meteringEnabled, value ? 1 : 0);
+                if (value)
+                {
+                    EnsureMeterBuffers((int)_channels);
+                }
+            }
+        }
         public void AddSource(PlaybackAudioSource source) => _masterMixer?.AddSource(source);
         public void RemoveSource(PlaybackAudioSource source) => _masterMixer?.RemoveSource(source);
 
@@ -220,12 +235,14 @@ namespace Eitan.EasyMic.Runtime
                 var outSpan = new Span<float>((void*)output, samples);
                 outSpan.Clear();
 
-                // Render full tree via master mixer
-                try { _masterMixer?.RenderAdditive(outSpan, (int)_channels, (int)_sampleRate); }
+                // Render full tree directly into the device buffer.
+                try { _masterMixer?.RenderMaster(outSpan, (int)_channels, (int)_sampleRate); }
                 catch { }
 
-                // Update meters
-                UpdateMeters(outSpan, (int)_channels);
+                if (Volatile.Read(ref _meteringEnabled) != 0)
+                {
+                    UpdateMeters(outSpan, (int)_channels);
+                }
 
                 var rawHandler = OnMixedFrameRaw;
                 if (rawHandler != null)
@@ -390,6 +407,7 @@ namespace Eitan.EasyMic.Runtime
 
         private void UpdateMeters(Span<float> interleaved, int channels)
         {
+            EnsureMeterBuffers(channels);
             var peak = _peak;
             var rms = _rms;
             if (channels <= 0 || peak == null || rms == null || peak.Length < channels || rms.Length < channels)
@@ -424,8 +442,33 @@ namespace Eitan.EasyMic.Runtime
 
         public void GetMeters(out float[] peak, out float[] rms)
         {
+            if (Volatile.Read(ref _meteringEnabled) == 0)
+            {
+                peak = Array.Empty<float>();
+                rms = Array.Empty<float>();
+                return;
+            }
+
             peak = (float[])_peak?.Clone() ?? Array.Empty<float>();
             rms = (float[])_rms?.Clone() ?? Array.Empty<float>();
+        }
+
+        private void EnsureMeterBuffers(int channels)
+        {
+            if (channels <= 0)
+            {
+                return;
+            }
+
+            if ((_peak == null || _peak.Length < channels) && !EasyMicThreading.IsAudioThread)
+            {
+                _peak = new float[channels];
+            }
+
+            if ((_rms == null || _rms.Length < channels) && !EasyMicThreading.IsAudioThread)
+            {
+                _rms = new float[channels];
+            }
         }
 
         // Diagnostics info (backend, device name) – defaults; can be extended via native helpers

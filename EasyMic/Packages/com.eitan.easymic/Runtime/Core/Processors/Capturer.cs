@@ -92,7 +92,7 @@ namespace Eitan.EasyMic.Runtime
             }
 
             double ratio = (double)dstSR / Math.Max(1, srcSR);
-            int outFrames = (int)Math.Floor(inFrames * ratio);
+            int outFrames = (int)(inFrames * ratio);
             if (outFrames <= 0)
             {
                 return;
@@ -111,7 +111,7 @@ namespace Eitan.EasyMic.Runtime
                 for (int of = 0; of < outFrames; of++)
                 {
                     double phase = of * step;
-                    int i0 = (int)Math.Floor(phase);
+                    int i0 = (int)phase;
                     double t = phase - i0;
                     int i1 = Math.Min(inFrames - 1, i0 + 1);
                     int src0 = i0 * ch + chIdx;
@@ -238,6 +238,12 @@ namespace Eitan.EasyMic.Runtime
             int effectiveTargetSR = _targetSampleRate > 0 ? _targetSampleRate : sampleRate;
             int worstCaseRate = Math.Max(sampleRate, effectiveTargetSR);
             int desiredCapacity = ComputePreviewCapacity(worstCaseRate, channels);
+
+            var current = _audioBuffer;
+            if (current != null && desiredCapacity <= current.Capacity && current.FrameStride == channels)
+            {
+                return;
+            }
 
             lock (_resizeLock)
             {

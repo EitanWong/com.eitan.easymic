@@ -38,6 +38,11 @@ namespace Eitan.EasyMic.Runtime
 
         internal IntPtr AllocateDeviceIdHandle()
         {
+            if (IsDefault)
+            {
+                return IntPtr.Zero;
+            }
+
             if (!HasValidId)
             {
                 return IntPtr.Zero;
@@ -123,6 +128,12 @@ namespace Eitan.EasyMic.Runtime
             {
                 return fallback;
             }
+
+            if (supported.Contains(fallback))
+            {
+                return fallback;
+            }
+
             return supported[supported.Length - 1];
         }
 

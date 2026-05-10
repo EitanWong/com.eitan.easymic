@@ -18,7 +18,7 @@ namespace Eitan.EasyMic.Runtime
         private const int MaxMeterChannels = 8;
 
         public string name;
-        private readonly AudioBuffer _queue;
+        private readonly UnsafeAudioRingBuffer _queue;
         private readonly float[] _work; // temp buffer for per-frame processing
         private readonly float[] _rtOutChunk; // RT-safe scratch for event/telemetry chunking
         private readonly float[] _rtHeadScratch; // RT-safe scratch for small per-frame head writes
@@ -70,6 +70,7 @@ namespace Eitan.EasyMic.Runtime
         private bool _solo;
 
         private Action<IMixNode> _stateChanged;
+        private int _disposed;
 
         public float Volume
         {
@@ -191,7 +192,7 @@ namespace Eitan.EasyMic.Runtime
             Channels = Math.Max(1, channels);
             SampleRate = Math.Max(8000, sampleRate);
             int cap = AlignToFrameSamples((int)Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2));
-            _queue = new AudioBuffer(cap, Channels);
+            _queue = new UnsafeAudioRingBuffer(cap, Channels);
             int workSamples = AlignToFrameSamples(Math.Max(Channels * SampleRate / 50, 256));
             _work = new float[workSamples > 0 ? workSamples : Channels]; // ~20ms default min
             _rtOutChunk = new float[Math.Max(_work.Length, EnqueueMaxCopySamples)];
@@ -216,6 +217,11 @@ namespace Eitan.EasyMic.Runtime
 
         public int Enqueue(ReadOnlySpan<float> interleaved)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return 0;
+            }
+
             if (interleaved.IsEmpty)
             {
                 return 0;
@@ -238,6 +244,11 @@ namespace Eitan.EasyMic.Runtime
 
         public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, int tailFadeSamples, bool markEndOfStream = false)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return 0;
+            }
+
             if (interleaved.IsEmpty)
             {
                 if (markEndOfStream)
@@ -513,6 +524,12 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
+                return;
+            }
+
             int totalSamples = destination.Length;
             if (totalSamples <= 0)
             {
@@ -1429,8 +1446,14 @@ namespace Eitan.EasyMic.Runtime
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
             try { EasyMicAudioEventPump.UnregisterPlaybackSource(_eventSourceId); } catch { }
             try { _pipeline.Dispose(); } catch { }
+            try { _queue.Dispose(); } catch { }
         }
 
         public void GetMeters(out float[] peak, out float[] rms)
@@ -1491,7 +1514,7 @@ namespace Eitan.EasyMic.Runtime
 
         bool IMixNode.HasSoloInTree => _solo;
 
-        bool IMixNode.IsActive => _isPlaying && !_mute;
+        bool IMixNode.IsActive => Volatile.Read(ref _disposed) == 0 && _isPlaying && !_mute;
 
         event Action<IMixNode> IMixNode.StateChanged
         {
