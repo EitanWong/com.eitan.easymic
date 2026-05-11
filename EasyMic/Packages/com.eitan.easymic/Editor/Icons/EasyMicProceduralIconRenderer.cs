@@ -46,9 +46,11 @@ namespace Eitan.EasyMic.Editor.Icons
                     DrawArrow(c, accent, 0.78f, 0.5f, 0.56f, 0.5f);
                     break;
                 case EasyMicIconId.AudioOutput:
-                case EasyMicIconId.PlaybackSource:
                     DrawSpeaker(c, primary, secondary);
                     DrawWave(c, accent, 0.62f, 0.5f, 0.2f, 2.0f);
+                    break;
+                case EasyMicIconId.PlaybackSource:
+                    DrawPlaybackSource(c, primary, secondary, accent);
                     break;
                 case EasyMicIconId.DeviceBinding:
                     DrawChip(c, primary, secondary);
@@ -163,6 +165,13 @@ namespace Eitan.EasyMic.Editor.Icons
             c.FillRoundedRect(0.17f, 0.39f, 0.17f, 0.22f, 0.04f, secondary);
             c.FillTriangle(0.31f, 0.39f, 0.52f, 0.24f, 0.52f, 0.76f, primary);
             c.FillTriangle(0.31f, 0.61f, 0.52f, 0.76f, 0.31f, 0.39f, primary);
+        }
+
+        private static void DrawPlaybackSource(IconCanvas c, Color primary, Color secondary, Color accent)
+        {
+            DrawSpeaker(c, primary, secondary);
+            c.StrokeRoundedRect(0.58f, 0.31f, 0.25f, 0.38f, 0.06f, accent, 0.055f);
+            c.FillTriangle(0.67f, 0.42f, 0.67f, 0.58f, 0.77f, 0.5f, accent);
         }
 
         private static void DrawWave(IconCanvas c, Color color, float centerX, float centerY, float radius, float thickness)

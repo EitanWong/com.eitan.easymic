@@ -8,10 +8,20 @@ namespace Eitan.EasyMic.Runtime
     {
         public RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate, Channel channel)
         {
-            return StartRecording(device, sampleRate, channel, null);
+            return StartRecording(device, sampleRate, channel, null, EasyMicLatencyProfile.Balanced);
         }
 
         public RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints)
+        {
+            return StartRecording(device, sampleRate, channel, blueprints, EasyMicLatencyProfile.Balanced);
+        }
+
+        public RecordingHandle StartRecording(
+            MicDevice device,
+            SampleRate sampleRate,
+            Channel channel,
+            IEnumerable<AudioWorkerBlueprint> blueprints,
+            EasyMicLatencyProfile latencyProfile)
         {
             lock (_operateLock)
             {
@@ -29,7 +39,7 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var recordingId = _nextRecordingId++;
-                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger, _recordingCallbackDiagnosticsEnabled);
+                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger, _recordingCallbackDiagnosticsEnabled, latencyProfile);
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
             }
@@ -139,6 +149,26 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return new RecordingInfo();
+        }
+
+        public EasyMicRecordingPipelineSnapshot[] GetRecordingPipelineSnapshots()
+        {
+            lock (_operateLock)
+            {
+                if (_activeRecordings.Count == 0)
+                {
+                    return Array.Empty<EasyMicRecordingPipelineSnapshot>();
+                }
+
+                var snapshots = new EasyMicRecordingPipelineSnapshot[_activeRecordings.Count];
+                int index = 0;
+                foreach (var entry in _activeRecordings)
+                {
+                    snapshots[index++] = entry.Value.GetPipelineSnapshot(new RecordingHandle(entry.Key));
+                }
+
+                return snapshots;
+            }
         }
 
         public void SetRecordingCallbackDiagnostics(RecordingHandle handle, bool enabled)

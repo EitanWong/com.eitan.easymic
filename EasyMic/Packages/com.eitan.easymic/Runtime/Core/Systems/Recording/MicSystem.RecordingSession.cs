@@ -25,12 +25,15 @@ namespace Eitan.EasyMic.Runtime
             private readonly string _preferredIdentifier;
             private readonly SampleRate _requestedSampleRate;
             private readonly Channel _requestedChannel;
+            private readonly EasyMicLatencyProfile _latencyProfile;
+            private readonly RealtimeAudioTelemetry _telemetry = new RealtimeAudioTelemetry();
             private bool _usingFallback;
 
             private bool _disposed;
             private IntPtr _devicePtr;
             private IntPtr _deviceConfig;
             private IntPtr _deviceIdHandle;
+            private CaptureAudioTransport _captureTransport;
             private uint _channelCount;
             private uint _sampleRate;
             private long _nativeCallbackCount;
@@ -54,7 +57,15 @@ namespace Eitan.EasyMic.Runtime
             public int ProcessorCount => _audioPipeline.WorkerCount;
             private ILogger _logger;
 
-            public RecordingSession(IntPtr context, MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> blueprints, ILogger logger, bool callbackDiagnosticsEnabled)
+            public RecordingSession(
+                IntPtr context,
+                MicDevice device,
+                SampleRate sampleRate,
+                Channel channel,
+                IEnumerable<AudioWorkerBlueprint> blueprints,
+                ILogger logger,
+                bool callbackDiagnosticsEnabled,
+                EasyMicLatencyProfile latencyProfile)
             {
                 _context = context;
                 _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
@@ -62,6 +73,7 @@ namespace Eitan.EasyMic.Runtime
                 _preferredIdentifier = device.GetIdentifier();
                 _requestedSampleRate = sampleRate;
                 _requestedChannel = channel;
+                _latencyProfile = latencyProfile;
                 _usingFallback = false;
                 _logger = logger;
                 _callbackDiagnosticsEnabled = callbackDiagnosticsEnabled ? 1 : 0;
@@ -110,7 +122,18 @@ namespace Eitan.EasyMic.Runtime
                     Volatile.Read(ref _lastRawInputNonZeroBytes),
                     Volatile.Read(ref _maxRawInputNonZeroBytes),
                     Volatile.Read(ref _lastRawOutputNonZeroBytes),
-                    Volatile.Read(ref _maxRawOutputNonZeroBytes));
+                    Volatile.Read(ref _maxRawOutputNonZeroBytes),
+                    _telemetry.GetPublicSnapshot());
+            }
+
+            public EasyMicRecordingPipelineSnapshot GetPipelineSnapshot(RecordingHandle handle)
+            {
+                return new EasyMicRecordingPipelineSnapshot(
+                    handle,
+                    GetInfo(),
+                    _latencyProfile,
+                    _usingFallback,
+                    _audioPipeline.GetProcessorSnapshots());
             }
 
             public bool TrySwitchDevice(MicDevice targetDevice, SampleRate sampleRate, Channel channel)
@@ -312,6 +335,7 @@ namespace Eitan.EasyMic.Runtime
                     IntPtr.Zero,
                     _deviceIdHandle,
                     s_staticAudioCallback,
+                    _latencyProfile,
                     out _);
                 if (_deviceConfig == IntPtr.Zero)
                 {
@@ -331,14 +355,19 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 RegisterLegacyCallbackSession(_devicePtr, this);
+                _audioPipeline.Initialize(_state);
+                _captureTransport = new CaptureAudioTransport(
+                    _audioPipeline,
+                    (int)_channelCount,
+                    (int)_sampleRate,
+                    _latencyProfile,
+                    _telemetry);
 
                 var startResult = Native.DeviceStart(_devicePtr);
                 if (startResult != Native.Result.Success)
                 {
                     throw new InvalidOperationException($"Unable to start device. {startResult}");
                 }
-
-                _audioPipeline.Initialize(_state);
 
                 Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
             }
@@ -363,9 +392,16 @@ namespace Eitan.EasyMic.Runtime
                     var oldDevicePtr = _devicePtr;
                     UnregisterLegacyCallbackSession(oldDevicePtr);
                     try { Native.DeviceStop(_devicePtr); } catch { }
+                    try { _captureTransport?.Dispose(); } catch { }
+                    _captureTransport = null;
                     try { Native.DeviceUninit(_devicePtr); } catch { }
                     try { Native.Free(_devicePtr); } catch { }
                     _devicePtr = IntPtr.Zero;
+                }
+                else
+                {
+                    try { _captureTransport?.Dispose(); } catch { }
+                    _captureTransport = null;
                 }
 
                 if (_deviceConfig != IntPtr.Zero)
@@ -396,50 +432,47 @@ namespace Eitan.EasyMic.Runtime
             private void HandleAudioCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
             {
                 using var _ = EasyMicThreading.EnterAudioThread();
+                long callbackStart = _telemetry.BeginCallback();
                 Interlocked.Increment(ref _nativeCallbackCount);
-                if (output == IntPtr.Zero)
-                {
-                    Interlocked.Increment(ref _nativeOutputNullCount);
-                }
-
-                if (Volatile.Read(ref _disposed) || input == IntPtr.Zero)
-                {
-                    if (input == IntPtr.Zero)
-                    {
-                        Interlocked.Increment(ref _nativeInputNullCount);
-                    }
-                    return;
-                }
-
-                ulong sampleCountU = (ulong)length * (ulong)_channelCount;
-                if (sampleCountU == 0 || sampleCountU > int.MaxValue)
-                {
-                    return;
-                }
-
-                int sampleCount = (int)sampleCountU;
-                _state.ChannelCount = (int)_channelCount;
-                _state.SampleRate = (int)_sampleRate;
-                _state.Length = sampleCount;
-
                 try
                 {
-                    bool diagnosticsEnabled = Volatile.Read(ref _callbackDiagnosticsEnabled) != 0;
-                    if (diagnosticsEnabled && output != IntPtr.Zero)
+                    if (output == IntPtr.Zero)
                     {
-                        UpdateRawOutputByteStats(GetSpan<byte>(output, checked(sampleCount * sizeof(float))));
+                        Interlocked.Increment(ref _nativeOutputNullCount);
                     }
 
+                    if (Volatile.Read(ref _disposed) || input == IntPtr.Zero)
+                    {
+                        if (input == IntPtr.Zero)
+                        {
+                            Interlocked.Increment(ref _nativeInputNullCount);
+                        }
+                        return;
+                    }
+
+                    ulong sampleCountU = (ulong)length * (ulong)_channelCount;
+                    if (sampleCountU == 0 || sampleCountU > int.MaxValue)
+                    {
+                        return;
+                    }
+
+                    int sampleCount = (int)sampleCountU;
                     var inputSamples = GetSpan<float>(input, sampleCount);
-                    if (diagnosticsEnabled)
+                    if (_captureTransport == null || !_captureTransport.TryWrite(inputSamples, (int)length))
                     {
-                        UpdateRawInputByteStats(GetSpan<byte>(input, checked(sampleCount * sizeof(float))));
-                        UpdateRawInputPeak(inputSamples);
+                        return;
                     }
 
-                    ProcessAudioBuffer(inputSamples, _state);
+                    if (Volatile.Read(ref _callbackDiagnosticsEnabled) != 0)
+                    {
+                        Interlocked.Increment(ref _nativeNonZeroCallbackCount);
+                    }
                 }
                 catch { }
+                finally
+                {
+                    _telemetry.EndCallback(callbackStart);
+                }
             }
 
             private void ProcessAudioBuffer(Span<float> buffer, AudioContext state)

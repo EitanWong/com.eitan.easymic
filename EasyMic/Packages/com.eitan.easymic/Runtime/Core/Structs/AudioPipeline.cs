@@ -26,6 +26,23 @@ namespace Eitan.EasyMic.Runtime
 
         public int WorkerCount => Volatile.Read(ref _stagesSnap).Length;
 
+        public EasyMicProcessorSnapshot[] GetProcessorSnapshots()
+        {
+            var stages = Volatile.Read(ref _stagesSnap);
+            if (stages.Length == 0)
+            {
+                return Array.Empty<EasyMicProcessorSnapshot>();
+            }
+
+            var snapshots = new EasyMicProcessorSnapshot[stages.Length];
+            for (int i = 0; i < stages.Length; i++)
+            {
+                snapshots[i] = new EasyMicProcessorSnapshot(i, stages[i]);
+            }
+
+            return snapshots;
+        }
+
         public override void Initialize(AudioContext state)
         {
             if (state == null)

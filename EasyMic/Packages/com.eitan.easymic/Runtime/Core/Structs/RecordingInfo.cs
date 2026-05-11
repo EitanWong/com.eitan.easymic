@@ -19,6 +19,7 @@ namespace Eitan.EasyMic.Runtime{
         public readonly int MaxRawInputNonZeroBytes;
         public readonly int LastRawOutputNonZeroBytes;
         public readonly int MaxRawOutputNonZeroBytes;
+        public readonly EasyMicTelemetrySnapshot Telemetry;
 
         internal RecordingInfo(
             MicDevice device,
@@ -37,7 +38,8 @@ namespace Eitan.EasyMic.Runtime{
             int lastRawInputNonZeroBytes = 0,
             int maxRawInputNonZeroBytes = 0,
             int lastRawOutputNonZeroBytes = 0,
-            int maxRawOutputNonZeroBytes = 0)
+            int maxRawOutputNonZeroBytes = 0,
+            EasyMicTelemetrySnapshot telemetry = default)
         {
             Device = device;
             SampleRate = sampleRate;
@@ -56,6 +58,7 @@ namespace Eitan.EasyMic.Runtime{
             MaxRawInputNonZeroBytes = maxRawInputNonZeroBytes;
             LastRawOutputNonZeroBytes = lastRawOutputNonZeroBytes;
             MaxRawOutputNonZeroBytes = maxRawOutputNonZeroBytes;
+            Telemetry = telemetry;
         }
     }
     

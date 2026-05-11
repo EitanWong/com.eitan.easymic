@@ -162,6 +162,10 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                         {
                             try { behaviour.Pause(); } catch { }
                         }
+                        if (GUILayout.Button("Resume"))
+                        {
+                            try { behaviour.Resume(); } catch { }
+                        }
                         if (GUILayout.Button("Stop"))
                         {
                             try { behaviour.Stop(); } catch { }

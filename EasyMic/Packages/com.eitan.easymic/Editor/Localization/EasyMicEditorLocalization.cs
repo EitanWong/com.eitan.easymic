@@ -448,9 +448,16 @@ namespace Eitan.EasyMic.Editor
             {
             }
 
-            return IsChineseSystemLanguage(Application.systemLanguage)
-                ? EasyMicEditorLanguage.ChineseSimplified
-                : EasyMicEditorLanguage.English;
+            try
+            {
+                return IsChineseSystemLanguage(Application.systemLanguage)
+                    ? EasyMicEditorLanguage.ChineseSimplified
+                    : EasyMicEditorLanguage.English;
+            }
+            catch
+            {
+                return EasyMicEditorLanguage.English;
+            }
         }
 
         private static bool IsChineseLanguageName(string value)

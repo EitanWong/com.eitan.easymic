@@ -252,7 +252,17 @@ namespace Eitan.EasyMic
 
         public static RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> workers)
         {
-            return StartRecordingInternal(device, null, sampleRate, channel, workers);
+            return StartRecordingInternal(device, null, sampleRate, channel, workers, EasyMicLatencyProfile.Balanced);
+        }
+
+        public static RecordingHandle StartRecording(
+            MicDevice device,
+            SampleRate sampleRate,
+            Channel channel,
+            IEnumerable<AudioWorkerBlueprint> workers,
+            EasyMicLatencyProfile latencyProfile)
+        {
+            return StartRecordingInternal(device, null, sampleRate, channel, workers, latencyProfile);
         }
 
         public static List<AudioWorkerBlueprint> DefaultWorkers
@@ -301,6 +311,13 @@ namespace Eitan.EasyMic
             return RequireMicSys().GetRecordingInfo(handle);
         }
 
+        public static EasyMicRecordingPipelineSnapshot[] GetRecordingPipelineSnapshots()
+        {
+            return TryGetMicSys(out var system, logFailure: false)
+                ? system.GetRecordingPipelineSnapshots()
+                : Array.Empty<EasyMicRecordingPipelineSnapshot>();
+        }
+
         public static void SetRecordingCallbackDiagnostics(RecordingHandle handle, bool enabled)
         {
             RequireMicSys().SetRecordingCallbackDiagnostics(handle, enabled);
@@ -329,7 +346,23 @@ namespace Eitan.EasyMic
             _defaultWorkers = null;
         }
 
-        private static RecordingHandle StartRecordingInternal(MicDevice? preferredDevice, string deviceName, SampleRate sampleRate, Channel? requestedChannel, IEnumerable<AudioWorkerBlueprint> workers)
+        private static RecordingHandle StartRecordingInternal(
+            MicDevice? preferredDevice,
+            string deviceName,
+            SampleRate sampleRate,
+            Channel? requestedChannel,
+            IEnumerable<AudioWorkerBlueprint> workers)
+        {
+            return StartRecordingInternal(preferredDevice, deviceName, sampleRate, requestedChannel, workers, EasyMicLatencyProfile.Balanced);
+        }
+
+        private static RecordingHandle StartRecordingInternal(
+            MicDevice? preferredDevice,
+            string deviceName,
+            SampleRate sampleRate,
+            Channel? requestedChannel,
+            IEnumerable<AudioWorkerBlueprint> workers,
+            EasyMicLatencyProfile latencyProfile)
         {
             if (!EnsurePermission("start recording", asError: true))
             {
@@ -346,7 +379,7 @@ namespace Eitan.EasyMic
             var resolvedRate = chosen.ResolveSampleRate(sampleRate);
             var blueprintSet = workers ?? _defaultWorkers;
 
-            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
+            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet, latencyProfile);
         }
 
         private static Channel ResolveChannel(MicDevice device, Channel? requested)
