@@ -374,6 +374,36 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
+        public EasyMicMixerSnapshot GetPipelineSnapshot()
+        {
+            var sources = GetSources();
+            var sourceSnapshots = sources.Length == 0
+                ? Array.Empty<EasyMicPlaybackSourceSnapshot>()
+                : new EasyMicPlaybackSourceSnapshot[sources.Length];
+            for (int i = 0; i < sources.Length; i++)
+            {
+                sourceSnapshots[i] = sources[i].GetPipelineSnapshot();
+            }
+
+            var children = GetChildren();
+            var childSnapshots = children.Length == 0
+                ? Array.Empty<EasyMicMixerSnapshot>()
+                : new EasyMicMixerSnapshot[children.Length];
+            for (int i = 0; i < children.Length; i++)
+            {
+                childSnapshots[i] = children[i].GetPipelineSnapshot();
+            }
+
+            return new EasyMicMixerSnapshot(
+                name,
+                MasterVolume,
+                Mute,
+                Solo,
+                Pipeline.GetProcessorSnapshots(),
+                sourceSnapshots,
+                childSnapshots);
+        }
+
         string IMixNode.Name => name ?? string.Empty;
 
         float IMixNode.Volume => MasterVolume;

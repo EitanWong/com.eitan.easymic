@@ -209,24 +209,34 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         public void Enqueue(float[] samples, int count)
         {
+            TryEnqueue(samples, count);
+        }
+
+        public EasyMicEnqueueResult TryEnqueue(float[] samples, int count)
+        {
             if (!EnsureSession())
             {
-                return;
+                return EasyMicEnqueueResult.Disposed(count);
             }
 
             ApplySessionProperties();
-            _session.Enqueue(samples, count);
+            return _session.TryEnqueue(samples, count);
         }
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
         {
+            TryEnqueue(samples, count, channels, sampleRate, markEndOfStream);
+        }
+
+        public EasyMicEnqueueResult TryEnqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
+        {
             if (!EnsureSession())
             {
-                return;
+                return EasyMicEnqueueResult.Disposed(count);
             }
 
             ApplySessionProperties();
-            _session.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+            return _session.TryEnqueue(samples, count, channels, sampleRate, markEndOfStream);
         }
 
         public void CompleteStream()

@@ -166,6 +166,29 @@ namespace Eitan.EasyMic.Runtime
             AudioCallback dataCallback,
             out bool usesExtendedCallback)
         {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                EasyMicLatencyProfile.Balanced,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            out bool usesExtendedCallback)
+        {
             if (dataCallback == null)
             {
                 throw new ArgumentNullException(nameof(dataCallback));
@@ -188,7 +211,7 @@ namespace Eitan.EasyMic.Runtime
                 config.Capture.DeviceId = captureDevice;
             }
 
-            AndroidLegacyDeviceConfig.ApplyLowLatencyAndroidConfig(ref config, sampleRate, capabilityType == DeviceType.Playback);
+            MiniaudioDeviceConfigPolicy.Apply(ref config, sampleRate, capabilityType, latencyProfile);
             usesExtendedCallback = false;
             return CopyStructToNative(config);
         }

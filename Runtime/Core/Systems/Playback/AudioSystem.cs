@@ -47,9 +47,12 @@ namespace Eitan.EasyMic.Runtime
 #pragma warning disable 0414
         private Native.AudioCallback _cb;
 #pragma warning restore 0414
+        private PlaybackRenderTransport _renderTransport;
         private bool _running;
         private bool _setRunInBackground;
         private bool _previousRunInBackground;
+        private readonly RealtimeAudioTelemetry _telemetry = new RealtimeAudioTelemetry();
+        private EasyMicLatencyProfile _latencyProfile = EasyMicLatencyProfile.LowLatency;
 
         // Diagnostics meters
         private float[] _peak; // per-channel
@@ -94,6 +97,7 @@ namespace Eitan.EasyMic.Runtime
 
             try
             {
+                EasyMicRuntimeSettings.ApplyTo(this);
                 Volatile.Write(ref s_instanceNoLock, this);
                 try
                 {
@@ -127,6 +131,15 @@ namespace Eitan.EasyMic.Runtime
                 {
                     EnsureMeterBuffers((int)_channels);
                 }
+
+                _renderTransport = new PlaybackRenderTransport(
+                    _masterMixer,
+                    (int)_channels,
+                    (int)_sampleRate,
+                    _latencyProfile,
+                    _telemetry,
+                    DispatchMixedFrameRaw,
+                    DispatchMixedFrameFromTransport);
 
                 var startResult = Native.DeviceStart(_device);
                 Check(startResult == Native.Result.Success, $"DeviceStart: {startResult}");
@@ -162,6 +175,8 @@ namespace Eitan.EasyMic.Runtime
                 {
                     try { Native.DeviceStop(_device); } catch { }
                 }
+                try { _renderTransport?.Dispose(); } catch { }
+                _renderTransport = null;
             }
             finally
             {
@@ -199,6 +214,31 @@ namespace Eitan.EasyMic.Runtime
         public uint Channels => _channels;
         public bool IsRunning => _running;
         public AudioMixer MasterMixer => _masterMixer;
+        public EasyMicTelemetrySnapshot Telemetry => _telemetry.GetPublicSnapshot();
+        public EasyMicPlaybackPipelineSnapshot PipelineSnapshot => new EasyMicPlaybackPipelineSnapshot(
+            _running,
+            BackendName,
+            DeviceName,
+            _channels,
+            _sampleRate,
+            _latencyProfile,
+            _telemetry.GetPublicSnapshot(),
+            _masterMixer != null
+                ? _masterMixer.GetPipelineSnapshot()
+                : new EasyMicMixerSnapshot("Master", 1f, false, false, Array.Empty<EasyMicProcessorSnapshot>(), Array.Empty<EasyMicPlaybackSourceSnapshot>(), Array.Empty<EasyMicMixerSnapshot>()));
+        public EasyMicLatencyProfile LatencyProfile
+        {
+            get => _latencyProfile;
+            set
+            {
+                if (_running)
+                {
+                    throw new InvalidOperationException("Stop AudioSystem before changing latency profile.");
+                }
+
+                _latencyProfile = value;
+            }
+        }
         public bool MeteringEnabled
         {
             get => Volatile.Read(ref _meteringEnabled) != 0;
@@ -217,51 +257,40 @@ namespace Eitan.EasyMic.Runtime
         private void Render(IntPtr output, uint frameCount)
         {
             using var _ = EasyMicThreading.EnterAudioThread();
+            long callbackStart = _telemetry.BeginCallback();
 
-            if (output == IntPtr.Zero)
+            try
             {
-                return;
-            }
-
-            ulong samplesU = (ulong)frameCount * (ulong)_channels;
-            if (samplesU == 0 || samplesU > int.MaxValue)
-            {
-                return;
-            }
-
-            int samples = (int)samplesU;
-            unsafe
-            {
-                var outSpan = new Span<float>((void*)output, samples);
-                outSpan.Clear();
-
-                // Render full tree directly into the device buffer.
-                try { _masterMixer?.RenderMaster(outSpan, (int)_channels, (int)_sampleRate); }
-                catch { }
-
-                if (Volatile.Read(ref _meteringEnabled) != 0)
+                if (output == IntPtr.Zero)
                 {
-                    UpdateMeters(outSpan, (int)_channels);
+                    return;
                 }
 
-                var rawHandler = OnMixedFrameRaw;
-                if (rawHandler != null)
+                ulong samplesU = (ulong)frameCount * (ulong)_channels;
+                if (samplesU == 0 || samplesU > int.MaxValue)
                 {
-                    try { rawHandler(outSpan, (int)_channels, (int)_sampleRate); } catch { }
+                    return;
                 }
 
-                if (OnMixedFrame != null)
+                int samples = (int)samplesU;
+                unsafe
                 {
-                    var writer = EasyMicAudioEventPump.TryBeginMixedFrame((int)_channels, (int)_sampleRate, samples);
-                    if (writer.IsValid)
+                    var outSpan = new Span<float>((void*)output, samples);
+                    int read = _renderTransport?.ReadInto(outSpan) ?? 0;
+                    if (read <= 0)
                     {
-                        if (!writer.Write(outSpan))
-                        {
-                            writer.WriteZeros(samples);
-                        }
-                        writer.Commit();
+                        outSpan.Clear();
+                    }
+
+                    if (Volatile.Read(ref _meteringEnabled) != 0)
+                    {
+                        UpdateMeters(outSpan, (int)_channels);
                     }
                 }
+            }
+            finally
+            {
+                _telemetry.EndCallback(callbackStart);
             }
         }
 
@@ -307,6 +336,7 @@ namespace Eitan.EasyMic.Runtime
                 IntPtr.Zero,
                 IntPtr.Zero,
                 _cb,
+                _latencyProfile,
                 out _);
 
             if (_deviceConfig == IntPtr.Zero)
@@ -484,6 +514,38 @@ namespace Eitan.EasyMic.Runtime
             }
 
             try { handler(new ReadOnlySpan<float>(interleaved), channels, sampleRate); } catch { }
+        }
+
+        private void DispatchMixedFrameRaw(ReadOnlySpan<float> interleaved, int channels, int sampleRate)
+        {
+            var handler = OnMixedFrameRaw;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try { handler(interleaved, channels, sampleRate); } catch { }
+        }
+
+        private void DispatchMixedFrameFromTransport(ReadOnlySpan<float> interleaved, int channels, int sampleRate)
+        {
+            if (OnMixedFrame == null)
+            {
+                return;
+            }
+
+            var writer = EasyMicAudioEventPump.TryBeginMixedFrame(channels, sampleRate, interleaved.Length);
+            if (!writer.IsValid)
+            {
+                return;
+            }
+
+            if (!writer.Write(interleaved))
+            {
+                writer.WriteZeros(interleaved.Length);
+            }
+
+            writer.Commit();
         }
     }
 }

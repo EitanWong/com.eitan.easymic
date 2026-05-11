@@ -233,6 +233,11 @@ namespace Eitan.EasyMic.Runtime
 
         public void Enqueue(float[] samples, int count)
         {
+            TryEnqueue(samples, count);
+        }
+
+        public EasyMicEnqueueResult TryEnqueue(float[] samples, int count)
+        {
             if (_disposed)
             {
                 throw new ObjectDisposedException(nameof(PlaybackAudioSession));
@@ -240,7 +245,7 @@ namespace Eitan.EasyMic.Runtime
 
             if (samples == null || count <= 0)
             {
-                return;
+                return EasyMicEnqueueResult.InvalidFormat();
             }
 
             int channels = _source != null ? _source.Channels : _outputChannels;
@@ -257,13 +262,18 @@ namespace Eitan.EasyMic.Runtime
             int toCopy = Mathf.Min(count, samples.Length);
             if (toCopy <= 0)
             {
-                return;
+                return EasyMicEnqueueResult.InvalidFormat(count);
             }
 
-            SubmitSamples(new ReadOnlySpan<float>(samples, 0, toCopy), channels, sampleRate, false);
+            return SubmitSamples(new ReadOnlySpan<float>(samples, 0, toCopy), channels, sampleRate, false);
         }
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
+        {
+            TryEnqueue(samples, count, channels, sampleRate, markEndOfStream);
+        }
+
+        public EasyMicEnqueueResult TryEnqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
         {
             if (_disposed)
             {
@@ -276,7 +286,7 @@ namespace Eitan.EasyMic.Runtime
                 {
                     RequestDrainForEmptyStream();
                 }
-                return;
+                return EasyMicEnqueueResult.InvalidFormat(count);
             }
 
             int toCopy = Mathf.Min(count, samples.Length);
@@ -286,10 +296,10 @@ namespace Eitan.EasyMic.Runtime
                 {
                     RequestDrainForEmptyStream();
                 }
-                return;
+                return EasyMicEnqueueResult.InvalidFormat(count);
             }
 
-            SubmitSamples(new ReadOnlySpan<float>(samples, 0, toCopy), channels, sampleRate, markEndOfStream);
+            return SubmitSamples(new ReadOnlySpan<float>(samples, 0, toCopy), channels, sampleRate, markEndOfStream);
         }
 
         public void CompleteStream()
@@ -791,21 +801,22 @@ namespace Eitan.EasyMic.Runtime
             return frames < 1 ? 0 : (long)frames;
         }
 
-        private void SubmitSamples(ReadOnlySpan<float> samples, int channels, int sampleRate, bool markEndOfStream)
+        private EasyMicEnqueueResult SubmitSamples(ReadOnlySpan<float> samples, int channels, int sampleRate, bool markEndOfStream)
         {
+            int requestedSamples = channels > 0 ? (samples.Length / channels) * channels : samples.Length;
             if (samples.IsEmpty)
             {
                 if (markEndOfStream)
                 {
                     RequestDrainForEmptyStream();
                 }
-                return;
+                return EasyMicEnqueueResult.InvalidFormat(requestedSamples);
             }
 
             EnsureSourceReady();
             if (_source == null)
             {
-                return;
+                return new EasyMicEnqueueResult(EasyMicQueueStatus.DeviceLost, requestedSamples, 0);
             }
 
             bool applyStartRamp;
@@ -815,7 +826,7 @@ namespace Eitan.EasyMic.Runtime
                 {
                     RequestDrainForEmptyStream();
                 }
-                return;
+                return new EasyMicEnqueueResult(EasyMicQueueStatus.Stopped, requestedSamples, 0);
             }
 
             ApplySourceProperties();
@@ -838,12 +849,17 @@ namespace Eitan.EasyMic.Runtime
                 spanToEnqueue = scratch;
             }
 
+            int written;
             lock (_enqueueLock)
             {
-                _source.Enqueue(spanToEnqueue, channels, sampleRate, markEndOfStream);
+                written = _source.Enqueue(spanToEnqueue, channels, sampleRate, markEndOfStream);
+                if (written <= 0)
+                {
+                    return EasyMicEnqueueResult.FromWrite(requestedSamples, 0);
+                }
             }
 
-            UpdateLastFrame(spanToEnqueue, channels);
+            UpdateLastFrame(spanToEnqueue.Slice(0, Math.Min(written, spanToEnqueue.Length)), channels);
             _hasStreamedSinceLastIdle = true;
 
             if (!_source.IsPlaying)
@@ -851,10 +867,12 @@ namespace Eitan.EasyMic.Runtime
                 _source.Play();
             }
 
-            if (markEndOfStream)
+            if (markEndOfStream && _source.HasPendingStreamEnd)
             {
                 MarkCompletionRequested();
             }
+
+            return EasyMicEnqueueResult.FromWrite(requestedSamples, written);
         }
 
         private bool PrepareStreamingState(int sampleCount, out bool applyStartRamp)
@@ -1125,7 +1143,7 @@ namespace Eitan.EasyMic.Runtime
                     }
 
                     source.Enqueue(span, channels, sampleRate, markEndOfStream: true);
-                    success = true;
+                    success = source.HasPendingStreamEnd;
                 }
             }
 
