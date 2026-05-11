@@ -20,6 +20,9 @@ namespace Eitan.EasyMic.Runtime
         private readonly int _sampleRate;
         private readonly int _blockSamples;
         private readonly int _targetBufferedSamples;
+        private readonly int _lowWatermarkSamples;
+        private readonly int _highWatermarkSamples;
+        private readonly AutoResetEvent _wakeEvent;
         private readonly Thread _worker;
         private float[] _scratch;
         private int _running;
@@ -44,9 +47,14 @@ namespace Eitan.EasyMic.Runtime
             int blockFrames = CalculateBlockFrames(_sampleRate, profile);
             _blockSamples = Math.Max(_channels * 64, blockFrames * _channels);
             int queueSamples = CalculateQueueSamples(_channels, _sampleRate, profile);
-            _targetBufferedSamples = Math.Min(queueSamples / 2, Math.Max(_blockSamples * 2, queueSamples / 3));
+            int targetFrames = CalculateTargetBufferedFrames(_sampleRate, profile);
+            _targetBufferedSamples = Math.Min(queueSamples - _blockSamples, Math.Max(_blockSamples * 2, targetFrames * _channels));
+            _lowWatermarkSamples = Math.Max(_blockSamples, (int)(_targetBufferedSamples * 0.35f));
+            _highWatermarkSamples = Math.Max(_lowWatermarkSamples + _blockSamples, (int)(_targetBufferedSamples * 0.85f));
             _scratch = new float[_blockSamples];
             _queue = new UnsafeAudioRingBuffer(queueSamples, _channels);
+            _wakeEvent = new AutoResetEvent(false);
+            _mixer.PrepareForRealtimeRender(_blockSamples, _channels, _sampleRate);
 
             Volatile.Write(ref _running, 1);
             _worker = new Thread(WorkerLoop)
@@ -75,6 +83,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 destination.Slice(read, aligned - read).Clear();
                 _telemetry.IncrementTransportUnderrun();
+                _telemetry.AddZeroFilledFrames((aligned - read) / _channels);
             }
 
             _telemetry.ObserveQueueDepth(_queue.ReadableCount);
@@ -89,6 +98,7 @@ namespace Eitan.EasyMic.Runtime
             }
 
             Volatile.Write(ref _running, 0);
+            try { _wakeEvent.Set(); } catch { }
             try
             {
                 if (_worker.IsAlive)
@@ -99,6 +109,7 @@ namespace Eitan.EasyMic.Runtime
             catch { }
 
             try { _queue.Dispose(); } catch { }
+            try { _wakeEvent.Dispose(); } catch { }
             _scratch = null;
         }
 
@@ -106,18 +117,43 @@ namespace Eitan.EasyMic.Runtime
         {
             while (Volatile.Read(ref _running) != 0)
             {
-                if (_queue.ReadableCount >= _targetBufferedSamples || _queue.WritableCount < _blockSamples)
+                int readable = _queue.ReadableCount;
+                if (readable < _lowWatermarkSamples)
                 {
-                    Thread.Sleep(1);
+                    RenderUntil(_targetBufferedSamples);
                     continue;
                 }
 
+                if (readable < _highWatermarkSamples && _queue.WritableCount >= _blockSamples)
+                {
+                    RenderOneBlock();
+                    continue;
+                }
+
+                try { _wakeEvent.WaitOne(2); } catch { }
+            }
+        }
+
+        private void RenderUntil(int targetSamples)
+        {
+            int guard = 0;
+            while (Volatile.Read(ref _running) != 0 &&
+                   _queue.ReadableCount < targetSamples &&
+                   _queue.WritableCount >= _blockSamples &&
+                   guard++ < 64)
+            {
                 RenderOneBlock();
+            }
+
+            if (_queue.ReadableCount < _lowWatermarkSamples)
+            {
+                _telemetry.IncrementWorkerLate();
             }
         }
 
         private void RenderOneBlock()
         {
+            using var _ = EasyMicThreading.EnterTransportThread();
             var scratch = _scratch;
             if (scratch == null)
             {
@@ -126,6 +162,7 @@ namespace Eitan.EasyMic.Runtime
 
             var span = new Span<float>(scratch, 0, _blockSamples);
             span.Clear();
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
 
             try
             {
@@ -133,7 +170,12 @@ namespace Eitan.EasyMic.Runtime
             }
             catch
             {
+                _telemetry.IncrementProcessorException();
                 span.Clear();
+            }
+            finally
+            {
+                _telemetry.ObserveWorkerTicks(System.Diagnostics.Stopwatch.GetTimestamp() - start);
             }
 
             int written = _queue.Write(span);
@@ -187,6 +229,28 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return Math.Max(channels * 1024, (int)Math.Ceiling(channels * sampleRate * seconds));
+        }
+
+        private static int CalculateTargetBufferedFrames(int sampleRate, EasyMicLatencyProfile profile)
+        {
+            int latencyMs;
+            switch (profile)
+            {
+                case EasyMicLatencyProfile.UltraLowLatency:
+                    latencyMs = 20;
+                    break;
+                case EasyMicLatencyProfile.SafeStreaming:
+                    latencyMs = 160;
+                    break;
+                case EasyMicLatencyProfile.Balanced:
+                    latencyMs = 80;
+                    break;
+                default:
+                    latencyMs = 45;
+                    break;
+            }
+
+            return Math.Max(64, sampleRate * latencyMs / 1000);
         }
     }
 }

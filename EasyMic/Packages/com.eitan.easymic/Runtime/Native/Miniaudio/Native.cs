@@ -175,6 +175,7 @@ namespace Eitan.EasyMic.Runtime
                 captureDevice,
                 dataCallback,
                 EasyMicLatencyProfile.Balanced,
+                IntPtr.Zero,
                 out usesExtendedCallback);
         }
 
@@ -189,6 +190,31 @@ namespace Eitan.EasyMic.Runtime
             EasyMicLatencyProfile latencyProfile,
             out bool usesExtendedCallback)
         {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                latencyProfile,
+                IntPtr.Zero,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            IntPtr userData,
+            out bool usesExtendedCallback)
+        {
             if (dataCallback == null)
             {
                 throw new ArgumentNullException(nameof(dataCallback));
@@ -196,6 +222,7 @@ namespace Eitan.EasyMic.Runtime
 
             var config = CreateDeviceConfig(capabilityType, sampleRate);
             config.DataCallback = Marshal.GetFunctionPointerForDelegate(dataCallback);
+            config.UserData = userData;
 
             if (capabilityType == DeviceType.Playback || capabilityType == DeviceType.Mixed || capabilityType == DeviceType.Loopback)
             {

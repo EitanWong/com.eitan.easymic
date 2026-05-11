@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3-exp.3] - 2026-05-12
+
+### Added
+
+- Added realtime capture/playback transport infrastructure backed by unmanaged audio ring buffers.
+- Added capture and playback telemetry for callback exceptions, worker lateness, processor exceptions, event queue drops, zero-filled playback frames, and queue depth min/max.
+- Added public realtime and latency stats snapshots for inspecting callback health, queue depth, underruns, dropped frames, and active latency profile behavior.
+- Added EasyMic latency profiles for transport configuration, including `Stable` as a compatibility alias for `SafeStreaming`.
+- Added editor pipeline visualization and project settings tooling for inspecting EasyMic audio flow and runtime configuration.
+- Added validation coverage for realtime telemetry counters, playback queue backpressure, miniaudio primitives, downmixing, device identity, and latency profile compatibility.
+- Added macOS microphone permission repair diagnostics for editor-side troubleshooting.
+
+### Changed
+
+- Hardened the miniaudio callback path around HotState objects so callbacks perform only transport-safe work and higher-level processing runs on capture/playback workers.
+- Updated recording sessions to use generation-checked callback state, callback drain-on-stop, and safer static callback registry reset during Unity subsystem reload.
+- Updated playback rendering to use a worker-driven watermark scheduler that fills the playback ring ahead of the output callback and zero-fills on underrun.
+- Updated playback defaults so Android players use `Balanced` latency by default, while other platforms continue to default to `LowLatency`.
+- Updated playback source preparation to preallocate resampling buffers before realtime-sensitive rendering.
+- Updated processor contracts with transport-safe, main-thread, and realtime-forbidden marker interfaces.
+- Refreshed the English and Chinese documentation for the current architecture, including visual architecture and audio-chain diagrams.
+- Replaced older documentation pages with a smaller bilingual manual focused on getting started, recording, playback, architecture, latency profiles, diagnostics, processors, platform notes, troubleshooting, and API overview.
+
+### Fixed
+
+- Fixed playback callback shutdown behavior by draining active callbacks before disposing transport state.
+- Fixed capture callback shutdown behavior by guarding disposed/stopping sessions and avoiding stale callback state reuse.
+- Fixed playback underrun reporting so missing output frames are zero-filled and counted.
+- Fixed pipeline visualizer layout and runtime controls after adding the realtime diagnostics tooling.
+- Removed nested Unity services project settings from the release branch state.
+
 ## [0.1.3-exp.2] - 2026-03-20
 
 ### Added

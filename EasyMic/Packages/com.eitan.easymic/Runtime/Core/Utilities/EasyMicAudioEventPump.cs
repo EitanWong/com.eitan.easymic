@@ -57,6 +57,36 @@ namespace Eitan.EasyMic.Runtime
             Volatile.Write(ref s_audioSystem, system);
         }
 
+        internal static void Shutdown()
+        {
+            Volatile.Write(ref s_running, false);
+            try { Volatile.Read(ref s_signal)?.Set(); } catch { }
+            try
+            {
+                var thread = Volatile.Read(ref s_thread);
+                if (thread != null && thread.IsAlive)
+                {
+                    thread.Join(500);
+                }
+            }
+            catch { }
+
+            lock (s_initLock)
+            {
+                try { Volatile.Read(ref s_queue)?.Dispose(); } catch { }
+                try { Volatile.Read(ref s_signal)?.Dispose(); } catch { }
+                Volatile.Write(ref s_queue, null);
+                Volatile.Write(ref s_signal, null);
+                Volatile.Write(ref s_thread, null);
+                Volatile.Write(ref s_mainContext, null);
+                Volatile.Write(ref s_audioSystem, null);
+                Volatile.Write(ref s_nextSourceId, 0);
+                lock (s_sourcesLock) { s_sources.Clear(); }
+                lock (s_payloadPoolLock) { s_payloadPool.Clear(); }
+                lock (s_dispatchItemPoolLock) { s_dispatchItemPool.Clear(); }
+            }
+        }
+
         internal static int RegisterPlaybackSource(PlaybackAudioSource source)
         {
             if (source == null)
@@ -109,17 +139,20 @@ namespace Eitan.EasyMic.Runtime
             var queue = Volatile.Read(ref s_queue);
             if (queue == null)
             {
+                RecordEventDrop();
                 return default;
             }
 
             if (sampleCount < 0)
             {
+                RecordEventDrop();
                 return default;
             }
 
             int required = HeaderFloats + sampleCount;
             if (queue.WritableCount < required)
             {
+                RecordEventDrop();
                 return default;
             }
 
@@ -132,10 +165,16 @@ namespace Eitan.EasyMic.Runtime
 
             if (!queue.TryWriteExact(header))
             {
+                RecordEventDrop();
                 return default;
             }
 
             return new AudioEventWriter(queue, sampleCount);
+        }
+
+        private static void RecordEventDrop()
+        {
+            try { Volatile.Read(ref s_audioSystem)?.RecordEventQueueDrop(); } catch { }
         }
 
         internal ref struct AudioEventWriter
@@ -248,6 +287,12 @@ namespace Eitan.EasyMic.Runtime
                 };
                 s_thread.Start();
             }
+        }
+
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            Shutdown();
         }
 
         private static void ThreadLoop()

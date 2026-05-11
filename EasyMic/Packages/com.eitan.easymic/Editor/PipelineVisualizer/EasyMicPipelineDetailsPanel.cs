@@ -176,6 +176,11 @@ namespace Eitan.EasyMic.Editor
 
         public void UpdateTelemetry(EasyMicPipelineGraphModel model)
         {
+            if (model == null)
+            {
+                return;
+            }
+
             EasyMicPipelineGraphNode selected = null;
             if (!string.IsNullOrEmpty(_selectedNodeId))
             {
@@ -216,11 +221,12 @@ namespace Eitan.EasyMic.Editor
         private void ApplyOverview(EasyMicPipelineGraphModel model)
         {
             var playback = model.Playback;
-            string captureDevice = model.Recordings.Length > 0 ? model.Recordings[0].Info.Device.Name : EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.None);
+            var recordings = model.Recordings ?? Array.Empty<EasyMicRecordingPipelineSnapshot>();
+            string captureDevice = recordings.Length > 0 ? SafeDeviceName(recordings[0]) : EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.None);
             SetRow("overview.playback", playback.IsRunning
                 ? EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.Running)
                 : EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.Stopped));
-            SetRow("overview.recording", model.Recordings.Length == 0 ? EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.NoActiveSessions) : model.Recordings.Length.ToString());
+            SetRow("overview.recording", recordings.Length == 0 ? EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.NoActiveSessions) : recordings.Length.ToString());
             SetRow("overview.backend", string.IsNullOrEmpty(playback.BackendName) ? "miniaudio" : playback.BackendName);
             SetRow("overview.output", string.Format("{0} | {1} Hz / {2} ch", string.IsNullOrEmpty(playback.DeviceName) ? EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.DefaultOutput) : playback.DeviceName, playback.SampleRate, playback.Channels));
             SetRow("overview.capture", captureDevice);
@@ -233,9 +239,10 @@ namespace Eitan.EasyMic.Editor
             int captureQueue = 0;
             long captureUnderruns = 0;
             long captureOverruns = 0;
-            for (int i = 0; i < model.Recordings.Length; i++)
+            var recordings = model.Recordings ?? Array.Empty<EasyMicRecordingPipelineSnapshot>();
+            for (int i = 0; i < recordings.Length; i++)
             {
-                var rt = model.Recordings[i].Info.Telemetry;
+                var rt = recordings[i].Info.Telemetry;
                 captureQueue += rt.LastQueueDepthSamples;
                 captureUnderruns += rt.TransportUnderruns;
                 captureOverruns += rt.TransportOverruns;
@@ -252,9 +259,10 @@ namespace Eitan.EasyMic.Editor
         {
             int captureStages = 0;
             int readers = 0;
-            for (int i = 0; i < model.Recordings.Length; i++)
+            var recordings = model.Recordings ?? Array.Empty<EasyMicRecordingPipelineSnapshot>();
+            for (int i = 0; i < recordings.Length; i++)
             {
-                var processors = model.Recordings[i].Processors;
+                var processors = recordings[i].Processors ?? Array.Empty<EasyMicProcessorSnapshot>();
                 captureStages += processors.Length;
                 for (int p = 0; p < processors.Length; p++)
                 {
@@ -265,10 +273,17 @@ namespace Eitan.EasyMic.Editor
                 }
             }
 
-            SetRow("processing.playback", model.Playback.MasterMixer.Processors.Length.ToString());
+            var playbackProcessors = model.Playback.MasterMixer.Processors ?? Array.Empty<EasyMicProcessorSnapshot>();
+            SetRow("processing.playback", playbackProcessors.Length.ToString());
             SetRow("processing.capture", captureStages.ToString());
             SetRow("processing.readers", readers.ToString());
             SetRow("processing.threading", EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ThreadingPath));
+        }
+
+        private static string SafeDeviceName(EasyMicRecordingPipelineSnapshot recording)
+        {
+            string name = recording.Info.Device.Name;
+            return string.IsNullOrEmpty(name) ? EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.None) : name;
         }
 
         private static string ResolvePipeline(string nodeId)

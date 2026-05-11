@@ -14,6 +14,7 @@ namespace Eitan.EasyMic.Runtime
         private const float QueueSeconds = .2f;
         private const double BufferHighWaterSeconds = 0.12;
         private const double BufferLowWaterSeconds = 0.03;
+        private const double DefaultLargeClipWarningSeconds = 300.0;
 
         private readonly string _name;
 
@@ -90,6 +91,8 @@ namespace Eitan.EasyMic.Runtime
         public event Action<PlaybackAudioSession> OnSessionDisposed;
 
         public AudioClip Clip => _clip;
+        public long EstimatedClipCacheBytes => _clip == null ? 0L : (long)_clip.samples * Math.Max(1, _clip.channels) * sizeof(float);
+        public double LargeClipWarningSeconds { get; set; } = DefaultLargeClipWarningSeconds;
 
         public bool Loop
         {
@@ -464,6 +467,14 @@ namespace Eitan.EasyMic.Runtime
                 if (samples <= 0)
                 {
                     return;
+                }
+
+                long estimatedBytes = (long)samples * channels * sizeof(float);
+                double duration = _clip.frequency > 0 ? samples / (double)_clip.frequency : 0.0;
+                if (duration > LargeClipWarningSeconds)
+                {
+                    Debug.LogWarning(
+                        $"EasyMic: Clip '{_clip.name}' is {duration:0.0}s and will preload about {estimatedBytes / (1024.0 * 1024.0):0.0} MB. Use explicit streaming for long-form audio.");
                 }
 
                 var buffer = new float[samples * channels];

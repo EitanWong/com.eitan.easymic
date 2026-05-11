@@ -134,6 +134,7 @@ namespace Eitan.EasyMic.Runtime
 
         private bool TryDrainOne(bool discardIncomplete)
         {
+            using var _ = EasyMicThreading.EnterTransportThread();
             if (_queue.ReadableCount < 1 || _queue.Peek(_header) < 1)
             {
                 return false;
@@ -173,10 +174,13 @@ namespace Eitan.EasyMic.Runtime
 
             try
             {
+                long start = System.Diagnostics.Stopwatch.GetTimestamp();
                 _pipeline.OnAudioPass(new Span<float>(_workerBuffer, 0, samples), _workerState);
+                _telemetry.ObserveWorkerTicks(System.Diagnostics.Stopwatch.GetTimestamp() - start);
             }
             catch
             {
+                _telemetry.IncrementProcessorException();
             }
 
             _telemetry.ObserveQueueDepth(_queue.ReadableCount);

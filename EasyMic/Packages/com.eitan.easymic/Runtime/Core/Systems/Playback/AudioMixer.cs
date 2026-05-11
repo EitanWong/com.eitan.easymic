@@ -43,6 +43,7 @@ namespace Eitan.EasyMic.Runtime
 
         private float[] _accumBuf = Array.Empty<float>();
         private float[] _scratchBuf = Array.Empty<float>();
+        private int _preparedBlockSamples;
 
         private AudioContext _state;
 
@@ -148,6 +149,39 @@ namespace Eitan.EasyMic.Runtime
             EnsureGainTable();
         }
 
+        internal void PrepareForRealtimeRender(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            if (maxBlockSamples <= 0)
+            {
+                return;
+            }
+
+            EnsureGainTable();
+            EnsureAccumBuffer(maxBlockSamples);
+            EnsureScratchBuffer(maxBlockSamples);
+            Volatile.Write(ref _preparedBlockSamples, Math.Max(Volatile.Read(ref _preparedBlockSamples), maxBlockSamples));
+            PrepareActiveNodesForRealtime(maxBlockSamples, systemChannels, systemSampleRate);
+        }
+
+        private void PrepareActiveNodesForRealtime(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            var table = Volatile.Read(ref _activeTable);
+            var entries = table.Entries;
+            int count = Math.Min(table.Count, entries.Length);
+            for (int i = 0; i < count; i++)
+            {
+                var node = entries[i].Node;
+                if (node is AudioMixer mixer)
+                {
+                    mixer.PrepareForRealtimeRender(maxBlockSamples, systemChannels, systemSampleRate);
+                }
+                else if (node is PlaybackAudioSource source)
+                {
+                    source.PrepareForRealtimeRender(maxBlockSamples, systemChannels, systemSampleRate);
+                }
+            }
+        }
+
         public void SetMasterVolume(float volume) => MasterVolume = volume;
         public void SetPerceptualExponent(float exponent) => PerceptualExponent = exponent;
 
@@ -227,13 +261,14 @@ namespace Eitan.EasyMic.Runtime
 
             var entries = table.Entries;
             var runtime = Volatile.Read(ref _runtime);
-            if (entries.Length == 0 || runtime.Length < entries.Length)
+            int entryCount = Math.Min(table.Count, entries.Length);
+            if (entryCount == 0 || runtime.Length < entryCount)
             {
                 return;
             }
 
             int rampSamples = CalculateRampSamples(systemSampleRate, systemChannels);
-            for (int i = 0; i < entries.Length; i++)
+            for (int i = 0; i < entryCount; i++)
             {
                 ref var envelope = ref runtime[i];
                 var entry = entries[i];
@@ -283,7 +318,8 @@ namespace Eitan.EasyMic.Runtime
 
             var entries = table.Entries;
             var runtime = Volatile.Read(ref _runtime);
-            if (entries.Length == 0 || runtime.Length < entries.Length)
+            int entryCount = Math.Min(table.Count, entries.Length);
+            if (entryCount == 0 || runtime.Length < entryCount)
             {
                 return;
             }
@@ -297,7 +333,7 @@ namespace Eitan.EasyMic.Runtime
 
             int rampSamples = CalculateRampSamples(systemSampleRate, systemChannels);
 
-            for (int i = 0; i < entries.Length; i++)
+            for (int i = 0; i < entryCount; i++)
             {
                 ref var envelope = ref runtime[i];
                 var entry = entries[i];
@@ -518,6 +554,10 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 handler = OnNodeStateChanged;
+                if (_nodes.Count == _nodes.Capacity)
+                {
+                    _nodes.Capacity = Math.Max(8, _nodes.Capacity * 2);
+                }
                 _nodes.Add(new NodeRegistration(node, handler));
             }
 
@@ -580,6 +620,14 @@ namespace Eitan.EasyMic.Runtime
             }
 
             EnsureGainTable();
+            int prepared = Volatile.Read(ref _preparedBlockSamples);
+            if (prepared > 0)
+            {
+                EnsureAccumBuffer(prepared);
+                EnsureScratchBuffer(prepared);
+                PrepareActiveNodesForRealtime(prepared, _state?.ChannelCount ?? 1, _state?.SampleRate ?? 48000);
+            }
+
             GraphDirty?.Invoke(this);
             _stateChanged?.Invoke(this);
         }
@@ -591,7 +639,7 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return;
             }
@@ -684,12 +732,12 @@ namespace Eitan.EasyMic.Runtime
             var previousRuntime = Volatile.Read(ref _runtime);
             var runtime = AcquireEnvelopeBuffer(nodeCount);
 
-            if (previousTable.Entries.Length > 0 && previousRuntime.Length > 0)
+            if (previousTable.Count > 0 && previousRuntime.Length > 0)
             {
                 for (int i = 0; i < nodeCount; i++)
                 {
                     var node = entries[i].Node;
-                    runtime[i] = FindPreviousEnvelope(node, previousTable.Entries, previousRuntime);
+                    runtime[i] = FindPreviousEnvelope(node, previousTable.Entries, previousTable.Count, previousRuntime);
                 }
             }
             else
@@ -697,7 +745,7 @@ namespace Eitan.EasyMic.Runtime
                 Array.Clear(runtime, 0, runtime.Length);
             }
 
-            var table = new GainTable(entries, ++_tableVersion, hasSolo);
+            var table = new GainTable(entries, nodeCount, ++_tableVersion, hasSolo);
             Volatile.Write(ref _runtime, runtime);
             Volatile.Write(ref _activeTable, table);
 
@@ -705,14 +753,14 @@ namespace Eitan.EasyMic.Runtime
             _activeEnvelopesAreA = !_activeEnvelopesAreA;
         }
 
-        private static MixerGainEnvelope FindPreviousEnvelope(IMixNode node, MixNodeEntry[] previousEntries, MixerGainEnvelope[] previousRuntime)
+        private static MixerGainEnvelope FindPreviousEnvelope(IMixNode node, MixNodeEntry[] previousEntries, int previousCount, MixerGainEnvelope[] previousRuntime)
         {
             if (node == null)
             {
                 return default;
             }
 
-            int count = Math.Min(previousEntries.Length, previousRuntime.Length);
+            int count = Math.Min(Math.Min(previousEntries.Length, previousRuntime.Length), previousCount);
             for (int i = 0; i < count; i++)
             {
                 if (ReferenceEquals(previousEntries[i].Node, node))
@@ -728,14 +776,14 @@ namespace Eitan.EasyMic.Runtime
         {
             if (_activeEntriesAreA)
             {
-                if (_entriesB.Length != required)
+                if (_entriesB.Length < required)
                 {
                     _entriesB = new MixNodeEntry[required];
                 }
                 return _entriesB;
             }
 
-            if (_entriesA.Length != required)
+            if (_entriesA.Length < required)
             {
                 _entriesA = new MixNodeEntry[required];
             }
@@ -746,14 +794,14 @@ namespace Eitan.EasyMic.Runtime
         {
             if (_activeEnvelopesAreA)
             {
-                if (_envelopesB.Length != required)
+                if (_envelopesB.Length < required)
                 {
                     _envelopesB = new MixerGainEnvelope[required];
                 }
                 return _envelopesB;
             }
 
-            if (_envelopesA.Length != required)
+            if (_envelopesA.Length < required)
             {
                 _envelopesA = new MixerGainEnvelope[required];
             }
@@ -934,7 +982,7 @@ namespace Eitan.EasyMic.Runtime
                 return true;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return false;
             }
@@ -955,7 +1003,7 @@ namespace Eitan.EasyMic.Runtime
                 return true;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return false;
             }

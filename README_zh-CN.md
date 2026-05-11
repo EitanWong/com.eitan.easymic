@@ -1,13 +1,16 @@
 <div align="center">
-  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="120" height="120">
+  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="112" height="112">
   
-  # 🎙️ Easy Mic for Unity
+  # Easy Mic for Unity
   
-  **专业实时音频录制和处理插件**
+  **面向 Unity 的外部音频采集、播放与处理系统**
   
-  [![Unity Version](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity3d.com/get-unity/download)
-  [![License](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE.md)
-  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey.svg)](#系统要求)
+  <p>
+    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.3-1f6feb.svg" alt="Version 0.1.3-exp.3"></a>
+    <a href="https://unity3d.com/get-unity/download"><img src="https://img.shields.io/badge/Unity-2021.3%2B-222222.svg" alt="Unity 2021.3+"></a>
+    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-GPLv3-2ea043.svg" alt="GPLv3 License"></a>
+    <a href="#系统要求"><img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-6e7681.svg" alt="支持平台"></a>
+  </p>
   
   <p align="center">
     <strong>🇨🇳 中文版</strong> | 
@@ -15,11 +18,16 @@
   </p>
 
   <p align="center">
-    <strong>最新版本：</strong><code>0.1.3-exp.2</code>（2026-03-20） ·
-    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">查看更新日志</a>
+    <strong>版本：</strong><code>0.1.3-exp.3</code> · <span>2026-05-12</span>
+  </p>
+
+  <p align="center">
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md"><img src="https://img.shields.io/badge/阅读文档-入门指南-1f6feb.svg?style=for-the-badge" alt="阅读文档"></a>
+    <a href="#-示例项目总览"><img src="https://img.shields.io/badge/打开示例-Unity_Package-2ea043.svg?style=for-the-badge" alt="打开示例"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/更新日志-0.1.3--exp.3-6e7681.svg?style=for-the-badge" alt="查看更新日志"></a>
   </p>
   <p align="center">
-    <em>适配 AI 数字人 • 语音交互应用 • 实时音频采集</em>
+    <em>适用于语音交互、AI 数字人、自定义播放链路和实时音频诊断。</em>
   </p>
 </div>
 
@@ -57,53 +65,42 @@
 ---
 
 <div align="center">
-  <h2>🎯 什么是 Easy Mic？</h2>
+  <h2>面向交互式 Unity 应用的音频 I/O</h2>
   
-  <p><strong>Easy Mic</strong> 是专为 Unity 开发者设计的<strong>专业实时音频录制与可编程音频流水线插件</strong>，特别适用于开发<strong>语音交互应用</strong>、<strong>AI 数字人</strong>和<strong>实时音频项目</strong>。</p>
+  <p><strong>Easy Mic</strong> 提供基于 miniaudio 的麦克风采集、外部播放、处理器流水线、延迟配置和诊断能力，不依赖 Unity 内置音频路径完成核心传输。</p>
 </div>
 
 <table align="center">
   <tr>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🤖<br>
-      <strong>AI 数字人</strong><br>
-      <em>语音交互系统</em>
+      <strong>采集</strong><br>
+      <em>低延迟麦克风输入、设备选择和传输缓冲。</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🗣️<br>
-      <strong>实时语音聊天</strong><br>
-      <em>实时对话系统</em>
+      <strong>播放</strong><br>
+      <em>通过 EasyMic 外部音频系统进行流式播放和片段播放。</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🎙️<br>
-      <strong>语音命令</strong><br>
-      <em>识别系统</em>
+      <strong>处理</strong><br>
+      <em>可组合音频处理器，明确区分实时和线程约束。</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      📞<br>
-      <strong>VoIP 通信</strong><br>
-      <em>通信应用</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎮<br>
-      <strong>语音游戏</strong><br>
-      <em>语音控制游戏</em>
+      <strong>诊断</strong><br>
+      <em>观测 underrun、overflow、回调状态、队列深度和 worker 状态。</em>
       <br><br>
     </td>
   </tr>
 </table>
 
 <div align="center">
-  <p><em>Easy Mic 为您的应用程序提供<strong>低延迟、高质量的音频基础</strong>。</em></p>
+  <p><em>适用于语音交互、AI 角色、自定义音频工具和实时音频工作流。</em></p>
 </div>
 
 ---
@@ -128,38 +125,38 @@
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="50%">
-        <h3>🎤 超低延迟录音</h3>
+      <td align="left" width="50%">
+        <h3>低延迟录音</h3>
         <ul align="left">
-          <li>✅ 原生后端实现最小音频延迟</li>
-          <li>✅ 实时处理适用于实时系统</li>
-          <li>✅ 跨平台支持</li>
+          <li>基于 miniaudio 的设备访问</li>
+          <li>capture transport worker 与 unmanaged ring buffer</li>
+          <li>观测 overflow、drop 和 callback 状态</li>
         </ul>
       </td>
-      <td align="center" width="50%">
-        <h3>⛓️ 可编程音频管道</h3>
+      <td align="left" width="50%">
+        <h3>外部播放</h3>
         <ul align="left">
-          <li>✅ 模块化设计与可链式处理器</li>
-          <li>✅ 动态运行时配置</li>
-          <li>✅ 内置与自定义处理器</li>
+          <li>stream 和 clip 播放 API</li>
+          <li>带水位调度的 render worker</li>
+          <li>underrun zero-fill 与遥测计数</li>
         </ul>
       </td>
     </tr>
     <tr>
-      <td align="center" width="50%">
-        <h3>🛡️ 类型安全与性能优先</h3>
+      <td align="left" width="50%">
+        <h3>处理器契约</h3>
         <ul align="left">
-          <li>✅ 零GC音频处理</li>
-          <li>✅ 编译时安全</li>
-          <li>✅ 线程安全操作</li>
+          <li>transport-safe processor 标记接口</li>
+          <li>区分主线程和 realtime-forbidden 处理器</li>
+          <li>明确 Unity API 的线程使用边界</li>
         </ul>
       </td>
-      <td align="center" width="50%">
-        <h3>🔧 开发者友好</h3>
+      <td align="left" width="50%">
+        <h3>开发者可观测性</h3>
         <ul align="left">
-          <li>✅ 简单API设计</li>
-          <li>✅ 全面文档</li>
-          <li>✅ 活跃社区支持</li>
+          <li>面向不同稳定性目标的 latency profiles</li>
+          <li>pipeline visualizer 和 project settings 工具</li>
+          <li>中英文文档与实用示例</li>
         </ul>
       </td>
     </tr>
@@ -289,71 +286,72 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
 ## 📚 文档
 
 <div align="center">
-  <h3>📖 完整文档可用</h3>
+  <h3>文档地图</h3>
+  <p><em>建议从安装开始，再沿着采集、播放、架构、延迟、诊断和处理器规则逐步阅读。</em></p>
   
   <table>
     <tr>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md">
-          📘<br><strong>入门指南</strong><br>
+          <strong>入门指南</strong><br>
           <em>安装和第一步</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/core-concepts.md">
-          🏗️<br><strong>核心概念</strong><br>
-          <em>架构概览</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/recording.md">
+          <strong>录音</strong><br>
+          <em>麦克风采集链路</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/audio-pipeline.md">
-          ⛓️<br><strong>音频管道</strong><br>
-          <em>处理系统</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/playback.md">
+          <strong>播放</strong><br>
+          <em>输出与流式播放</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/processors.md">
-          🧩<br><strong>处理器</strong><br>
-          <em>可用组件</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/architecture.md">
+          <strong>架构</strong><br>
+          <em>音频链路图</em>
         </a>
       </td>
     </tr>
     <tr>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/components.md">
-          🎛️<br><strong>Mono 组件</strong><br>
-          <em>麦克风 / ASR / 播放 / TTS</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/latency-profiles.md">
+          <strong>延迟配置</strong><br>
+          <em>取舍与默认值</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/api-reference.md">
-          ⚡<br><strong>API 参考</strong><br>
-          <em>完整文档</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/diagnostics.md">
+          <strong>诊断</strong><br>
+          <em>遥测与计数器</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/best-practices.md">
-          💡<br><strong>最佳实践</strong><br>
-          <em>优化技巧</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/processors.md">
+          <strong>处理器</strong><br>
+          <em>线程规则</em>
         </a>
       </td>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/troubleshooting.md">
-          🔧<br><strong>故障排除</strong><br>
+          <strong>故障排除</strong><br>
           <em>常见解决方案</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/examples.md">
-          🚀<br><strong>示例</strong><br>
-          <em>案例代码</em>
         </a>
       </td>
     </tr>
   </table>
+
+  <p>
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/api-overview.md">API 概览</a> ·
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/platform-notes.md">平台说明</a> ·
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/index.md">文档索引</a>
+  </p>
   
   <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/">
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md">
       <img src="https://img.shields.io/badge/🇺🇸_English_Documentation-Complete_Documentation-blue.svg" alt="English Documentation">
     </a>
   </p>
@@ -495,35 +493,26 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
 
 ---
 
-## 🌟 为什么选择 Easy Mic？
+## 设计原则
 
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>生产就绪</strong><br>
-        <em>经过实战检验的架构，适用于商业应用</em>
+      <td align="center" width="25%">
+        <strong>回调路径保持轻量</strong><br>
+        <em>设备回调只承担必要的传输工作。</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>开发者导向</strong><br>
-        <em>丰富的文档、示例和社区支持</em>
+      <td align="center" width="25%">
+        <strong>worker 承担处理工作</strong><br>
+        <em>高层处理逻辑不运行在设备回调中。</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>性能优化</strong><br>
-        <em>零GC音频处理以获得最大性能</em>
+      <td align="center" width="25%">
+        <strong>行为可观测</strong><br>
+        <em>提供用于分析延迟和 glitch 的诊断计数器。</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>灵活架构</strong><br>
-        <em>模块化设计允许轻松定制和扩展</em>
-      </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>跨平台</strong><br>
-        <em>单一API适用于所有主要Unity平台</em>
+      <td align="center" width="25%">
+        <strong>贴近 Unity 工作流</strong><br>
+        <em>示例、组件和文档与包结构保持一致。</em>
       </td>
     </tr>
   </table>
@@ -532,13 +521,14 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
 ---
 
 <div align="center">
-  <h2>🚀 准备构建令人惊叹的语音交互应用？</h2>
+  <h2>开始使用 Easy Mic</h2>
+  <p><em>导入包、打开示例，并在目标设备上结合诊断数据完成验证。</em></p>
   
   <p>
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md">
       <img src="https://img.shields.io/badge/📘_立即开始-blue.svg?style=for-the-badge" alt="立即开始">
     </a>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/examples.md">
+    <a href="#-示例项目总览">
       <img src="https://img.shields.io/badge/🚀_查看示例-green.svg?style=for-the-badge" alt="查看示例">
     </a>
     <a href="mailto:unease-equity-5c@icloud.com">

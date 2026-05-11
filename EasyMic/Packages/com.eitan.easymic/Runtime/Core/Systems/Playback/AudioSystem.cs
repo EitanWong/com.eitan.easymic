@@ -16,7 +16,7 @@ namespace Eitan.EasyMic.Runtime
 
         private static readonly object s_lock = new object();
         private static AudioSystem s_instance;
-        private static AudioSystem s_instanceNoLock;
+        private static HotState s_hotState;
         public static AudioSystem Instance
         {
             get
@@ -26,7 +26,6 @@ namespace Eitan.EasyMic.Runtime
                     if (s_instance == null)
                     {
                         s_instance = new AudioSystem();
-                        Volatile.Write(ref s_instanceNoLock, s_instance);
                     }
 
                     return s_instance;
@@ -48,11 +47,22 @@ namespace Eitan.EasyMic.Runtime
         private Native.AudioCallback _cb;
 #pragma warning restore 0414
         private PlaybackRenderTransport _renderTransport;
+        private HotState _hotState;
         private bool _running;
         private bool _setRunInBackground;
         private bool _previousRunInBackground;
         private readonly RealtimeAudioTelemetry _telemetry = new RealtimeAudioTelemetry();
         private EasyMicLatencyProfile _latencyProfile = EasyMicLatencyProfile.LowLatency;
+
+        private sealed class HotState
+        {
+            internal PlaybackRenderTransport Transport;
+            internal RealtimeAudioTelemetry Telemetry;
+            internal int Channels;
+            internal int Stopping;
+            internal int Disposed;
+            internal int ActiveCallbacks;
+        }
 
         // Diagnostics meters
         private float[] _peak; // per-channel
@@ -98,7 +108,6 @@ namespace Eitan.EasyMic.Runtime
             try
             {
                 EasyMicRuntimeSettings.ApplyTo(this);
-                Volatile.Write(ref s_instanceNoLock, this);
                 try
                 {
                     EasyMicAudioEventPump.SetMainThreadContext(SynchronizationContext.Current);
@@ -140,6 +149,13 @@ namespace Eitan.EasyMic.Runtime
                     _telemetry,
                     DispatchMixedFrameRaw,
                     DispatchMixedFrameFromTransport);
+                _hotState = new HotState
+                {
+                    Transport = _renderTransport,
+                    Telemetry = _telemetry,
+                    Channels = (int)_channels
+                };
+                Volatile.Write(ref s_hotState, _hotState);
 
                 var startResult = Native.DeviceStart(_device);
                 Check(startResult == Native.Result.Success, $"DeviceStart: {startResult}");
@@ -171,12 +187,31 @@ namespace Eitan.EasyMic.Runtime
             try
             {
                 try { UnityEngine.Application.quitting -= OnApplicationQuitting; } catch { }
+                var hot = Volatile.Read(ref _hotState);
+                if (hot != null)
+                {
+                    Volatile.Write(ref hot.Stopping, 1);
+                }
+
                 if (_device != IntPtr.Zero)
                 {
                     try { Native.DeviceStop(_device); } catch { }
                 }
+                WaitForCallbacksToDrain(hot, 250);
+                if (ReferenceEquals(Volatile.Read(ref s_hotState), hot))
+                {
+                    Volatile.Write(ref s_hotState, null);
+                }
+
+                if (hot != null)
+                {
+                    Volatile.Write(ref hot.Disposed, 1);
+                    hot.Transport = null;
+                }
+
                 try { _renderTransport?.Dispose(); } catch { }
                 _renderTransport = null;
+                _hotState = null;
             }
             finally
             {
@@ -215,6 +250,8 @@ namespace Eitan.EasyMic.Runtime
         public bool IsRunning => _running;
         public AudioMixer MasterMixer => _masterMixer;
         public EasyMicTelemetrySnapshot Telemetry => _telemetry.GetPublicSnapshot();
+        public EasyMicRealtimeStats RealtimeStats => new EasyMicRealtimeStats(Telemetry);
+        public EasyMicLatencyStats LatencyStats => new EasyMicLatencyStats(_latencyProfile, _sampleRate, _channels, Telemetry);
         public EasyMicPlaybackPipelineSnapshot PipelineSnapshot => new EasyMicPlaybackPipelineSnapshot(
             _running,
             BackendName,
@@ -253,11 +290,19 @@ namespace Eitan.EasyMic.Runtime
         }
         public void AddSource(PlaybackAudioSource source) => _masterMixer?.AddSource(source);
         public void RemoveSource(PlaybackAudioSource source) => _masterMixer?.RemoveSource(source);
+        internal void RecordEventQueueDrop() => _telemetry.IncrementEventQueueDrop();
 
-        private void Render(IntPtr output, uint frameCount)
+        private static void Render(HotState hot, IntPtr output, uint frameCount)
         {
             using var _ = EasyMicThreading.EnterAudioThread();
-            long callbackStart = _telemetry.BeginCallback();
+            if (hot == null)
+            {
+                ZeroFill(output, frameCount, 2);
+                return;
+            }
+
+            Interlocked.Increment(ref hot.ActiveCallbacks);
+            long callbackStart = hot.Telemetry != null ? hot.Telemetry.BeginCallback() : 0;
 
             try
             {
@@ -266,7 +311,8 @@ namespace Eitan.EasyMic.Runtime
                     return;
                 }
 
-                ulong samplesU = (ulong)frameCount * (ulong)_channels;
+                int channels = Math.Max(1, hot.Channels);
+                ulong samplesU = (ulong)frameCount * (ulong)channels;
                 if (samplesU == 0 || samplesU > int.MaxValue)
                 {
                     return;
@@ -276,21 +322,35 @@ namespace Eitan.EasyMic.Runtime
                 unsafe
                 {
                     var outSpan = new Span<float>((void*)output, samples);
-                    int read = _renderTransport?.ReadInto(outSpan) ?? 0;
+                    if (Volatile.Read(ref hot.Stopping) != 0 || Volatile.Read(ref hot.Disposed) != 0)
+                    {
+                        outSpan.Clear();
+                        hot.Telemetry?.AddZeroFilledFrames((int)frameCount);
+                        return;
+                    }
+
+                    var transport = Volatile.Read(ref hot.Transport);
+                    int read = transport?.ReadInto(outSpan) ?? 0;
                     if (read <= 0)
                     {
                         outSpan.Clear();
-                    }
-
-                    if (Volatile.Read(ref _meteringEnabled) != 0)
-                    {
-                        UpdateMeters(outSpan, (int)_channels);
+                        if (transport == null)
+                        {
+                            hot.Telemetry?.AddZeroFilledFrames((int)frameCount);
+                        }
                     }
                 }
             }
+            catch
+            {
+                hot.Telemetry?.IncrementCallbackException();
+                hot.Telemetry?.AddZeroFilledFrames((int)frameCount);
+                ZeroFill(output, frameCount, Math.Max(1, hot.Channels));
+            }
             finally
             {
-                _telemetry.EndCallback(callbackStart);
+                hot.Telemetry?.EndCallback(callbackStart);
+                Interlocked.Decrement(ref hot.ActiveCallbacks);
             }
         }
 
@@ -299,15 +359,50 @@ namespace Eitan.EasyMic.Runtime
 #endif
         private static void OnCallback(IntPtr device, IntPtr output, IntPtr input, uint length)
         {
-            try
+            Render(Volatile.Read(ref s_hotState), output, length);
+        }
+
+        private static unsafe void ZeroFill(IntPtr output, uint frameCount, int channels)
+        {
+            if (output == IntPtr.Zero)
             {
-                var self = Volatile.Read(ref s_instanceNoLock);
-                if (self != null)
-                {
-                    self.Render(output, length);
-                }
+                return;
             }
-            catch { }
+
+            ulong samplesU = (ulong)frameCount * (ulong)Math.Max(1, channels);
+            if (samplesU == 0 || samplesU > int.MaxValue)
+            {
+                return;
+            }
+
+            new Span<float>((void*)output, (int)samplesU).Clear();
+        }
+
+        private static void WaitForCallbacksToDrain(HotState hot, int timeoutMs)
+        {
+            if (hot == null)
+            {
+                return;
+            }
+
+            int waited = 0;
+            while (Volatile.Read(ref hot.ActiveCallbacks) > 0 && waited < timeoutMs)
+            {
+                Thread.Sleep(1);
+                waited++;
+            }
+        }
+
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            Volatile.Write(ref s_hotState, null);
+            lock (s_lock)
+            {
+                try { s_instance?.Stop(); } catch { }
+                s_instance = null;
+            }
+            EasyMicAudioEventPump.Shutdown();
         }
 
         private static void Check(bool cond, string msg)
@@ -327,6 +422,7 @@ namespace Eitan.EasyMic.Runtime
             var channels = Math.Max(1u, desiredChannels);
 
             _cb = OnCallback;
+            IntPtr hotKey = new IntPtr(Environment.TickCount);
 
             _deviceConfig = Native.AllocateDeviceConfig(
                 Native.DeviceType.Playback,
@@ -337,6 +433,7 @@ namespace Eitan.EasyMic.Runtime
                 IntPtr.Zero,
                 _cb,
                 _latencyProfile,
+                hotKey,
                 out _);
 
             if (_deviceConfig == IntPtr.Zero)

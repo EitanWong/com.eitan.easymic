@@ -9,6 +9,7 @@ namespace Eitan.EasyMic.Runtime
         UltraLowLatency = 0,
         LowLatency = 1,
         Balanced = 2,
-        SafeStreaming = 3
+        SafeStreaming = 3,
+        Stable = 3
     }
 }

@@ -1,13 +1,16 @@
 <div align="center">
-  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="120" height="120">
+  <img src="./EasyMic/Packages/com.eitan.easymic/Documentation~/images/easymic-logo.png" alt="Easy Mic Icon" width="112" height="112">
   
-  # 🎙️ Easy Mic for Unity
+  # Easy Mic for Unity
   
-  **Professional Real-time Audio Recording & Processing Plugin**
+  **External audio capture, playback, and processing for Unity**
   
-  [![Unity Version](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity3d.com/get-unity/download)
-  [![License](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE.md)
-  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey.svg)](#system-requirements)
+  <p>
+    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.3-1f6feb.svg" alt="Version 0.1.3-exp.3"></a>
+    <a href="https://unity3d.com/get-unity/download"><img src="https://img.shields.io/badge/Unity-2021.3%2B-222222.svg" alt="Unity 2021.3+"></a>
+    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-GPLv3-2ea043.svg" alt="GPLv3 License"></a>
+    <a href="#system-requirements"><img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-6e7681.svg" alt="Supported platforms"></a>
+  </p>
   
   <p align="center">
     <a href="README_zh-CN.md">🇨🇳 中文版</a> | 
@@ -15,11 +18,16 @@
   </p>
 
   <p align="center">
-    <strong>Latest Version:</strong> <code>0.1.3-exp.2</code> (2026-03-20) ·
-    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md">View Changelog</a>
+    <strong>Release:</strong> <code>0.1.3-exp.3</code> · <span>2026-05-12</span>
+  </p>
+
+  <p align="center">
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md"><img src="https://img.shields.io/badge/Read_the_docs-Getting_Started-1f6feb.svg?style=for-the-badge" alt="Read the docs"></a>
+    <a href="#-sample-projects-overview"><img src="https://img.shields.io/badge/Open_samples-Unity_Package-2ea043.svg?style=for-the-badge" alt="Open samples"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-0.1.3--exp.3-6e7681.svg?style=for-the-badge" alt="View changelog"></a>
   </p>
   <p align="center">
-    <em>Perfect for AI Digital Humans • Voice Interactive Applications • Real-time Audio Capture</em>
+    <em>Built for voice interaction, digital humans, custom playback, and realtime audio diagnostics.</em>
   </p>
 </div>
 
@@ -57,53 +65,42 @@
 ---
 
 <div align="center">
-  <h2>🎯 What is Easy Mic?</h2>
+  <h2>Audio I/O for interactive Unity applications</h2>
   
-  <p><strong>Easy Mic</strong> is a professional <strong>real-time audio recording and programmable audio pipeline plugin</strong> designed specifically for Unity developers working on <strong>voice-interactive applications</strong>, <strong>AI digital humans</strong>, and <strong>real-time audio projects</strong>.</p>
+  <p><strong>Easy Mic</strong> provides miniaudio-backed microphone capture, external playback, processor pipelines, latency profiles, and diagnostics outside Unity's built-in audio path.</p>
 </div>
 
 <table align="center">
   <tr>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🤖<br>
-      <strong>AI Digital Humans</strong><br>
-      <em>Voice interaction systems</em>
+      <strong>Capture</strong><br>
+      <em>Low-latency microphone input with device selection and transport buffering.</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🗣️<br>
-      <strong>Real-time Voice Chat</strong><br>
-      <em>Live conversation systems</em>
+      <strong>Playback</strong><br>
+      <em>Streaming and clip playback through EasyMic's external audio system.</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      🎙️<br>
-      <strong>Voice Commands</strong><br>
-      <em>Recognition systems</em>
+      <strong>Processing</strong><br>
+      <em>Composable audio processors with explicit realtime and threading contracts.</em>
       <br><br>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="25%">
       <br>
-      📞<br>
-      <strong>VoIP & Comms</strong><br>
-      <em>Communication apps</em>
-      <br><br>
-    </td>
-    <td align="center" width="20%">
-      <br>
-      🎮<br>
-      <strong>Voice Gaming</strong><br>
-      <em>Voice-controlled games</em>
+      <strong>Diagnostics</strong><br>
+      <em>Telemetry for underruns, overflows, callback health, queue depth, and workers.</em>
       <br><br>
     </td>
   </tr>
 </table>
 
 <div align="center">
-  <p><em>Easy Mic provides the <strong>low-latency, high-quality audio foundation</strong> your application needs.</em></p>
+  <p><em>Designed for voice interaction, AI characters, custom audio tools, and realtime audio workflows.</em></p>
 </div>
 
 ---
@@ -128,38 +125,38 @@
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="50%">
-        <h3>🎤 Ultra-Low Latency Recording</h3>
+      <td align="left" width="50%">
+        <h3>Low-latency recording</h3>
         <ul align="left">
-          <li>✅ Native backend for minimal audio delay</li>
-          <li>✅ Real-time processing for live systems</li>
-          <li>✅ Cross-platform support</li>
+          <li>miniaudio-backed device access</li>
+          <li>capture transport worker and unmanaged ring buffer</li>
+          <li>diagnostics for overflows, drops, and callback health</li>
         </ul>
       </td>
-      <td align="center" width="50%">
-        <h3>⛓️ Programmable Audio Pipeline</h3>
+      <td align="left" width="50%">
+        <h3>External playback</h3>
         <ul align="left">
-          <li>✅ Modular design with chainable processors</li>
-          <li>✅ Dynamic runtime configuration</li>
-          <li>✅ Built-in and custom processors</li>
+          <li>stream and clip playback APIs</li>
+          <li>render worker with watermark scheduling</li>
+          <li>underrun zero-fill and telemetry</li>
         </ul>
       </td>
     </tr>
     <tr>
-      <td align="center" width="50%">
-        <h3>🛡️ Type-Safe & Performance-First</h3>
+      <td align="left" width="50%">
+        <h3>Processor contracts</h3>
         <ul align="left">
-          <li>✅ Zero-GC audio processing</li>
-          <li>✅ Compile-time safety</li>
-          <li>✅ Thread-safe operations</li>
+          <li>transport-safe processor marker interfaces</li>
+          <li>main-thread and realtime-forbidden separation</li>
+          <li>clear Unity API threading guidance</li>
         </ul>
       </td>
-      <td align="center" width="50%">
-        <h3>🔧 Developer-Friendly</h3>
+      <td align="left" width="50%">
+        <h3>Developer visibility</h3>
         <ul align="left">
-          <li>✅ Simple API design</li>
-          <li>✅ Comprehensive documentation</li>
-          <li>✅ Active community support</li>
+          <li>latency profiles for different stability targets</li>
+          <li>pipeline visualization and project settings tooling</li>
+          <li>bilingual documentation and practical samples</li>
         </ul>
       </td>
     </tr>
@@ -289,71 +286,72 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
 ## 📚 Documentation
 
 <div align="center">
-  <h3>📖 Complete Documentation Available</h3>
+  <h3>Documentation Map</h3>
+  <p><em>Start with setup, then follow the capture/playback path into architecture, latency, diagnostics, and processor rules.</em></p>
   
   <table>
     <tr>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md">
-          📘<br><strong>Getting Started</strong><br>
+          <strong>Getting Started</strong><br>
           <em>Installation & first steps</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/core-concepts.md">
-          🏗️<br><strong>Core Concepts</strong><br>
-          <em>Architecture overview</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/recording.md">
+          <strong>Recording</strong><br>
+          <em>Microphone capture flow</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/audio-pipeline.md">
-          ⛓️<br><strong>Audio Pipeline</strong><br>
-          <em>Processing system</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/playback.md">
+          <strong>Playback</strong><br>
+          <em>Output and streaming</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/processors.md">
-          🧩<br><strong>Processors</strong><br>
-          <em>Available components</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/architecture.md">
+          <strong>Architecture</strong><br>
+          <em>Audio chain diagrams</em>
         </a>
       </td>
     </tr>
     <tr>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/components.md">
-          🎛️<br><strong>Mono Components</strong><br>
-          <em>Mic / ASR / Playback / TTS</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/latency-profiles.md">
+          <strong>Latency Profiles</strong><br>
+          <em>Tradeoffs and defaults</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/api-reference.md">
-          ⚡<br><strong>API Reference</strong><br>
-          <em>Complete documentation</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/diagnostics.md">
+          <strong>Diagnostics</strong><br>
+          <em>Telemetry and counters</em>
         </a>
       </td>
       <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/best-practices.md">
-          💡<br><strong>Best Practices</strong><br>
-          <em>Optimization tips</em>
+        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/processors.md">
+          <strong>Processors</strong><br>
+          <em>Threading rules</em>
         </a>
       </td>
       <td align="center" width="25%">
         <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/troubleshooting.md">
-          🔧<br><strong>Troubleshooting</strong><br>
+          <strong>Troubleshooting</strong><br>
           <em>Common solutions</em>
-        </a>
-      </td>
-      <td align="center" width="25%">
-        <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/examples.md">
-          🚀<br><strong>Examples</strong><br>
-          <em>Example code</em>
         </a>
       </td>
     </tr>
   </table>
+
+  <p>
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/api-overview.md">API Overview</a> ·
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/platform-notes.md">Platform Notes</a> ·
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/index.md">Documentation Index</a>
+  </p>
   
   <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/">
+    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/index.md">
       <img src="https://img.shields.io/badge/🇨🇳_中文文档-Complete_Chinese_Documentation-red.svg" alt="Chinese Documentation">
     </a>
   </p>
@@ -495,30 +493,26 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
 
 ---
 
-## 🌟 Why Choose Easy Mic?
+## Design Principles
 
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Developer-Focused</strong><br>
-        <em>Extensive documentation, examples, and community support</em>
+      <td align="center" width="25%">
+        <strong>Thin callback path</strong><br>
+        <em>Keep device callbacks focused on transport work.</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Performance-Optimized</strong><br>
-        <em>Zero-GC audio processing for maximum performance</em>
+      <td align="center" width="25%">
+        <strong>Worker-based processing</strong><br>
+        <em>Run higher-level processing outside the device callback.</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Flexible Architecture</strong><br>
-        <em>Modular design allows easy customization and extension</em>
+      <td align="center" width="25%">
+        <strong>Observable behavior</strong><br>
+        <em>Expose counters that help diagnose latency and glitches.</em>
       </td>
-      <td align="center" width="20%">
-        ✅<br>
-        <strong>Cross-Platform</strong><br>
-        <em>Single API works across all major Unity platforms</em>
+      <td align="center" width="25%">
+        <strong>Practical Unity workflow</strong><br>
+        <em>Keep samples, components, and docs close to the package.</em>
       </td>
     </tr>
   </table>
@@ -527,14 +521,15 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
 ---
 
 <div align="center">
-  <h2>🚀 Ready to Build Amazing Voice-Interactive Applications?</h2>
+  <h2>Start building with Easy Mic</h2>
+  <p><em>Import the package, open a sample, and use diagnostics while validating on your target device.</em></p>
   
   <p>
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md">
       <img src="https://img.shields.io/badge/📘_Get_Started_Now-blue.svg?style=for-the-badge" alt="Get Started">
     </a>
-    <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/examples.md">
-      <img src="https://img.shields.io/badge/🚀_View_Examples-green.svg?style=for-the-badge" alt="View Examples">
+    <a href="#-sample-projects-overview">
+      <img src="https://img.shields.io/badge/🚀_View_Samples-green.svg?style=for-the-badge" alt="View Samples">
     </a>
     <a href="mailto:unease-equity-5c@icloud.com">
       <img src="https://img.shields.io/badge/💎_Contact_for_APM-gold.svg?style=for-the-badge" alt="Contact APM">

@@ -217,6 +217,14 @@ namespace Eitan.EasyMic.Runtime
             try { (attachTo ?? AudioSystem.Instance.MasterMixer).AddSource(this); } catch { }
         }
 
+        internal void PrepareForRealtimeRender(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            int outChannels = Math.Max(1, systemChannels);
+            int outputFrames = Math.Max(1, maxBlockSamples / outChannels);
+            int neededSourceFrames = (int)Math.Ceiling(outputFrames * (double)SampleRate / Math.Max(1, systemSampleRate)) + ResamplerGuardFrames;
+            EnsureResBufCapacity(Math.Max(Channels * 512, neededSourceFrames * Channels));
+        }
+
         public int Enqueue(ReadOnlySpan<float> interleaved)
         {
             if (Volatile.Read(ref _disposed) != 0)
@@ -604,10 +612,7 @@ namespace Eitan.EasyMic.Runtime
 
             _phase = 0.0;
             _resFrames = 0;
-            lock (_queueMutationLock)
-            {
-                _queue.Clear();
-            }
+            _queue.Skip(_queue.ReadableCount);
         }
 
         private int RenderNativeRate(
@@ -1449,7 +1454,26 @@ namespace Eitan.EasyMic.Runtime
         private bool EnsureResBufCapacity(int neededSamples)
         {
             neededSamples = AlignToFrameSamples(neededSamples);
-            return _resBuf != null && _resBuf.Length >= neededSamples;
+            if (_resBuf != null && _resBuf.Length >= neededSamples)
+            {
+                return true;
+            }
+
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
+            {
+                return false;
+            }
+
+            int newSize = _resBuf == null || _resBuf.Length == 0 ? AlignToFrameSamples(Math.Max(Channels * 512, 4096)) : _resBuf.Length;
+            while (newSize < neededSamples)
+            {
+                newSize *= 2;
+            }
+
+            _resBuf = new float[AlignToFrameSamples(newSize)];
+            _resFrames = 0;
+            _phase = 0.0;
+            return true;
         }
 
         public void AddProcessor(AudioWorkerBlueprint blueprint)

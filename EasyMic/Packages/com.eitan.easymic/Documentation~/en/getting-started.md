@@ -1,167 +1,207 @@
-← [Documentation Home](../README.md) | [中文版本](../zh-CN/getting-started.md) →
+# Getting Started
 
-# 🚀 Getting Started with Easy Mic
+This page shows the shortest path to recording and playback with the current EasyMic API.
 
-Welcome to Easy Mic! This guide will help you set up and start using Easy Mic in your Unity project.
+## Requirements
 
-## 📋 Prerequisites
+- Unity `2021.3` or newer.
+- Package name: `com.eitan.easymic`.
+- Microphone permission before recording on Android, iOS, and sandboxed desktop targets.
 
-- **Unity 2021.3 LTS** or higher
-- **Supported Platforms**: Windows, macOS, Linux, Android, iOS
-- **Microphone access** on your target platform
+## Install
 
-## 📦 Installation
+Unity Package Manager:
 
-### Method 1: Unity Package Manager (Recommended)
+```text
+https://github.com/EitanWong/com.eitan.easymic.git#upm
+```
 
-1. Open Unity Package Manager (`Window > Package Manager`)
-2. Click the `+` button in the top-left corner
-3. Select `Add package from git URL...`
-4. Enter: `https://github.com/EitanWong/com.eitan.easymic.git#upm`
-5. Click `Add`
-
-### Method 2: OpenUPM
+OpenUPM:
 
 ```bash
 openupm add com.eitan.easymic
 ```
 
-### Method 3: Manual Installation
+Samples can be imported from the package entry in Unity Package Manager.
 
-1. Download the latest release from [GitHub Releases](https://github.com/EitanWong/com.eitan.easymic/releases)
-2. Extract to your project's `Packages` folder
-3. Unity will automatically detect and import the package
+## Record With the API
 
-## 🎯 Your First Recording
+This example records from the default device, keeps a `Capturer` processor alive while recording, and reads the captured clip before stopping the session.
 
-Let's create a simple script that records 5 seconds of audio:
+```csharp
+using Eitan.EasyMic;
+using Eitan.EasyMic.Runtime;
+using UnityEngine;
+
+public sealed class EasyMicQuickRecord : MonoBehaviour
+{
+    private RecordingHandle _handle;
+    private AudioWorkerBlueprint _captureBlueprint;
+
+    private void Start()
+    {
+        if (!PermissionUtils.HasPermission())
+        {
+            Debug.LogWarning("Microphone permission is not granted yet.");
+            return;
+        }
+
+        EasyMicAPI.Refresh();
+        if (EasyMicAPI.Devices.Length == 0)
+        {
+            Debug.LogWarning("No microphone devices found.");
+            return;
+        }
+
+        _captureBlueprint = new AudioWorkerBlueprint(() => new Capturer(), "capture");
+        _handle = EasyMicAPI.StartRecording(
+            EasyMicAPI.Default,
+            SampleRate.Hz48000,
+            Channel.Mono,
+            new[] { _captureBlueprint },
+            EasyMicLatencyProfile.LowLatency);
+
+        Invoke(nameof(FinishRecording), 3f);
+    }
+
+    private void FinishRecording()
+    {
+        if (!_handle.IsValid)
+        {
+            return;
+        }
+
+        var capturer = EasyMicAPI.GetProcessor<Capturer>(_handle, _captureBlueprint);
+        AudioClip clip = capturer != null ? capturer.GetCapturedAudioClip() : null;
+
+        EasyMicAPI.StopRecording(_handle);
+        _handle = default;
+
+        if (clip != null)
+        {
+            Debug.Log($"Captured {clip.length:0.00}s at {clip.frequency} Hz.");
+        }
+    }
+}
+```
+
+## Record With a Component
+
+Use `EasyMicrophone` for scene-driven recording, device selection UI, temporary WAV recording, and Unity events.
+
+```csharp
+using Eitan.EasyMic.Runtime.Mono;
+using UnityEngine;
+
+public sealed class ComponentRecordButton : MonoBehaviour
+{
+    [SerializeField] private EasyMicrophone microphone;
+
+    public void ToggleRecording()
+    {
+        if (microphone.IsRecording)
+        {
+            microphone.StopRecording();
+            AudioClip clip = microphone.LatestRecordingClip;
+            Debug.Log(clip != null ? $"Recorded {clip.length:0.00}s." : "No clip captured.");
+        }
+        else
+        {
+            microphone.Init();
+            microphone.StartRecording();
+        }
+    }
+}
+```
+
+## Play a Clip
 
 ```csharp
 using Eitan.EasyMic.Runtime;
 using UnityEngine;
 
-public class FirstRecording : MonoBehaviour
+public sealed class EasyMicPlayClip : MonoBehaviour
 {
-    private RecordingHandle _recordingHandle;
-    private AudioWorkerBlueprint _bpCapture;
+    [SerializeField] private AudioClip clip;
+    private PlaybackHandle _handle;
 
-    void Start()
+    public void Play()
     {
-        // 0) Permission (especially on Android)
-        if (!PermissionUtils.HasPermission())
-        {
-            Debug.LogError("❌ Microphone permission not granted.");
-            return;
-        }
-
-        // 1) Devices
-        EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        if (devices.Length == 0)
-        {
-            Debug.LogError("❌ No microphone devices found!");
-            return;
-        }
-
-        // 2) Start with a simple pipeline via blueprints
-        _bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
-        _recordingHandle = EasyMicAPI.StartRecording(
-            devices[0].Name,
-            SampleRate.Hz48000,
-            devices[0].GetDeviceChannel(),
-            new[]{ _bpCapture }
-        );
-
-        if (!_recordingHandle.IsValid)
-        {
-            Debug.LogError("❌ Failed to start recording!");
-            return;
-        }
-
-        Debug.Log("🎙️ Recording started for 5 seconds...");
-        Invoke(nameof(StopRecording), 5f);
+        _handle = AudioPlayback.PlayClip(
+            clip,
+            loop: false,
+            volume: 1f,
+            autoDisposeOnComplete: true,
+            latencyProfile: EasyMicLatencyProfile.LowLatency);
     }
 
-    void StopRecording()
+    private void OnDestroy()
     {
-        if (!_recordingHandle.IsValid) return;
-        EasyMicAPI.StopRecording(_recordingHandle);
-
-        // Retrieve the concrete worker instance for this session
-        var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(_recordingHandle, _bpCapture);
-        var clip = capturer?.GetCapturedAudioClip();
-        if (clip != null)
+        if (_handle.IsValid)
         {
-            var audioSource = GetComponent<AudioSource>();
-            if (audioSource != null) audioSource.PlayOneShot(clip);
-            Debug.Log($"✅ Recording complete! Duration: {clip.length:F2}s");
+            _handle.Dispose();
         }
-
-        _recordingHandle = default;
     }
 }
 ```
 
-## 🎮 Setting Up the Scene
+## Stream PCM Playback
 
-1. **Create a new GameObject** in your scene
-2. **Add the script** `FirstRecording` to the GameObject
-3. **Add an AudioSource component** (optional, for playback)
-4. **Press Play** and speak into your microphone!
+```csharp
+using Eitan.EasyMic.Runtime;
+using UnityEngine;
 
-## 📱 Platform-Specific Setup
+public sealed class EasyMicStreamPlayback : MonoBehaviour
+{
+    private PlaybackHandle _stream;
 
-### 🖥️ Desktop (Windows/macOS/Linux)
-No additional setup required. Unity will automatically request microphone permissions when needed.
+    public void Begin()
+    {
+        _stream = AudioPlayback.CreateStream(1f, EasyMicLatencyProfile.Balanced);
+    }
 
-### 📱 Mobile (Android/iOS)
+    public void Push(float[] interleavedSamples, int count, int channels, int sampleRate)
+    {
+        var result = _stream.TryEnqueue(interleavedSamples, count, channels, sampleRate);
+        if (!result.Success)
+        {
+            Debug.LogWarning($"Playback enqueue status: {result.Status}");
+        }
+    }
 
-#### Android
-Add to your `AndroidManifest.xml`:
-```xml
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
+    public void End()
+    {
+        _stream.CompleteStream();
+    }
+}
 ```
 
-#### iOS  
-Easy Mic will automatically request microphone permissions. You can also add a usage description in your `Info.plist`:
-```xml
-<key>NSMicrophoneUsageDescription</key>
-<string>This app needs microphone access to record audio.</string>
+## Choose a Latency Profile
+
+Use `LowLatency` for most desktop interactive work. Use `Balanced` for mobile or when Unity work can spike. Use `UltraLowLatency` only after measuring on target hardware. Use `Stable` / `SafeStreaming` when continuity matters more than minimum delay.
+
+Android playback defaults to `Balanced`; other playback defaults use `LowLatency`.
+
+## Check Diagnostics
+
+Capture:
+
+```csharp
+var info = EasyMicAPI.GetRecordingInfo(handle);
+Debug.Log($"Callbacks={info.Telemetry.CallbackCount}, dropped={info.Telemetry.FramesDropped}, overrun={info.Telemetry.TransportOverruns}");
 ```
 
-## 🔧 Troubleshooting
+Playback:
 
-### No Microphone Devices Found
-- Ensure your microphone is connected and enabled
-- Check system permissions for microphone access
-- Try refreshing with `EasyMicAPI.Refresh()`
+```csharp
+var audioSystem = AudioSystem.Instance;
+var telemetry = audioSystem.Telemetry;
+Debug.Log($"Underruns={telemetry.TransportUnderruns}, zeroFill={telemetry.ZeroFilledFrames}");
+```
 
-### Recording Fails to Start
-- Verify microphone permissions are granted
-- Check if another application is using the microphone
-- Try a different sample rate or channel configuration
+## Next
 
-### No Audio Captured
-- Ensure you're speaking into the microphone
-- Check system microphone levels
-- Verify the `AudioCapturer` is added to the pipeline before recording starts
-
-## 📖 What's Next?
-
-Now that you have basic recording working, explore these topics:
-
-- **[Core Concepts](core-concepts.md)** - Understand EasyMic's architecture
-- **[Mono Components](components.md)** - Use `EasyMicrophone`, `VoiceMicrophone`, playback, and TTS components
-- **[Audio Pipeline](audio-pipeline.md)** - Learn about the processing pipeline
-- **[Built-in Processors](processors.md)** - Discover all available processors
-- **[Examples](examples.md)** - See more complex use cases
-
-## 🆘 Need Help?
-
-- 📖 Check the [Troubleshooting Guide](troubleshooting.md)
-- 🐛 Report issues on [GitHub Issues](https://github.com/EitanWong/com.eitan.easymic/issues)
-- 💬 Join discussions on [GitHub Discussions](https://github.com/EitanWong/com.eitan.easymic/discussions)
-
----
-
-← [Documentation Home](../README.md) | **Next: [Core Concepts](core-concepts.md)** →
+- [Recording](recording.md)
+- [Playback](playback.md)
+- [Architecture](architecture.md)
+- [Diagnostics](diagnostics.md)

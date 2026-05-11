@@ -1,102 +1,162 @@
-← [Documentation Home](../README.md) | [中文版本](../zh-CN/architecture.md)
+# Architecture
 
-# 🏗️ Architecture Overview
+EasyMic uses miniaudio for native device access and managed C# for Unity-facing orchestration. The current architecture keeps native callbacks thin and moves processing to transport workers.
 
-This document explains how EasyMic is built under the hood so you can reason about performance, threading, and extensibility when integrating it into your project.
+## Practical Data Flow
 
-## Layers & Responsibilities
+Capture:
 
-- EasyMicAPI: Public, thread-safe facade to list devices, start/stop recordings, and manage processors. Validates microphone permission before touching devices.
-- MicSystem: Manages the native audio context, enumerates devices, and hosts multiple concurrent RecordingSession instances.
-- RecordingSession: One active capture stream bound to a single device and format. Owns an AudioPipeline built from AudioWorker blueprints.
-- AudioPipeline: Lock-free, ordered chain of IAudioWorker stages. Uses immutable snapshots to avoid locks on the real-time audio callback.
-- IAudioWorker: Pluggable processors. Two base forms exist:
-  - AudioWriter: RT-safe, in-place modification on the audio callback thread.
-  - AudioReader: RT-safe, read-only tap that forwards frames to a dedicated worker thread via a high‑performance SPSC ring buffer.
-- Native (miniaudio): Cross‑platform capture/playback via a tiny C facade. Unity C# calls native functions through P/Invoke.
-- Utilities: Permission handling and device/channel layout helpers (SoundIO on desktop platforms).
-- AudioPlayback: Optional mixing/playback system (AudioSystem, AudioMixer, PlaybackAudioSource) for monitoring and loopback.
-
-## Data Flow
-
-1. Native device callback pulls interleaved float PCM frames from the OS driver.
-2. RecordingSession receives the buffer and updates an AudioContext struct (channels, sample rate, current frame length).
-3. AudioPipeline forwards the frame through its current snapshot of processors in strict order.
-4. AudioWriter processors mutate the buffer in place; AudioReader processors enqueue the frame to their own worker thread for async work.
-
-Key properties:
-
-- No blocking on the audio thread: AudioReader never blocks; heavy work runs on its background thread. AudioWriter work must be bounded and allocation‑free.
-- Dynamic pipelines: Add/Remove processors at runtime without pausing capture; operations are lock‑free and safe.
-
-## Threading Model
-
-- Audio callback thread: Executes RecordingSession.HandleAudioCallback → AudioPipeline.OnAudioPass. Must never block or allocate.
-- AudioReader worker thread: Each AudioReader owns a dedicated thread and an SPSC queue (AudioBuffer). Frames are written by the audio thread and drained by the reader thread. A single empty frame signal is used for endpoint semantics.
-- Main thread: You may receive results via SynchronizationContext from some processors (e.g., speech recognizers) for safe UI callbacks.
-
-## Lock‑Free Pipeline (Immutable Snapshot)
-
-AudioPipeline maintains an immutable array snapshot of IAudioWorker stages. Adding/removing processors creates a new array and swaps it via Interlocked.CompareExchange. The audio thread reads the current snapshot with Volatile.Read and iterates without locking.
-
-Benefits:
-
-- RT safety: Zero locks in the callback path.
-- Predictable ordering: Stages run in insertion order.
-- Hot‑swap: Safe dynamic reconfiguration during recording.
-
-## Device Selection & Permissions
-
-- Permission gate: EasyMicAPI checks microphone permission first. On desktop/editor it returns granted; on Android it triggers the platform request (PermissionUtils).
-- Device enumeration: MicSystem queries native devices and caches MicDevice[]; Refresh() rebuilds the list.
-- Fallback selection: StartRecording chooses the preferred device; if invalid, tries system default; if none, falls back to the first available.
-- Channel layout: On desktop, MicDeviceUtils probes channel count via SoundIO; non‑desktop defaults to Mono.
-
-## Worker Blueprints
-
-AudioWorkerBlueprint is a lightweight factory with a stable key. A blueprint is passed to the API instead of a concrete worker instance. Each RecordingSession creates its own worker instance from the blueprint, ensuring isolation and thread safety.
-
-Example:
-
-```csharp
-var bpCapture = new AudioWorkerBlueprint(() => new AudioCapturer(), key: "capture");
-var bpGate    = new AudioWorkerBlueprint(() => new VolumeGateFilter { ThresholdDb = -30 }, key: "gate");
-
-var handle = EasyMicAPI.StartRecording(SampleRate.Hz48000, new[]{ bpGate, bpCapture });
-
-// Later, query the concrete worker instance bound to this session:
-var capturer = EasyMicAPI.GetProcessor<AudioCapturer>(handle, bpCapture);
-var clip = capturer?.GetCapturedAudioClip();
+```mermaid
+flowchart LR
+    Device["Input device"] --> NativeCb["miniaudio device callback"]
+    NativeCb --> StaticCb["Static C# reverse P/Invoke callback"]
+    StaticCb --> HotState["HotState"]
+    HotState --> CaptureRing["Unmanaged capture ring"]
+    CaptureRing --> CaptureWorker["Capture worker"]
+    CaptureWorker --> Pipeline["AudioPipeline"]
+    Pipeline --> Writer["AudioWriter processors"]
+    Pipeline --> Reader["AudioReader queues"]
+    Reader --> ReaderWorker["AudioReader worker"]
+    Pipeline --> App["User-facing API / sinks"]
 ```
 
-You can also set EasyMicAPI.DefaultWorkers at app init to standardize commonly used pipelines.
+```text
+miniaudio device callback
+  -> static C# reverse P/Invoke callback
+  -> callback HotState
+  -> unmanaged capture ring
+  -> capture worker
+  -> AudioPipeline
+  -> AudioReader / AudioWriter / user-facing API
+```
 
-## Native Integration (miniaudio)
+Playback:
 
-- Unity C# binds to a small C wrapper over miniaudio via DllImport calls (Native.cs).
-- Two callback styles are supported: with userData (preferred) and without; both route to the owning RecordingSession.
-- Native memory (device/config/context) is allocated/freed explicitly; MicSystem manages lifecycle and cleanup on quit.
+```mermaid
+flowchart LR
+    Producer["Unity/API source or producer"] --> Session["PlaybackAudioSession / PlaybackAudioSource"]
+    Session --> RenderWorker["Playback render worker"]
+    RenderWorker --> Mixer["AudioMixer"]
+    Mixer --> SourceProcessors["Source / mixer processors"]
+    SourceProcessors --> PlaybackRing["Unmanaged playback ring"]
+    PlaybackRing --> StaticCb["Static C# reverse P/Invoke callback"]
+    StaticCb --> NativeCb["miniaudio output callback"]
+    NativeCb --> Output["Output device"]
+```
 
-## Playback & Loopback (Optional)
+```text
+Unity playback source / producer
+  -> PlaybackAudioSession / PlaybackAudioSource
+  -> playback render worker
+  -> AudioMixer / transport-safe processors
+  -> unmanaged playback ring
+  -> static C# reverse P/Invoke callback
+  -> miniaudio output
+```
 
-- AudioSystem: One playback device; mixes sources and exposes a MixedFrame event (useful for AEC far‑end reference).
-- AudioMixer: Hierarchical mixing tree with per‑mixer pipelines and volume/solo/mute.
-- PlaybackAudioSource: Enqueue interleaved PCM and render additively with optional per‑source pipeline and meters.
+EasyMic keeps the miniaudio callback path intentionally small. The callback moves audio data through preallocated transport buffers and records counters; higher-level processing runs on worker threads or the Unity main thread.
 
-## Extending EasyMic
+## Thread Boundaries
 
-- Implement IAudioWorker; choose AudioWriter for RT in‑place modifications or AudioReader for async work.
-- Keep AudioWriter RT‑safe: no blocking, no allocations, bounded CPU.
-- Use blueprints and keys for dynamic add/remove and to retrieve instances via GetProcessor<T>().
+```mermaid
+flowchart TB
+    subgraph Native["Native / device callback boundary"]
+        N1["miniaudio capture callback"]
+        N2["miniaudio playback callback"]
+    end
 
-## Integrations
+    subgraph Hot["Callback HotState"]
+        H1["Capture HotState"]
+        H2["Playback HotState"]
+    end
 
-- SherpaONNXUnity: Optional speech recognition and VAD processors (guarded by scripting defines). Requires the Sherpa package.
-- APM (AEC/ANS/AGC): An add‑on package that integrates professional 3A processing. This is a paid extension; contact the author to purchase a license.
+    subgraph Transport["Managed transport workers"]
+        T1["CaptureAudioTransport worker"]
+        T2["PlaybackRenderTransport worker"]
+        T3["AudioReader workers"]
+    end
 
-## Gotchas & Tips
+    subgraph Main["Unity main thread"]
+        M1["Components"]
+        M2["Permissions / device selection"]
+        M3["UI / gameplay events"]
+    end
 
-- Always check permission before recording on mobile.
-- Prefer mono input for speech workloads unless you specifically need multi‑channel.
-- Add the downmixer early in the chain if you want to convert to mono before analysis/recognition.
-- Use DefaultWorkers to avoid duplicating setup code across scenes.
+    N1 --> H1 --> T1 --> T3
+    T2 --> H2 --> N2
+    M1 -.-> T1
+    M1 -.-> T2
+    M2 -.-> T1
+    T3 -.-> M3
+```
+
+## Main Runtime Pieces
+
+| Piece | Responsibility |
+|---|---|
+| `EasyMicAPI` | Public recording facade for device refresh, recording lifecycle, processor management, and recording diagnostics. |
+| `MicSystem` | Owns the miniaudio capture context, device cache, hot-plug watcher, and active recording sessions. |
+| `RecordingSession` | Owns one capture device, its callback `HotState`, capture transport, processor blueprint map, and diagnostics. |
+| `CaptureAudioTransport` | Bounded unmanaged SPSC ring plus worker thread for capture frames. |
+| `AudioPipeline` | Ordered immutable processor snapshot executed by transport workers. |
+| `AudioSystem` | Singleton miniaudio playback device, master mixer, playback callback, and playback telemetry. |
+| `PlaybackRenderTransport` | Playback render worker that pre-renders mixer blocks into an unmanaged playback ring. |
+| `PlaybackAudioSession` | Pure C# clip/stream playback controller. |
+| `PlaybackAudioSourceBehaviour` | Unity component wrapper for clip and stream playback. |
+
+## HotState and ColdState
+
+`HotState` is the small state object reachable from the native callback. It contains only callback-safe references and flags: transport pointer, telemetry, channel count, stopping/disposed flags, and active callback counters.
+
+Cold state is the rest of the session or system: device objects, worker maps, processor lists, Unity component state, managed events, and lifecycle code. Cold state is not traversed from the callback.
+
+This split lets stop/dispose mark hot state as stopping, wait briefly for active callbacks to drain, detach the transport, and then release native resources.
+
+## Callback Model
+
+EasyMic still enters managed C# from miniaudio through static reverse P/Invoke callbacks. IL2CPP builds use `MonoPInvokeCallback` attributes where required.
+
+The callback path:
+
+- does not run user processors;
+- does not call Unity APIs;
+- does not allocate intentionally in steady state;
+- copies capture input into a transport ring or reads playback output from a transport ring;
+- records atomic telemetry counters;
+- zero-fills playback output when data is unavailable.
+
+This is suitable for low-latency managed Unity audio, but it is not strict hard realtime native middleware.
+
+## Where Processors Run
+
+| Location | Runs |
+|---|---|
+| miniaudio callback | Internal transport copy/read and telemetry only. |
+| capture worker | Capture `AudioPipeline` processors. |
+| playback render worker | Mixer/source processors and render work. |
+| `AudioReader` worker | Reader-specific async work after a processor enqueues frames. |
+| Unity main thread | Components, UI, gameplay, device selection, permission flow, and main-thread dispatch. |
+
+`AudioPipeline` uses immutable snapshots so processors can be added or removed without locking the worker's hot loop. Removed workers are retired safely after active passes complete.
+
+## Unity API Rules
+
+Unity APIs are main-thread APIs unless Unity documents otherwise. Do not call Unity APIs from:
+
+- miniaudio callbacks;
+- capture transport workers;
+- playback render workers;
+- `AudioReader` worker threads.
+
+Use Unity components, queued events, or a main-thread dispatcher for UI/gameplay integration.
+
+## Lifecycle Notes
+
+- `EasyMicAPI.Cleanup()` disposes the microphone system and clears cached initialization failure state.
+- Runtime subsystem registration resets static capture and playback state on domain/runtime reload.
+- `AudioSystem.Stop()` stops the native device, waits for active callbacks, disposes playback transport, clears events, and releases miniaudio handles.
+- `StopRecording(handle)` removes and disposes the recording session. Retrieve processor state before stopping if you need it.
+
+## Notes for Previous EasyMic Users
+
+The current architecture uses a hardened callback path. User processors no longer run in the miniaudio callback. Transport-sensitive work runs on capture/playback workers, and Unity-facing events are dispatched outside the callback.

@@ -24,7 +24,6 @@ namespace Eitan.EasyMic.Editor.Integration.SherpaONNXUnity
             EasyMicComponentIconInstaller.ApplyTemporaryIcon(voiceMic);
             Undo.RegisterCreatedObjectUndo(go, EasyMicEditorLocalization.Text(EasyMicEditorTextKey.VoiceMenuCreate));
 
-            // Select the newly created GameObject and start rename
             Selection.activeGameObject = go;
             EditorApplication.delayCall += () => EditorApplication.ExecuteMenuItem("Edit/Rename");
         }

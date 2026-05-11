@@ -16,10 +16,8 @@ namespace Eitan.EasyMic.Editor
         private const double TelemetryRefreshInterval = 1.0 / 15.0;
         private const string InspectorDockKey = "Eitan.EasyMic.PipelineVisualizer.InspectorDock";
         private const string InspectorWidthKey = "Eitan.EasyMic.PipelineVisualizer.InspectorWidth";
-        private const string FlowAnimationKey = "Eitan.EasyMic.PipelineVisualizer.FlowAnimation";
         private const string MiniMapDockKey = "Eitan.EasyMic.PipelineVisualizer.MiniMapDock";
         private const string PipelineSplitHeightKey = "Eitan.EasyMic.PipelineVisualizer.PipelineSplitHeight";
-        private const double FlowAnimationInterval = 1.0 / 30.0;
         private const float MiniMapWidth = 190f;
         private const float MiniMapHeight = 128f;
         private const float MiniMapMargin = 14f;
@@ -44,16 +42,13 @@ namespace Eitan.EasyMic.Editor
         private Label _statusLabel;
         private VisualElement _toolbar;
         private Button _miniMapButton;
-        private Button _flowButton;
         private Button _recordingViewButton;
         private Button _playbackViewButton;
         private bool _uiReady;
         private bool _responsiveRebuildInProgress;
         private bool _toolbarCompact;
-        private bool _flowAnimationEnabled;
         private double _nextTopologyRefresh;
         private double _nextTelemetryRefresh;
-        private double _nextFlowAnimation;
         private int _playbackTopologyHash;
         private int _recordingTopologyHash;
         private EasyMicInspectorDock _inspectorDock;
@@ -170,7 +165,6 @@ namespace Eitan.EasyMic.Editor
             _inspectorDock = (EasyMicInspectorDock)EditorPrefs.GetInt(InspectorDockKey, (int)EasyMicInspectorDock.Left);
             _inspectorWidth = ClampInspectorWidth(EditorPrefs.GetFloat(InspectorWidthKey, 340f));
             _pipelineSplitHeight = Mathf.Clamp(EditorPrefs.GetFloat(PipelineSplitHeightKey, 360f), 180f, 1200f);
-            _flowAnimationEnabled = EditorPrefs.GetBool(FlowAnimationKey, true);
             _toolbar = new VisualElement();
             _toolbar.style.height = 38;
             _toolbar.style.flexDirection = FlexDirection.Row;
@@ -200,17 +194,6 @@ namespace Eitan.EasyMic.Editor
             viewSegment.Add(_recordingViewButton);
             UpdateViewButtons();
 
-            _flowButton = CreateToolbarButton(EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ToolbarFlow), () =>
-            {
-                _flowAnimationEnabled = !_flowAnimationEnabled;
-                EditorPrefs.SetBool(FlowAnimationKey, _flowAnimationEnabled);
-                UpdateFlowButton();
-                _playbackGraphView?.SetFlowAnimationEnabled(_flowAnimationEnabled);
-                _recordingGraphView?.SetFlowAnimationEnabled(_flowAnimationEnabled);
-            });
-            _flowButton.tooltip = EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ToolbarFlowTooltip);
-            UpdateFlowButton();
-
             var frameButton = CreateToolbarButton(EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ToolbarFit), FrameGraph);
             frameButton.tooltip = EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ToolbarFitTooltip);
             _miniMapButton = CreateToolbarButton(EasyMicEditorLocalization.PipelineText(EasyMicPipelineTextKey.ToolbarMap), ToggleMiniMap);
@@ -230,7 +213,6 @@ namespace Eitan.EasyMic.Editor
             _toolbar.Add(viewSpacerRight);
             _toolbar.Add(frameButton);
             _toolbar.Add(_miniMapButton);
-            _toolbar.Add(_flowButton);
             _toolbar.Add(_statusLabel);
             rootVisualElement.Add(_toolbar);
 
@@ -271,7 +253,6 @@ namespace Eitan.EasyMic.Editor
                 SetViewMode(mode, clearSelection: false, forceRefresh: false);
                 ShowRuntimeOverview();
             };
-            view.SetFlowAnimationEnabled(_flowAnimationEnabled);
             view.viewTransformChanged += graph =>
             {
                 if (graph == _graphView)
@@ -472,21 +453,6 @@ namespace Eitan.EasyMic.Editor
             return button;
         }
 
-        private void UpdateFlowButton()
-        {
-            if (_flowButton == null)
-            {
-                return;
-            }
-
-            _flowButton.style.backgroundColor = _flowAnimationEnabled
-                ? new Color(0.22f, 0.265f, 0.30f, 0.92f)
-                : new Color(0.16f, 0.166f, 0.175f, 0.72f);
-            _flowButton.style.color = _flowAnimationEnabled
-                ? EasyMicPipelineStyles.PrimaryText
-                : EasyMicPipelineStyles.SecondaryText;
-        }
-
         private void UpdateMiniMapButton()
         {
             if (_miniMapButton == null)
@@ -655,7 +621,6 @@ namespace Eitan.EasyMic.Editor
 
                 SetButtonMinimum(_playbackViewButton, compactToolbar ? 68f : 86f);
                 SetButtonMinimum(_recordingViewButton, compactToolbar ? 68f : 86f);
-                SetButtonMinimum(_flowButton, compactToolbar ? 42f : 48f);
                 SetButtonMinimum(_miniMapButton, compactToolbar ? 42f : 48f);
             }
 
@@ -688,31 +653,93 @@ namespace Eitan.EasyMic.Editor
 
             _graphHost.Clear();
             _pipelineSplitView = null;
+            ResetCanvasSizing(_playbackCanvas);
+            ResetCanvasSizing(_recordingCanvas);
+            ResetCanvasSizing(_emptyCanvasState);
 
             if (_playbackVisible && _recordingVisible)
             {
                 _pipelineSplitHeight = ClampPipelineSplitHeight(_pipelineSplitHeight);
                 _pipelineSplitView = new TwoPaneSplitView(0, _pipelineSplitHeight, TwoPaneSplitViewOrientation.Vertical);
                 _pipelineSplitView.style.flexGrow = 1;
+                _pipelineSplitView.style.flexShrink = 1;
+                _pipelineSplitView.style.minHeight = 0;
                 _pipelineSplitView.Add(_playbackCanvas);
                 _pipelineSplitView.Add(_recordingCanvas);
                 _graphHost.Add(_pipelineSplitView);
+                ScheduleVisibleCanvasRefresh();
                 return;
             }
 
             if (_playbackVisible)
             {
+                FillGraphHost(_playbackCanvas);
                 _graphHost.Add(_playbackCanvas);
+                ScheduleVisibleCanvasRefresh();
                 return;
             }
 
             if (_recordingVisible)
             {
+                FillGraphHost(_recordingCanvas);
                 _graphHost.Add(_recordingCanvas);
+                ScheduleVisibleCanvasRefresh();
                 return;
             }
 
+            FillGraphHost(_emptyCanvasState);
             _graphHost.Add(_emptyCanvasState);
+        }
+
+        private static void ResetCanvasSizing(VisualElement canvas)
+        {
+            if (canvas == null)
+            {
+                return;
+            }
+
+            canvas.style.flexGrow = 1;
+            canvas.style.flexShrink = 1;
+            canvas.style.flexBasis = 0;
+            canvas.style.width = StyleKeyword.Auto;
+            canvas.style.height = StyleKeyword.Auto;
+            canvas.style.minHeight = 0;
+            canvas.style.maxHeight = StyleKeyword.None;
+        }
+
+        private static void FillGraphHost(VisualElement canvas)
+        {
+            if (canvas == null)
+            {
+                return;
+            }
+
+            canvas.style.flexGrow = 1;
+            canvas.style.flexShrink = 1;
+            canvas.style.flexBasis = 0;
+            canvas.style.width = Length.Percent(100);
+            canvas.style.height = Length.Percent(100);
+            canvas.style.minHeight = 0;
+        }
+
+        private void ScheduleVisibleCanvasRefresh()
+        {
+            _graphHost.schedule.Execute(() =>
+            {
+                if (_playbackVisible)
+                {
+                    _playbackGraphView?.RequestFrameContent();
+                    _playbackMiniMap?.Map.SetViewport(_playbackGraphView);
+                }
+
+                if (_recordingVisible)
+                {
+                    _recordingGraphView?.RequestFrameContent();
+                    _recordingMiniMap?.Map.SetViewport(_recordingGraphView);
+                }
+
+                ApplyAllMiniMapDocks();
+            }).ExecuteLater(1);
         }
 
         private void ToggleMiniMap()
@@ -1072,20 +1099,6 @@ namespace Eitan.EasyMic.Editor
                 _nextTopologyRefresh = now + TopologyRefreshInterval;
             }
 
-            if (_flowAnimationEnabled && focusedWindow == this && now >= _nextFlowAnimation)
-            {
-                float time = (float)now;
-                if (_playbackVisible)
-                {
-                    _playbackGraphView.UpdateFlowAnimation(time);
-                }
-
-                if (_recordingVisible)
-                {
-                    _recordingGraphView.UpdateFlowAnimation(time);
-                }
-                _nextFlowAnimation = now + FlowAnimationInterval;
-            }
         }
 
         private void ForceRefresh()
@@ -1536,10 +1549,8 @@ namespace Eitan.EasyMic.Editor
     {
         private readonly Dictionary<string, EasyMicPipelineNodeView> _nodeViews = new Dictionary<string, EasyMicPipelineNodeView>(128);
         private readonly Dictionary<string, EasyMicPipelineGroupView> _groupViews = new Dictionary<string, EasyMicPipelineGroupView>(16);
-        private readonly List<EasyMicPipelineFlowEdge> _flowEdges = new List<EasyMicPipelineFlowEdge>(160);
         private readonly List<GraphElement> _deleteBuffer = new List<GraphElement>(256);
         private readonly List<Port> _emptyPorts = new List<Port>(0);
-        private bool _flowAnimationEnabled = true;
         private Rect _lastContentBounds;
         private bool _pendingFrame;
         private int _frameAttempts;
@@ -1588,7 +1599,6 @@ namespace Eitan.EasyMic.Editor
             }
             _nodeViews.Clear();
             _groupViews.Clear();
-            _flowEdges.Clear();
 
             string normalizedFilter = (filter ?? string.Empty).Trim();
             bool hasFilter = normalizedFilter.Length > 0;
@@ -1657,11 +1667,6 @@ namespace Eitan.EasyMic.Editor
                 baseEdge.edgeControl.outputColor = baseEdge.edgeControl.inputColor;
                 AddElement(baseEdge);
 
-                var flowEdge = new EasyMicPipelineFlowEdge(fromNode, toNode, edgeModel.IsBoundary);
-                flowEdge.SetAnimationEnabled(_flowAnimationEnabled);
-                _flowEdges.Add(flowEdge);
-                contentViewContainer.Add(flowEdge);
-                flowEdge.BringToFront();
             }
         }
 
@@ -1699,29 +1704,6 @@ namespace Eitan.EasyMic.Editor
             }
         }
 
-        public void SetFlowAnimationEnabled(bool enabled)
-        {
-            _flowAnimationEnabled = enabled;
-            for (int i = 0; i < _flowEdges.Count; i++)
-            {
-                _flowEdges[i].SetAnimationEnabled(enabled);
-            }
-        }
-
-        public void UpdateFlowAnimation(float time)
-        {
-            if (!_flowAnimationEnabled)
-            {
-                return;
-            }
-
-            float phase = time * 0.65f;
-            for (int i = 0; i < _flowEdges.Count; i++)
-            {
-                _flowEdges[i].UpdatePhase(phase);
-            }
-        }
-
         public void RequestFrameContent()
         {
             _pendingFrame = true;
@@ -1734,7 +1716,7 @@ namespace Eitan.EasyMic.Editor
             _deleteBuffer.Clear();
             foreach (var element in graphElements)
             {
-                if (element is Edge || element is UnityEditor.Experimental.GraphView.Node || element is Group || element is EasyMicPipelineFlowEdge)
+                if (element is Edge || element is UnityEditor.Experimental.GraphView.Node || element is Group)
                 {
                     _deleteBuffer.Add(element);
                 }
@@ -2025,260 +2007,5 @@ namespace Eitan.EasyMic.Editor
         }
     }
 
-    internal sealed class EasyMicPipelineFlowEdge : GraphElement
-    {
-        private const float EdgePadding = 42f;
-        private const float NodeAnchorY = 52f;
-        private readonly Vector2 _localStart;
-        private readonly Vector2 _localEnd;
-        private readonly Vector2 _controlStart;
-        private readonly Vector2 _controlEnd;
-        private readonly Color _baseColor;
-        private readonly Color _highlightColor;
-        private readonly Color _arrowColor;
-        private bool _animationEnabled = true;
-        private float _phase;
-        private const int CurveSegments = 28;
-        private const int HighlightSegments = 18;
-        private const float HighlightHalfWidth = 0.22f;
-
-        public EasyMicPipelineFlowEdge(EasyMicPipelineGraphNode from, EasyMicPipelineGraphNode to, bool boundary)
-        {
-            capabilities = (Capabilities)0;
-            pickingMode = PickingMode.Ignore;
-            usageHints = UsageHints.DynamicTransform;
-            style.position = Position.Absolute;
-            style.display = DisplayStyle.Flex;
-            style.opacity = 1f;
-
-            Vector2 start = new Vector2(from.Position.x + from.Width, from.Position.y + NodeAnchorY);
-            Vector2 end = new Vector2(to.Position.x, to.Position.y + NodeAnchorY);
-
-            float minX = Mathf.Min(start.x, end.x) - EdgePadding;
-            float minY = Mathf.Min(start.y, end.y) - EdgePadding;
-            float maxX = Mathf.Max(start.x, end.x) + EdgePadding;
-            float maxY = Mathf.Max(start.y, end.y) + EdgePadding;
-            Rect bounds = Rect.MinMaxRect(minX, minY, maxX, maxY);
-            SetPosition(bounds);
-            style.left = bounds.x;
-            style.top = bounds.y;
-            style.width = bounds.width;
-            style.height = bounds.height;
-
-            _localStart = start - new Vector2(minX, minY);
-            _localEnd = end - new Vector2(minX, minY);
-
-            float horizontalDistance = Mathf.Abs(_localEnd.x - _localStart.x);
-            float controlOffset = Mathf.Clamp(horizontalDistance * 0.46f, 88f, 220f);
-            _controlStart = _localStart + new Vector2(controlOffset, 0f);
-            _controlEnd = _localEnd - new Vector2(controlOffset, 0f);
-
-            var color = boundary ? EasyMicPipelineStyles.Boundary : EasyMicPipelineStyles.Edge;
-            _baseColor = new Color(color.r, color.g, color.b, 0.5f);
-            _highlightColor = new Color(
-                Mathf.Min(1f, color.r + 0.35f),
-                Mathf.Min(1f, color.g + 0.35f),
-                Mathf.Min(1f, color.b + 0.35f),
-                0.95f);
-            _arrowColor = new Color(color.r, color.g, color.b, 0.78f);
-
-            generateVisualContent += OnGenerateVisualContent;
-        }
-
-        public void SetAnimationEnabled(bool enabled)
-        {
-            _animationEnabled = enabled;
-            MarkDirtyRepaint();
-        }
-
-        public void UpdatePhase(float phase)
-        {
-            if (!_animationEnabled)
-            {
-                return;
-            }
-
-            _phase = phase - Mathf.Floor(phase);
-            MarkDirtyRepaint();
-        }
-
-        private void OnGenerateVisualContent(MeshGenerationContext context)
-        {
-            int lineSegments = CurveSegments + 2;
-            if (_animationEnabled)
-            {
-                lineSegments += CountHighlightLineSegments();
-            }
-
-            var mesh = context.Allocate(lineSegments * 4, lineSegments * 6);
-            int vertexIndex = 0;
-            DrawCurve(mesh, ref vertexIndex, 0f, 1f, CurveSegments, 2.05f, _baseColor);
-
-            if (_animationEnabled)
-            {
-                DrawFlowHighlight(mesh, ref vertexIndex);
-            }
-
-            DrawDirectionHint(mesh, ref vertexIndex);
-        }
-
-        private int CountHighlightLineSegments()
-        {
-            int count = 0;
-            float center = _phase;
-            float start = center - HighlightHalfWidth;
-            float end = center + HighlightHalfWidth;
-
-            for (int i = 0; i < HighlightSegments; i++)
-            {
-                float t0 = Mathf.Repeat(Mathf.Lerp(start, end, i / (float)HighlightSegments), 1f);
-                float t1 = Mathf.Repeat(Mathf.Lerp(start, end, (i + 1) / (float)HighlightSegments), 1f);
-                count += t1 < t0 ? 6 : 4;
-            }
-
-            return count;
-        }
-
-        private void DrawFlowHighlight(MeshWriteData mesh, ref int vertexIndex)
-        {
-            float center = _phase;
-            float start = center - HighlightHalfWidth;
-            float end = center + HighlightHalfWidth;
-
-            for (int i = 0; i < HighlightSegments; i++)
-            {
-                float t0 = Mathf.Repeat(Mathf.Lerp(start, end, i / (float)HighlightSegments), 1f);
-                float t1 = Mathf.Repeat(Mathf.Lerp(start, end, (i + 1) / (float)HighlightSegments), 1f);
-                float mid = Mathf.Repeat(Mathf.Lerp(start, end, (i + 0.5f) / HighlightSegments), 1f);
-                float falloff = FlowFalloff(mid, center);
-                float width = Mathf.Lerp(2.15f, 3.35f, falloff);
-                if (t1 < t0)
-                {
-                    DrawGradientCurve(mesh, ref vertexIndex, t0, 1f, 3, width, center);
-                    DrawGradientCurve(mesh, ref vertexIndex, 0f, t1, 3, width, center);
-                }
-                else
-                {
-                    DrawGradientCurve(mesh, ref vertexIndex, t0, t1, 4, width, center);
-                }
-            }
-        }
-
-        private void DrawCurve(MeshWriteData mesh, ref int vertexIndex, float startT, float endT, int steps, float width, Color color)
-        {
-            Vector2 previous = Evaluate(startT);
-            for (int i = 1; i <= steps; i++)
-            {
-                float t = Mathf.Lerp(startT, endT, i / (float)steps);
-                Vector2 current = Evaluate(t);
-                AddLine(mesh, ref vertexIndex, previous, current, width, color);
-                previous = current;
-            }
-        }
-
-        private void DrawGradientCurve(MeshWriteData mesh, ref int vertexIndex, float startT, float endT, int steps, float width, float center)
-        {
-            Vector2 previous = Evaluate(startT);
-            Color previousColor = FlowColorAt(startT, center);
-            for (int i = 1; i <= steps; i++)
-            {
-                float t = Mathf.Lerp(startT, endT, i / (float)steps);
-                Vector2 current = Evaluate(t);
-                Color currentColor = FlowColorAt(t, center);
-                AddGradientLine(mesh, ref vertexIndex, previous, current, width, previousColor, currentColor);
-                previous = current;
-                previousColor = currentColor;
-            }
-        }
-
-        private Color FlowColorAt(float t, float center)
-        {
-            float falloff = FlowFalloff(t, center);
-            float eased = Mathf.SmoothStep(0f, 1f, falloff);
-            Color color = Color.Lerp(_baseColor, _highlightColor, eased);
-            color.a = Mathf.Lerp(0.02f, _highlightColor.a, eased);
-            return color;
-        }
-
-        private static float FlowFalloff(float t, float center)
-        {
-            float distance = Mathf.Abs(Mathf.Repeat(t - center + 0.5f, 1f) - 0.5f);
-            return Mathf.Clamp01(1f - distance / HighlightHalfWidth);
-        }
-
-        private void DrawDirectionHint(MeshWriteData mesh, ref int vertexIndex)
-        {
-            Vector2 end = Evaluate(0.982f);
-            Vector2 before = Evaluate(0.935f);
-            Vector2 direction = end - before;
-            if (direction.sqrMagnitude < 0.001f)
-            {
-                direction = Vector2.right;
-            }
-
-            direction.Normalize();
-            Vector2 normal = new Vector2(-direction.y, direction.x);
-            Vector2 tip = _localEnd - direction * 5f;
-            Vector2 left = tip - direction * 11f + normal * 4f;
-            Vector2 right = tip - direction * 11f - normal * 4f;
-
-            AddLine(mesh, ref vertexIndex, left, tip, 1.8f, _arrowColor);
-            AddLine(mesh, ref vertexIndex, tip, right, 1.8f, _arrowColor);
-        }
-
-        private static void AddLine(MeshWriteData mesh, ref int vertexIndex, Vector2 start, Vector2 end, float width, Color color)
-        {
-            AddGradientLine(mesh, ref vertexIndex, start, end, width, color, color);
-        }
-
-        private static void AddGradientLine(MeshWriteData mesh, ref int vertexIndex, Vector2 start, Vector2 end, float width, Color startColor, Color endColor)
-        {
-            Vector2 direction = end - start;
-            if (direction.sqrMagnitude < 0.0001f)
-            {
-                direction = Vector2.right;
-                end = start + direction * 0.01f;
-            }
-            else
-            {
-                direction.Normalize();
-            }
-
-            Vector2 normal = new Vector2(-direction.y, direction.x) * (width * 0.5f);
-            int baseIndex = vertexIndex;
-
-            mesh.SetNextVertex(CreateVertex(start - normal, startColor));
-            mesh.SetNextVertex(CreateVertex(start + normal, startColor));
-            mesh.SetNextVertex(CreateVertex(end + normal, endColor));
-            mesh.SetNextVertex(CreateVertex(end - normal, endColor));
-
-            mesh.SetNextIndex((ushort)baseIndex);
-            mesh.SetNextIndex((ushort)(baseIndex + 1));
-            mesh.SetNextIndex((ushort)(baseIndex + 2));
-            mesh.SetNextIndex((ushort)baseIndex);
-            mesh.SetNextIndex((ushort)(baseIndex + 2));
-            mesh.SetNextIndex((ushort)(baseIndex + 3));
-
-            vertexIndex += 4;
-        }
-
-        private static Vertex CreateVertex(Vector2 position, Color color)
-        {
-            return new Vertex
-            {
-                position = new Vector3(position.x, position.y, Vertex.nearZ),
-                tint = color
-            };
-        }
-
-        private Vector2 Evaluate(float t)
-        {
-            float u = 1f - t;
-            return u * u * u * _localStart
-                + 3f * u * u * t * _controlStart
-                + 3f * u * t * t * _controlEnd
-                + t * t * t * _localEnd;
-        }
-    }
 }
 #endif
