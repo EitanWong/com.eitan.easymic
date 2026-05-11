@@ -23,8 +23,9 @@ namespace Eitan.EasyMic.Editor.Icons
         {
             new Entry("EasyMicrophone", "Eitan.EasyMic.Runtime.Mono.EasyMicrophone", EasyMicIconId.Microphone),
             new Entry("PlaybackAudioSourceBehaviour", "Eitan.EasyMic.Runtime.Mono.Components.PlaybackAudioSourceBehaviour", EasyMicIconId.PlaybackSource),
-            new Entry("VoiceMicrophone", "Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR.VoiceMicrophone", EasyMicIconId.VoiceMicrophone),
-            new Entry("SpeechSynthesizer", "Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.SpeechSynthesizer", EasyMicIconId.SpeechSynthesis)
+            new Entry("EasyMicSherpaAudioInputSource", "Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.Input.EasyMicSherpaAudioInputSource", EasyMicIconId.SherpaAudioInputSource),
+            new Entry("VoiceMicrophone", "Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR.VoiceMicrophone", EasyMicIconId.SherpaVoiceMicrophone),
+            new Entry("SpeechSynthesizer", "Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.SpeechSynthesizer", EasyMicIconId.SherpaPlaybackSpeechSynthesis)
         };
 
         public static IReadOnlyList<Entry> All => Entries;

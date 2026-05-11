@@ -1,703 +1,195 @@
-← [Best Practices](best-practices.md) | [Documentation Home](../README.md) | [中文版本](../zh-CN/troubleshooting.md) →
+# Troubleshooting
 
-# 🔧 Troubleshooting
+Use diagnostics counters first. They tell you whether the problem is device startup, capture input, playback output, queue pressure, or processor work.
 
-Common issues, solutions, and debugging techniques for Easy Mic.
+## No Microphone Input
 
-Note on processor usage: Add and remove processors via `AudioWorkerBlueprint` (factory + key). To interact with a processor instance (read data, change parameters), retrieve it with `EasyMicAPI.GetProcessor<T>(handle, blueprint)`.
+### Symptom
 
-## 🚨 Installation Issues
+`EasyMicAPI.Devices` is empty, recording does not start, or callback count stays at zero.
 
-### Package Not Found
+### Likely causes
 
-**Problem:** Unity Package Manager cannot find Easy Mic package.
+- Microphone permission is missing.
+- The device is disconnected or disabled.
+- Native miniaudio plugin is missing for the platform.
+- Another app owns the device exclusively.
 
-**Solutions:**
+### Fixes
 
-1. **Verify Git URL:**
+- Call `PermissionUtils.HasPermission()` on the main thread before recording.
+- Call `EasyMicAPI.Refresh()` and inspect `EasyMicAPI.Devices`.
+- Check `EasyMicAPI.IsAvailable` and `EasyMicAPI.UnavailabilityReason`.
+- Test with the `Recording Example` sample.
+- On macOS, verify permission for the Unity Editor or the built player.
 
-   ```
-   https://github.com/EitanWong/com.eitan.easymic.git#upm
-   ```
+## No Playback Output
 
-2. **Check Unity Version:**
+### Symptom
 
-   - Requires Unity 2021.3 LTS or higher
-   - Update Unity if using an older version
+`AudioPlayback.PlayClip` returns a valid handle but no sound is heard.
 
-3. **Network Issues:**
+### Likely causes
 
-   ```bash
-   # Test Git access
-   git ls-remote https://github.com/EitanWong/com.eitan.easymic.git
-   ```
+- Output device initialization failed.
+- Volume is zero, muted, or routed elsewhere.
+- Clip data is empty or unsupported.
+- The stream was never fed or was completed before data arrived.
 
-4. **Use OpenUPM (Alternative):**
-   ```bash
-   openupm add com.eitan.easymic
-   ```
+### Fixes
 
-### Compilation Errors
+- Check `AudioSystem.Instance.IsRunning`.
+- Check system output route and volume.
+- Inspect `AudioSystem.Instance.Telemetry.CallbackCount`.
+- For streams, check `PlaybackHandle.BufferedSeconds` and `TryEnqueue` result status.
 
-**Problem:** C# compilation errors after installation.
+## Frequent Playback Underruns
 
-**Common Errors & Solutions:**
+### Symptom
 
-```csharp
-// Error: "Span<T> not available"
-// Solution: Ensure .NET Standard 2.1 or higher
-// Player Settings > Configuration > Api Compatibility Level
-```
+Audio glitches or silence; `TransportUnderruns` and `ZeroFilledFrames` increase.
 
-```csharp
-// Error: "unsafe code not enabled"
-// Solution: Enable unsafe code in Player Settings
-// Player Settings > Allow 'unsafe' Code ✓
-```
+### Likely causes
 
-**Assembly Definition Issues:**
+- Latency profile is too aggressive.
+- Playback render worker is blocked.
+- Stream producer is enqueueing too late.
+- Source or mixer processors are expensive.
+- Scene loading or GC is starving worker scheduling.
 
-1. Verify assembly references in your scripts
-2. Add `Eitan.EasyMic` to your assembly dependencies
+### Fixes
 
----
+- Use `Balanced` or `Stable`.
+- Keep playback processors small and allocation-light.
+- Maintain a producer-side buffer budget for streaming.
+- Avoid heavy work during scene loads while low-latency playback is active.
 
-## 🎤 Device and Permission Issues
+## Capture Overflows
 
-### No Microphone Devices Found
+### Symptom
 
-**Problem:** `EasyMicAPI.Devices` returns empty array.
+`TransportOverruns` or `FramesDropped` increases during recording.
 
-**Diagnostic Steps:**
+### Likely causes
 
-```csharp
-public void DiagnoseDeviceIssues()
-{
-    // 1. Check permissions first
-    if (!PermissionUtils.HasPermission())
-    {
-        Debug.LogError("❌ Microphone permission not granted");
-        return;
-    }
+- Capture worker cannot drain the ring fast enough.
+- Capture processors are blocking or allocating.
+- `UltraLowLatency` is too aggressive for the target device.
 
-    // 2. Refresh device list
-    EasyMicAPI.Refresh();
-    var devices = EasyMicAPI.Devices;
+### Fixes
 
-    if (devices.Length == 0)
-    {
-        Debug.LogError("❌ No devices found after refresh");
-        Debug.Log("Check system audio settings and ensure microphone is connected");
-    }
-    else
-    {
-        Debug.Log($"✅ Found {devices.Length} device(s):");
-        foreach (var device in devices)
-        {
-            Debug.Log($"  - {device.Name} (Default: {device.IsDefault})");
-        }
-    }
-}
-```
-
-**Platform-Specific Solutions:**
+- Use `Balanced` or `Stable`.
+- Move heavy analysis to `AudioReader` or another worker queue.
+- Avoid file I/O, network I/O, Unity API calls, and long locks in processors.
 
-#### Windows
-
-- Check Privacy Settings: `Settings > Privacy > Microphone`
-- Verify microphone is not disabled in Device Manager
-- Test microphone in Windows Sound Recorder
-
-#### macOS
+## High Latency
 
-- Check System Preferences: `Security & Privacy > Privacy > Microphone`
-- Add Unity/your app to allowed applications
-- Reset microphone permissions: `tccutil reset Microphone`
-
-#### Linux
-
-- Check ALSA/PulseAudio configuration
-- Verify user permissions: `sudo usermod -a -G audio $USER`
-- Test with: `arecord -l` to list capture devices
-
-#### Android
-
-- Add permission to `AndroidManifest.xml`:
-  ```xml
-  <uses-permission android:name="android.permission.RECORD_AUDIO" />
-  ```
-- Test on physical device (emulator microphone may not work)
-
-#### iOS
-
-- Test on physical device only
-- Check iOS Settings: `Settings > Privacy > Microphone`
-
-### Permission Denied Errors
-
-**Problem:** Recording fails with permission errors.
-
-**Solution Pattern:**
-
-```csharp
-public class SafeRecordingStarter : MonoBehaviour
-{
-    public void StartRecordingWithPermissionCheck()
-    {
-        if (PermissionUtils.HasPermission())
-        {
-            StartRecording();
-        }
-        else
-        {
-            Debug.LogError("❌ Permission not granted - cannot record audio");
-            ShowPermissionRequiredUI();
-        }
-    }
-
-    private void StartRecording()
-    {
-        EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-
-        if (devices.Length > 0)
-        {
-            var handle = EasyMicAPI.StartRecording(devices[0].Name);
-            if (handle.IsValid)
-            {
-                Debug.Log("🎙️ Recording started successfully");
-            }
-            else
-            {
-                Debug.LogError("❌ Failed to start recording");
-            }
-        }
-    }
-}
-```
-
----
-
-## 🎧 Audio Quality Issues
-
-### No Audio Captured
-
-**Problem:** Recording appears to work but no audio is captured.
-
-**Debugging Steps:**
-
-```csharp
-public class AudioDebugger : MonoBehaviour
-{
-    private RecordingHandle _handle;
-    private AudioCapturer _capturer;
-    private VolumeMonitor _monitor;
-
-    void Start()
-    {
-        _handle = EasyMicAPI.StartRecording();
-
-        // Add volume monitor to check if audio is flowing
-        _monitor = new VolumeMonitor();
-        EasyMicAPI.AddProcessor(_handle, _monitor);
-
-        // Add capturer
-        _capturer = new AudioCapturer();
-        EasyMicAPI.AddProcessor(_handle, _capturer);
-
-        // Check volume levels
-        InvokeRepeating(nameof(CheckAudioLevels), 1f, 1f);
-    }
-
-    void CheckAudioLevels()
-    {
-        float volume = _monitor.GetCurrentVolume();
-        Debug.Log($"Current volume: {volume:F4} ({20 * Mathf.Log10(volume + 1e-10f):F1} dB)");
-
-        if (volume < 0.001f)
-        {
-            Debug.LogWarning("⚠️ Very low audio levels - check:");
-            Debug.LogWarning("  - Microphone is not muted");
-            Debug.LogWarning("  - System microphone levels");
-            Debug.LogWarning("  - Microphone is working in other apps");
-        }
-    }
-}
-
-public class VolumeMonitor : AudioReader
-{
-    private float _currentVolume;
-
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
-    {
-        float sum = 0f;
-        for (int i = 0; i < buffer.Length; i++)
-            sum += buffer[i] * buffer[i];
-        _currentVolume = MathF.Sqrt(sum / buffer.Length);
-    }
-
-    public float GetCurrentVolume() => _currentVolume;
-}
-```
-
-### Audio Dropouts/Glitches
-
-**Problem:** Audio has gaps, pops, or glitches.
-
-**Common Causes & Solutions:**
-
-#### 1. Buffer Underrun
-
-```csharp
-// ✅ Preview cache is auto-managed – just use the default capturer.
-var capturer = new AudioCapturer();
-```
-
-#### 2. Processing Too Heavy
-
-```csharp
-// ❌ Heavy processing on audio thread
-public class HeavyProcessor : AudioWriter
-{
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        foreach (var sample in buffer)
-        {
-            // Complex math operations - causes dropouts!
-            var result = Math.Sin(Math.Cos(Math.Tan(sample * Math.PI)));
-        }
-    }
-}
-
-// ✅ Lightweight processing
-public class EfficientProcessor : AudioWriter
-{
-    private float _precomputedGain;
-
-    public override void Initialize(AudioContext state)
-    {
-        base.Initialize(state);
-        _precomputedGain = 1.5f; // Pre-calculate
-    }
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= _precomputedGain; // Simple multiplication
-    }
-}
-```
-
-#### 3. Threading Issues
-
-```csharp
-// ❌ Unsafe property access
-public class UnsafeProcessor : AudioWriter
-{
-    public float Gain { get; set; } = 1.0f; // Modified from UI thread!
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        // Race condition - Gain might change mid-processing!
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= Gain;
-    }
-}
-
-// ✅ Thread-safe property access
-public class SafeProcessor : AudioWriter
-{
-    private volatile float _gain = 1.0f;
-
-    public float Gain
-    {
-        get => _gain;
-        set => _gain = value; // Atomic write
-    }
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        float currentGain = _gain; // Atomic read
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= currentGain;
-    }
-}
-```
-
-### Low Audio Quality
-
-**Problem:** Audio sounds muffled, distorted, or low quality.
-
-**Solutions:**
-
-#### 1. Use Higher Sample Rates
-
-```csharp
-// ❌ Low quality
-var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz8000);
-
-// ✅ High quality
-var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
-```
-
-#### 2. Check Processor Order
-
-```csharp
-// ❌ Poor processing order
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
-var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
-var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
-EasyMicAPI.AddProcessor(handle, bpc);      // Captures early
-EasyMicAPI.AddProcessor(handle, bpg);      // Gate after capture
-EasyMicAPI.AddProcessor(handle, bpd);      // Too late
-
-// ✅ Optimal processing order
-EasyMicAPI.AddProcessor(handle, bpg);      // Remove noise first
-EasyMicAPI.AddProcessor(handle, bpd);      // Convert format
-EasyMicAPI.AddProcessor(handle, bpc);      // Capture clean audio
-```
-
-#### 3. Proper Channel Handling
-
-```csharp
-// Check device capabilities
-var device = EasyMicAPI.Devices[0];
-Debug.Log($"Device supports {device.MaxChannels} channels");
-
-// Use appropriate channel count
-var channelMode = device.MaxChannels > 1 ? Channel.Stereo : Channel.Mono;
-var handle = EasyMicAPI.StartRecording(device.Name, SampleRate.Hz48000, channelMode);
-```
-
----
-
-## 🏗️ Pipeline Issues
-
-### Processors Not Working
-
-**Problem:** Processors added to pipeline but no effect on audio.
-
-**Debugging Steps:**
-
-```csharp
-public class PipelineDebugger : MonoBehaviour
-{
-    private RecordingHandle _handle;
-
-    void Start()
-    {
-        _handle = EasyMicAPI.StartRecording();
-
-        // Add a test processor to verify pipeline is working
-        var testProcessor = new PipelineTestProcessor();
-        EasyMicAPI.AddProcessor(_handle, testProcessor);
-
-        // Add your actual processors
-        var gate = new VolumeGateFilter();
-        EasyMicAPI.AddProcessor(_handle, gate);
-
-        // Monitor pipeline
-        InvokeRepeating(nameof(CheckPipelineStatus), 1f, 1f);
-    }
-
-    void CheckPipelineStatus()
-    {
-        var info = EasyMicAPI.GetRecordingInfo(_handle);
-        Debug.Log($"Recording active: {info.IsActive}, Processors: {info.ProcessorCount}");
-    }
-}
-
-public class PipelineTestProcessor : AudioWriter
-{
-    private int _frameCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        _frameCount++;
-        if (_frameCount % 100 == 0)
-        {
-            Debug.Log($"✅ Pipeline active - processed {_frameCount} frames");
-        }
-    }
-}
-```
-
-### Processor Exceptions
-
-**Problem:** Exceptions thrown in processors crash recording.
-
-**Safe Processor Template:**
-
-```csharp
-public class SafeProcessor : AudioWriter
-{
-    private bool _hasError = false;
-    private int _errorCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        if (_hasError) return; // Skip processing if in error state
-
-        try
-        {
-            ProcessAudioSafely(buffer, state);
-        }
-        catch (Exception ex)
-        {
-            _errorCount++;
-            Debug.LogError($"Processor error ({_errorCount}): {ex.Message}");
-
-            if (_errorCount > 5)
-            {
-                Debug.LogError("Too many errors, disabling processor");
-                _hasError = true;
-            }
-        }
-    }
-
-    private void ProcessAudioSafely(Span<float> buffer, AudioContext state)
-    {
-        // Your processing code here
-    }
-}
-```
-
----
-
-## 🛠️ Performance Issues
-
-### High CPU Usage
-
-**Problem:** Easy Mic using too much CPU.
-
-**Profiling and Optimization:**
-
-```csharp
-public class PerformanceProfiler : AudioWriter
-{
-    private readonly System.Diagnostics.Stopwatch _stopwatch = new System.Diagnostics.Stopwatch();
-    private long _totalTime = 0;
-    private int _frameCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        _stopwatch.Restart();
-
-        // Your processing code here
-        ProcessAudio(buffer, state);
-
-        _stopwatch.Stop();
-        _totalTime += _stopwatch.ElapsedTicks;
-        _frameCount++;
-
-        // Report every 1000 frames
-        if (_frameCount % 1000 == 0)
-        {
-            double avgMs = (_totalTime / (double)_frameCount) / TimeSpan.TicksPerMillisecond;
-            Debug.Log($"Avg processing time: {avgMs:F3}ms per frame");
-
-            if (avgMs > 1.0) // More than 1ms is concerning
-            {
-                Debug.LogWarning("⚠️ High processing time detected!");
-            }
-        }
-    }
-}
-```
-
-**Common Optimizations:**
-
-1. **Pre-calculate values in Initialize()**
-2. **Use fixed-point math instead of floating-point where possible**
-3. **Minimize memory allocations**
-4. **Use efficient algorithms (O(n) vs O(n²))**
-
-### Memory Leaks
-
-**Problem:** Memory usage grows over time.
-
-**Leak Detection:**
-
-```csharp
-public class MemoryMonitor : MonoBehaviour
-{
-    void Start()
-    {
-        InvokeRepeating(nameof(CheckMemory), 5f, 5f);
-    }
-
-    void CheckMemory()
-    {
-        long memory = System.GC.GetTotalMemory(false);
-        Debug.Log($"Memory usage: {memory / 1024 / 1024}MB");
-
-        // Force GC to check for leaks
-        System.GC.Collect();
-        long afterGC = System.GC.GetTotalMemory(true);
-        Debug.Log($"After GC: {afterGC / 1024 / 1024}MB");
-    }
-}
-```
-
-**Common Leak Sources:**
-
-1. **Not disposing processors**
-2. **Event handlers not removed**
-3. **Static references to processor instances**
-4. **Large buffers not cleared**
-
-**Proper Cleanup:**
-
-```csharp
-public class ProperCleanup : MonoBehaviour
-{
-    private RecordingHandle _handle;
-    private List<IAudioWorker> _processors = new List<IAudioWorker>();
-
-    void OnDestroy()
-    {
-        // Stop recording first
-        if (_handle.IsValid)
-            EasyMicAPI.StopRecording(_handle);
-
-        // Dispose all processors
-        foreach (var processor in _processors)
-            processor?.Dispose();
-
-        _processors.Clear();
-
-        // Final cleanup
-        EasyMicAPI.Cleanup();
-    }
-}
-```
-
----
-
-## 🔍 Debugging Tools
-
-### Audio Pipeline Visualizer
-
-```csharp
-public class PipelineVisualizer : AudioReader
-{
-    public event System.Action<float[], AudioContext> OnAudioData;
-    private float[] _visualData = new float[1024];
-
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
-    {
-        // Downsample for visualization
-        int step = Math.Max(1, buffer.Length / _visualData.Length);
-
-        for (int i = 0; i < _visualData.Length && i * step < buffer.Length; i++)
-        {
-            _visualData[i] = buffer[i * step];
-        }
-
-        OnAudioData?.Invoke(_visualData, state);
-    }
-}
-
-// Usage in UI
-public class AudioVisualizer : MonoBehaviour
-{
-    private PipelineVisualizer _visualizer;
-
-    void Start()
-    {
-        _visualizer = new PipelineVisualizer();
-        _visualizer.OnAudioData += DrawWaveform;
-        EasyMicAPI.AddProcessor(recordingHandle, _visualizer);
-    }
-
-    void DrawWaveform(float[] data, AudioContext state)
-    {
-        // Draw waveform in Unity UI or using Debug.Log
-        float peak = data.Max(x => Math.Abs(x));
-        Debug.Log($"Waveform peak: {peak:F3}");
-    }
-}
-```
-
-### Recording Session Inspector
-
-```csharp
-[System.Serializable]
-public class RecordingSessionInspector
-{
-    public static void InspectSession(RecordingHandle handle)
-    {
-        var info = EasyMicAPI.GetRecordingInfo(handle);
-
-        Debug.Log("=== Recording Session Info ===");
-        Debug.Log($"Handle Valid: {handle.IsValid}");
-        Debug.Log($"Device: {info.Device.Name}");
-        Debug.Log($"Sample Rate: {info.SampleRate}");
-        Debug.Log($"Channels: {info.Channel}");
-        Debug.Log($"Active: {info.IsActive}");
-        Debug.Log($"Processors: {info.ProcessorCount}");
-        Debug.Log("=============================");
-    }
-}
-```
-
-## 🆘 Getting Help
-
-### Before Reporting Issues
-
-1. **Check Unity Console** for error messages
-2. **Test with minimal setup** (just AudioCapturer)
-3. **Verify on multiple devices** if possible
-4. **Check Unity version compatibility**
-
-### When Reporting Bugs
-
-Include this information:
-
-- Unity version
-- Target platform
-- Easy Mic version
-- Minimal reproduction code
-- Console output/error messages
-- Device specifications
-
-### Useful Debug Code
-
-```csharp
-public static class EasyMicDebugInfo
-{
-    public static void PrintSystemInfo()
-    {
-        Debug.Log("=== Easy Mic Debug Info ===");
-        Debug.Log($"Unity Version: {Application.unityVersion}");
-        Debug.Log($"Platform: {Application.platform}");
-        Debug.Log($"Device Model: {SystemInfo.deviceModel}");
-        Debug.Log($"OS: {SystemInfo.operatingSystem}");
-
-        EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        Debug.Log($"Audio Devices: {devices.Length}");
-
-        foreach (var device in devices)
-        {
-            Debug.Log($"  - {device.Name} (Default: {device.IsDefault})");
-            Debug.Log($"    Channels: {device.MaxChannels}");
-            Debug.Log($"    Sample Rate: {device.MinSampleRate}-{device.MaxSampleRate}Hz");
-        }
-
-        Debug.Log("=========================");
-    }
-}
-```
-
----
-
-## 🔍 What's Next?
-
-- **[Examples](examples.md)** - See working implementations
-- **[API Reference](api-reference.md)** - Complete API documentation
-- **[Best Practices](best-practices.md)** - Optimization techniques
-
----
-
-← [Best Practices](best-practices.md) | **Next: [Examples](examples.md)** →
+### Symptom
+
+Input monitoring or streamed playback feels delayed.
+
+### Likely causes
+
+- `Balanced` or `Stable` buffering is intentionally larger.
+- Producer is prebuffering too much.
+- Platform backend adds device/OS latency.
+- Sample-rate conversion or external audio routing adds delay.
+
+### Fixes
+
+- Try `LowLatency` on desktop.
+- Reduce producer-side buffering.
+- Measure on target hardware, not only the Editor.
+- Avoid Bluetooth routes for latency-sensitive monitoring.
+
+## Glitches During Scene Loading
+
+### Symptom
+
+Audio glitches when loading scenes, assets, or models.
+
+### Likely causes
+
+- CPU and GC spikes delay transport workers.
+- Main-thread event queues back up.
+- Processors allocate during transitions.
+
+### Fixes
+
+- Use `Balanced` or `Stable` during heavy transitions.
+- Preload assets before starting low-latency audio.
+- Reduce event rate and avoid large event payloads.
+
+## Problems After Entering or Exiting Play Mode
+
+### Symptom
+
+Devices remain busy, callbacks stop, or old events fire after domain reload.
+
+### Likely causes
+
+- Handles were not disposed.
+- Components were destroyed without stopping owned sessions.
+- Static state reset occurred while user code held old handles.
+
+### Fixes
+
+- Stop recordings in `OnDisable` / `OnDestroy`.
+- Dispose long-lived `PlaybackHandle` values.
+- Call `EasyMicAPI.Cleanup()` when intentionally resetting the microphone system.
+
+## Android Latency or Routing Issues
+
+### Symptom
+
+Latency is higher than desktop, routing changes unexpectedly, or device behavior varies.
+
+### Likely causes
+
+- Android backend and device-specific buffer behavior.
+- Bluetooth or voice communication routing.
+- Missing runtime permission.
+
+### Fixes
+
+- Start with `Balanced`.
+- Test real devices.
+- Add `RECORD_AUDIO` permission.
+- Avoid assuming emulator audio behavior matches phones.
+
+## Processor Causes Stutter
+
+### Symptom
+
+Glitches begin after adding a custom processor.
+
+### Likely causes
+
+- Blocking calls, locks, allocation, exceptions, or Unity APIs in worker paths.
+- Too much CPU per audio block.
+- Shared mutable state without thread-safe access.
+
+### Fixes
+
+- Follow [Processor Contracts](processors.md).
+- Use preallocated buffers.
+- Dispatch Unity work to the main thread.
+- Check `ProcessorExceptions` and `WorkerMaxMicroseconds`.
+
+## Event Queue Drops
+
+### Symptom
+
+`EventQueueDrops` increases or UI callbacks miss updates.
+
+### Likely causes
+
+- Too many Unity-facing events.
+- Main thread is blocked.
+- Event payloads are too large.
+
+### Fixes
+
+- Reduce event frequency.
+- Send summaries instead of full audio buffers.
+- Keep main-thread handlers short.

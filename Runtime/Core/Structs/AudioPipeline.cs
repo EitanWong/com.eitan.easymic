@@ -5,10 +5,9 @@ namespace Eitan.EasyMic.Runtime
     using System.Threading;
 
     /// <summary>
-    /// 顺序化音频管线：严格按添加顺序执行。
-    /// - 遇到 AudioWriter：在回调线程串行就地处理
-    /// - 遇到 AudioReader：立即分发（Reader 内部仅快速入队，绝不阻塞）
-    /// 使用不可变快照数组 + CAS 原子替换，避免回调线程加锁。
+    /// Sequential transport-worker audio pipeline. The miniaudio callback never runs
+    /// this graph; capture/playback workers execute immutable snapshots at block
+    /// boundaries.
     /// </summary>
     public sealed class AudioPipeline : AudioWriter
     {
@@ -78,6 +77,7 @@ namespace Eitan.EasyMic.Runtime
                 throw new ArgumentNullException(nameof(worker));
             }
 
+            ValidateWorkerThreadContract(worker);
 
             if (Volatile.Read(ref _isInitialized) != 0)
             {
@@ -357,6 +357,17 @@ namespace Eitan.EasyMic.Runtime
         private static void SafeDispose(IAudioWorker worker)
         {
             try { worker?.Dispose(); } catch { }
+        }
+
+        private static void ValidateWorkerThreadContract(IAudioWorker worker)
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (worker is IMainThreadAudioProcessor || worker is IRealtimeForbiddenProcessor)
+            {
+                throw new InvalidOperationException(
+                    $"EasyMic processor '{worker.GetType().Name}' is marked as main-thread/realtime-forbidden and cannot be added to an audio transport pipeline.");
+            }
+#endif
         }
     }
 }

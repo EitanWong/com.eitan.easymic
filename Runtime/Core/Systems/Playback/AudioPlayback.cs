@@ -15,9 +15,21 @@ namespace Eitan.EasyMic.Runtime
         private static readonly Dictionary<int, PlaybackAudioSession> s_playbacks = new Dictionary<int, PlaybackAudioSession>();
         private static int s_nextId = 1;
 
+        public static EasyMicLatencyProfile DefaultLatencyProfile
+        {
+            get
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                return EasyMicLatencyProfile.Balanced;
+#else
+                return EasyMicLatencyProfile.LowLatency;
+#endif
+            }
+        }
+
         private static void EnsureAudioSystem()
         {
-            EnsureAudioSystem(EasyMicLatencyProfile.LowLatency);
+            EnsureAudioSystem(DefaultLatencyProfile);
         }
 
         private static void EnsureAudioSystem(EasyMicLatencyProfile latencyProfile)
@@ -34,7 +46,7 @@ namespace Eitan.EasyMic.Runtime
 
         public static PlaybackHandle PlayClip(AudioClip clip, bool loop = false, float volume = 1f, bool autoDisposeOnComplete = true)
         {
-            return PlayClip(clip, loop, volume, autoDisposeOnComplete, EasyMicLatencyProfile.LowLatency);
+            return PlayClip(clip, loop, volume, autoDisposeOnComplete, DefaultLatencyProfile);
         }
 
         public static PlaybackHandle PlayClip(
@@ -67,7 +79,7 @@ namespace Eitan.EasyMic.Runtime
 
         public static PlaybackHandle CreateStream(float volume = 1f)
         {
-            return CreateStream(volume, EasyMicLatencyProfile.LowLatency);
+            return CreateStream(volume, DefaultLatencyProfile);
         }
 
         public static PlaybackHandle CreateStream(float volume, EasyMicLatencyProfile latencyProfile)
@@ -189,7 +201,7 @@ namespace Eitan.EasyMic.Runtime
 
         private static PlaybackHandle CreatePlayback(float volume, bool loop, out PlaybackAudioSession session)
         {
-            return CreatePlayback(volume, loop, EasyMicLatencyProfile.LowLatency, out session);
+            return CreatePlayback(volume, loop, DefaultLatencyProfile, out session);
         }
 
         private static PlaybackHandle CreatePlayback(float volume, bool loop, EasyMicLatencyProfile latencyProfile, out PlaybackAudioSession session)

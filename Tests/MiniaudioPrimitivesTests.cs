@@ -262,6 +262,53 @@ namespace Eitan.EasyMic.Tests
                 Assert.Ignore("miniaudio delay symbols not present for this test run.");
             }
         }
+
+        [Test]
+        public void TelemetrySnapshotIncludesRealtimeCounters()
+        {
+            var telemetry = new RealtimeAudioTelemetry();
+
+            telemetry.IncrementTransportUnderrun();
+            telemetry.IncrementTransportOverrun();
+            telemetry.AddFramesDropped(7);
+            telemetry.AddFramesReceived(11);
+            telemetry.AddZeroFilledFrames(13);
+            telemetry.IncrementWorkerLate();
+            telemetry.IncrementProcessorException();
+            telemetry.IncrementCallbackException();
+            telemetry.ObserveQueueDepth(64);
+            telemetry.ObserveQueueDepth(16);
+
+            var snapshot = telemetry.GetPublicSnapshot();
+
+            Assert.AreEqual(1, snapshot.TransportUnderruns);
+            Assert.AreEqual(1, snapshot.TransportOverruns);
+            Assert.AreEqual(7, snapshot.FramesDropped);
+            Assert.AreEqual(11, snapshot.FramesReceived);
+            Assert.AreEqual(13, snapshot.ZeroFilledFrames);
+            Assert.AreEqual(1, snapshot.WorkerLateCount);
+            Assert.AreEqual(1, snapshot.ProcessorExceptions);
+            Assert.AreEqual(1, snapshot.CallbackExceptions);
+            Assert.AreEqual(16, snapshot.LastQueueDepthSamples);
+            Assert.AreEqual(16, snapshot.MinQueueDepthSamples);
+            Assert.AreEqual(64, snapshot.MaxQueueDepthSamples);
+        }
+
+        [Test]
+        public void StableLatencyProfileKeepsSafeStreamingCompatibility()
+        {
+            Assert.AreEqual((int)EasyMicLatencyProfile.SafeStreaming, (int)EasyMicLatencyProfile.Stable);
+        }
+
+        [Test]
+        public void PlaybackDefaultLatencyProfileIsConservativeOnAndroidOnly()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            Assert.AreEqual(EasyMicLatencyProfile.Balanced, AudioPlayback.DefaultLatencyProfile);
+#else
+            Assert.AreEqual(EasyMicLatencyProfile.LowLatency, AudioPlayback.DefaultLatencyProfile);
+#endif
+        }
     }
 }
 #endif
