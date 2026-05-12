@@ -180,15 +180,10 @@ namespace Eitan.EasyMic.Runtime
             {
                 float prev = _hasPrevFrame ? _prevFrame[0] : audiobuffer[0];
 
-                while (true)
+                while ((int)pos + 1 < inFrames)
                 {
                     int i0 = (int)pos;
                     int i1 = i0 + 1;
-                    if (i1 >= inFrames)
-                    {
-                        break;
-                    }
-
                     float s0 = i0 >= 0 ? audiobuffer[i0] : prev;
                     float s1 = audiobuffer[i1];
                     float t = (float)(pos - i0);
@@ -200,15 +195,10 @@ namespace Eitan.EasyMic.Runtime
             }
             else
             {
-                while (true)
+                while ((int)pos + 1 < inFrames)
                 {
                     int i0 = (int)pos;
                     int i1 = i0 + 1;
-                    if (i1 >= inFrames)
-                    {
-                        break;
-                    }
-
                     float t = (float)(pos - i0);
 
                     int src0 = i0 * channels;
@@ -361,10 +351,7 @@ namespace Eitan.EasyMic.Runtime
 
             int outSamples = writtenFrames * channels;
             var dst = buffer.Slice(0, Math.Min(outSamples, buffer.Length));
-            for (int i = 0; i < dst.Length; i++)
-            {
-                dst[i] = _scratch[i];
-            }
+            new ReadOnlySpan<float>(_scratch, 0, dst.Length).CopyTo(dst);
 
             state.Length = dst.Length;
             state.SampleRate = _targetSampleRate;

@@ -4,7 +4,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.ASR;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.Pipeline;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.Services;
+using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.Speech;
 using Eitan.EasyMic.Runtime.Mono;
 using Eitan.SherpaONNXUnity.Runtime;
 using Eitan.SherpaONNXUnity.Runtime.Core;
@@ -947,6 +949,25 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR
 
         private void DisposeServiceInstances()
         {
+            if (_serviceFactory != null)
+            {
+                try
+                {
+                    _serviceFactory.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    LogWarning($"Failed to dispose {nameof(SherpaServiceFactory)}: {ex.Message}");
+                }
+
+                _streamingService = null;
+                _offlineService = null;
+                _vadService = null;
+                _keywordService = null;
+                _punctService = null;
+                return;
+            }
+
             SafeDispose(ref _streamingService);
             SafeDispose(ref _offlineService);
             SafeDispose(ref _vadService);

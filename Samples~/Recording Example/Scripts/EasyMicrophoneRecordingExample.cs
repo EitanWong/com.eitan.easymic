@@ -240,13 +240,18 @@ namespace Eitan.EasyMic.Samples.Recording
             _recordButton.interactable = true;
 
             // Attempt to restore the previous selection
-            int targetIndex = 0;
+            int targetIndex = Array.FindIndex(_devices, d => d.IsDefault);
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+
             if (!string.IsNullOrEmpty(previousDevice))
             {
-                targetIndex = Array.FindIndex(_devices, d => d.Name == previousDevice);
-                if (targetIndex < 0)
+                int previousIndex = Array.FindIndex(_devices, d => d.Name == previousDevice);
+                if (previousIndex >= 0)
                 {
-                    targetIndex = 0;
+                    targetIndex = previousIndex;
                 }
             }
 

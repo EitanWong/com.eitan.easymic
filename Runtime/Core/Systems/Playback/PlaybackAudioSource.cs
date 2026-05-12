@@ -18,13 +18,14 @@ namespace Eitan.EasyMic.Runtime
         private const int MaxMeterChannels = 8;
 
         public string name;
-        private readonly AudioBuffer _queue;
+        private readonly UnsafeAudioRingBuffer _queue;
         private readonly float[] _work; // temp buffer for per-frame processing
         private readonly float[] _rtOutChunk; // RT-safe scratch for event/telemetry chunking
         private readonly float[] _rtHeadScratch; // RT-safe scratch for small per-frame head writes
         private readonly AudioPipeline _pipeline;
         private readonly AudioContext _state;
         private readonly int _eventSourceId;
+        private readonly object _queueMutationLock = new object();
 
         /// <summary>
         /// Real-time playback callback similar to Unity's OnAudioFilterRead. but readonly
@@ -56,6 +57,7 @@ namespace Eitan.EasyMic.Runtime
         private int _pendingStreamEnd; // 0/1 flag when callers request completion once drained
         private int _playbackCompleted; // 0/1 guard to dispatch completion once per drain
         private int _loopBoundaryPending; // 0/1 guard to surface loop boundary callback on audio thread
+        private int _resetRequested; // consumed by the render thread before touching queue state
 
         // Meters (snapshot by last render)
         private float[] _meterPeak; // per-output-channel of last render
@@ -70,6 +72,7 @@ namespace Eitan.EasyMic.Runtime
         private bool _solo;
 
         private Action<IMixNode> _stateChanged;
+        private int _disposed;
 
         public float Volume
         {
@@ -191,7 +194,7 @@ namespace Eitan.EasyMic.Runtime
             Channels = Math.Max(1, channels);
             SampleRate = Math.Max(8000, sampleRate);
             int cap = AlignToFrameSamples((int)Math.Max(Channels * SampleRate * queueSeconds, Channels * SampleRate / 2));
-            _queue = new AudioBuffer(cap, Channels);
+            _queue = new UnsafeAudioRingBuffer(cap, Channels);
             int workSamples = AlignToFrameSamples(Math.Max(Channels * SampleRate / 50, 256));
             _work = new float[workSamples > 0 ? workSamples : Channels]; // ~20ms default min
             _rtOutChunk = new float[Math.Max(_work.Length, EnqueueMaxCopySamples)];
@@ -214,8 +217,21 @@ namespace Eitan.EasyMic.Runtime
             try { (attachTo ?? AudioSystem.Instance.MasterMixer).AddSource(this); } catch { }
         }
 
+        internal void PrepareForRealtimeRender(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            int outChannels = Math.Max(1, systemChannels);
+            int outputFrames = Math.Max(1, maxBlockSamples / outChannels);
+            int neededSourceFrames = (int)Math.Ceiling(outputFrames * (double)SampleRate / Math.Max(1, systemSampleRate)) + ResamplerGuardFrames;
+            EnsureResBufCapacity(Math.Max(Channels * 512, neededSourceFrames * Channels));
+        }
+
         public int Enqueue(ReadOnlySpan<float> interleaved)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return 0;
+            }
+
             if (interleaved.IsEmpty)
             {
                 return 0;
@@ -228,7 +244,16 @@ namespace Eitan.EasyMic.Runtime
             }
 
             ResetCompletionGuard();
-            return _queue.Write(interleaved.Slice(0, alignedSamples));
+            lock (_queueMutationLock)
+            {
+                return _queue.Write(interleaved.Slice(0, alignedSamples));
+            }
+        }
+
+        public bool TryEnqueue(ReadOnlySpan<float> interleaved, out int samplesWritten)
+        {
+            samplesWritten = Enqueue(interleaved);
+            return samplesWritten == (interleaved.Length - interleaved.Length % Channels);
         }
 
         public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, bool markEndOfStream = false)
@@ -238,6 +263,11 @@ namespace Eitan.EasyMic.Runtime
 
         public int Enqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, int tailFadeSamples, bool markEndOfStream = false)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return 0;
+            }
+
             if (interleaved.IsEmpty)
             {
                 if (markEndOfStream)
@@ -279,10 +309,20 @@ namespace Eitan.EasyMic.Runtime
                 : ConvertAndEnqueue(src, channels, sampleRate, markEndOfStream, normalizedFadeSamples);
         }
 
+        public bool TryEnqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, out int samplesWritten, bool markEndOfStream = false)
+        {
+            samplesWritten = Enqueue(interleaved, channels, sampleRate, markEndOfStream);
+            int requestedFrames = channels > 0 ? interleaved.Length / channels : 0;
+            int requestedSamples = requestedFrames * Math.Max(0, channels);
+            return samplesWritten == requestedSamples;
+        }
+
         public void SignalEndOfStream()
         {
             System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 1);
         }
+
+        internal bool HasPendingStreamEnd => Volatile.Read(ref _pendingStreamEnd) != 0;
 
         private int WriteToQueue(ReadOnlySpan<float> samples, bool markEndOfStream, int tailFadeSamples = 0)
         {
@@ -309,40 +349,24 @@ namespace Eitan.EasyMic.Runtime
 
             int fadeStart = totalSamples - fadeSamples;
             int written = 0;
-            var spinner = new System.Threading.SpinWait();
-            int stallIterations = 0;
-
             while (written < totalSamples)
             {
-                int writable = _queue.WritableCount;
+                int writable;
+                lock (_queueMutationLock)
+                {
+                    writable = _queue.WritableCount;
+                }
+
                 if (writable <= 0)
                 {
-                    stallIterations++;
-                    if (stallIterations >= EnqueueSpinBeforeSleep)
-                    {
-                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
-                    }
-                    else
-                    {
-                        spinner.SpinOnce();
-                    }
-                    continue;
+                    break;
                 }
 
                 int remaining = totalSamples - written;
                 int chunkSamples = Math.Min(remaining, Math.Min(writable, AlignToFrameSamples(EnqueueMaxCopySamples)));
                 if (chunkSamples <= 0)
                 {
-                    stallIterations++;
-                    if (stallIterations >= EnqueueSpinBeforeSleep)
-                    {
-                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
-                    }
-                    else
-                    {
-                        spinner.SpinOnce();
-                    }
-                    continue;
+                    break;
                 }
 
                 EnsureConvertBufferCapacity(chunkSamples);
@@ -350,27 +374,20 @@ namespace Eitan.EasyMic.Runtime
                 samples.Slice(written, chunkSamples).CopyTo(scratch);
                 ApplyTailFade(scratch, written, fadeStart, totalSamples, fadeSamples);
 
-                int justWritten = _queue.Write(scratch.Slice(0, chunkSamples));
+                int justWritten;
+                lock (_queueMutationLock)
+                {
+                    justWritten = _queue.Write(scratch.Slice(0, chunkSamples));
+                }
                 if (justWritten <= 0)
                 {
-                    stallIterations++;
-                    if (stallIterations >= EnqueueSpinBeforeSleep)
-                    {
-                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
-                    }
-                    else
-                    {
-                        spinner.SpinOnce();
-                    }
-                    continue;
+                    break;
                 }
 
                 written += justWritten;
-                stallIterations = 0;
-                spinner.Reset();
             }
 
-            if (markEndOfStream)
+            if (markEndOfStream && written == totalSamples)
             {
                 SignalEndOfStream();
             }
@@ -381,32 +398,22 @@ namespace Eitan.EasyMic.Runtime
         private int WriteToQueueDirect(ReadOnlySpan<float> samples, bool markEndOfStream, int totalSamples)
         {
             int written = 0;
-            var spinner = new System.Threading.SpinWait();
-            int stallIterations = 0;
-
             while (written < totalSamples)
             {
-                int justWritten = _queue.Write(samples.Slice(written));
+                int justWritten;
+                lock (_queueMutationLock)
+                {
+                    justWritten = _queue.Write(samples.Slice(written));
+                }
                 if (justWritten <= 0)
                 {
-                    stallIterations++;
-                    if (stallIterations >= EnqueueSpinBeforeSleep)
-                    {
-                        System.Threading.Thread.Sleep(EnqueueSleepMilliseconds);
-                    }
-                    else
-                    {
-                        spinner.SpinOnce();
-                    }
-                    continue;
+                    break;
                 }
 
                 written += justWritten;
-                stallIterations = 0;
-                spinner.Reset();
             }
 
-            if (markEndOfStream)
+            if (markEndOfStream && written == totalSamples)
             {
                 SignalEndOfStream();
             }
@@ -473,6 +480,22 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         public double BufferedSeconds => (double)QueuedSamples / Math.Max(1, Channels * SampleRate);
 
+        public EasyMicPlaybackSourceSnapshot GetPipelineSnapshot()
+        {
+            return new EasyMicPlaybackSourceSnapshot(
+                name,
+                Channels,
+                SampleRate,
+                QueuedSamples,
+                FreeSamples,
+                BufferedSeconds,
+                Volume,
+                Mute,
+                Solo,
+                IsPlaying,
+                Pipeline.GetProcessorSnapshots());
+        }
+
         /// <summary>
         /// Resume playback (IsPlaying = true).
         /// </summary>
@@ -498,13 +521,11 @@ namespace Eitan.EasyMic.Runtime
         public void ResetProgress()
         {
             System.Threading.Interlocked.Exchange(ref _playedSourceFrames, 0);
-            _phase = 0.0;
-            _resFrames = 0;
-            _queue.Clear();
             _totalSourceFrames = 0;
             System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 0);
             System.Threading.Interlocked.Exchange(ref _playbackCompleted, 0);
             System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 0);
+            System.Threading.Interlocked.Exchange(ref _resetRequested, 1);
         }
 
         /// <summary>
@@ -513,6 +534,14 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
+            ApplyPendingResetOnRenderThread();
+
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
+                return;
+            }
+
             int totalSamples = destination.Length;
             if (totalSamples <= 0)
             {
@@ -572,6 +601,18 @@ namespace Eitan.EasyMic.Runtime
 
             TryRaiseCompletionIfDrained();
             TryDispatchLoopBoundary();
+        }
+
+        private void ApplyPendingResetOnRenderThread()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _resetRequested, 0) == 0)
+            {
+                return;
+            }
+
+            _phase = 0.0;
+            _resFrames = 0;
+            _queue.Skip(_queue.ReadableCount);
         }
 
         private int RenderNativeRate(
@@ -1413,7 +1454,26 @@ namespace Eitan.EasyMic.Runtime
         private bool EnsureResBufCapacity(int neededSamples)
         {
             neededSamples = AlignToFrameSamples(neededSamples);
-            return _resBuf != null && _resBuf.Length >= neededSamples;
+            if (_resBuf != null && _resBuf.Length >= neededSamples)
+            {
+                return true;
+            }
+
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
+            {
+                return false;
+            }
+
+            int newSize = _resBuf == null || _resBuf.Length == 0 ? AlignToFrameSamples(Math.Max(Channels * 512, 4096)) : _resBuf.Length;
+            while (newSize < neededSamples)
+            {
+                newSize *= 2;
+            }
+
+            _resBuf = new float[AlignToFrameSamples(newSize)];
+            _resFrames = 0;
+            _phase = 0.0;
+            return true;
         }
 
         public void AddProcessor(AudioWorkerBlueprint blueprint)
@@ -1429,8 +1489,14 @@ namespace Eitan.EasyMic.Runtime
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
             try { EasyMicAudioEventPump.UnregisterPlaybackSource(_eventSourceId); } catch { }
             try { _pipeline.Dispose(); } catch { }
+            try { _queue.Dispose(); } catch { }
         }
 
         public void GetMeters(out float[] peak, out float[] rms)
@@ -1491,7 +1557,7 @@ namespace Eitan.EasyMic.Runtime
 
         bool IMixNode.HasSoloInTree => _solo;
 
-        bool IMixNode.IsActive => _isPlaying && !_mute;
+        bool IMixNode.IsActive => Volatile.Read(ref _disposed) == 0 && _isPlaying && !_mute;
 
         event Action<IMixNode> IMixNode.StateChanged
         {

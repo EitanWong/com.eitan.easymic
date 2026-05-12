@@ -6,9 +6,9 @@ namespace Eitan.EasyMic.Runtime
     {
 
         // Optimized coefficients for different channel configurations
-        private static readonly float COEFF_3DB = 0.707f;  // -3dB for primary channels
-        private static readonly float COEFF_6DB = 0.5f;    // -6dB for safe summing
-        private static readonly float COEFF_12DB = 0.25f;  // -12dB for many channels
+        private const float COEFF_3DB = 0.707f;  // -3dB for primary channels
+        private const float COEFF_6DB = 0.5f;    // -6dB for safe summing
+        private const float COEFF_12DB = 0.25f;  // -12dB for many channels
         private int _originalChannelCount;
 
         public override void Initialize(AudioContext state)
@@ -53,100 +53,150 @@ namespace Eitan.EasyMic.Runtime
             int numChannels = inputChannel;
             int samplesPerChannel = buffer.Length / numChannels;
 
-            // Process samples in-place for optimal performance
-            for (int i = 0; i < samplesPerChannel; i++)
+            switch (inputChannel)
             {
-                int baseIndex = i * numChannels;
-                float monoSample = 0.0f;
+                case 2:
+                    DownmixStereo(buffer, samplesPerChannel);
+                    break;
+                case 4:
+                    DownmixQuad(buffer, samplesPerChannel);
+                    break;
+                case 6:
+                    DownmixSurround6(buffer, samplesPerChannel);
+                    break;
+                case 7:
+                    DownmixSurround7(buffer, samplesPerChannel);
+                    break;
+                case 8:
+                    DownmixSurround8(buffer, samplesPerChannel);
+                    break;
+                case 9:
+                    DownmixSurround9(buffer, samplesPerChannel);
+                    break;
+                case 12:
+                    DownmixSurround12(buffer, samplesPerChannel);
+                    break;
+                case 16:
+                    DownmixSurround16(buffer, samplesPerChannel);
+                    break;
+                default:
+                    DownmixGeneric(buffer, samplesPerChannel, numChannels);
+                    break;
+            }
+        }
 
-                // Optimized downmix based on channel configuration
-                switch (inputChannel)
+        private static void DownmixStereo(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 2)
+            {
+                buffer[i] = DownmixPair(buffer[baseIndex], buffer[baseIndex + 1]);
+            }
+        }
+
+        private static void DownmixQuad(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 4)
+            {
+                buffer[i] = (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 2] + buffer[baseIndex + 3]) * COEFF_12DB;
+            }
+        }
+
+        private static void DownmixSurround6(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 6)
+            {
+                buffer[i] = ClampOne(buffer[baseIndex + 2] + (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 3]) * COEFF_3DB);
+            }
+        }
+
+        private static void DownmixSurround7(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 7)
+            {
+                buffer[i] = ClampOne(buffer[baseIndex + 2] + (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 6] + buffer[baseIndex + 3]) * COEFF_3DB);
+            }
+        }
+
+        private static void DownmixSurround8(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 8)
+            {
+                buffer[i] = ClampOne(buffer[baseIndex + 2] + (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 6] + buffer[baseIndex + 7] + buffer[baseIndex + 3]) * COEFF_3DB);
+            }
+        }
+
+        private static void DownmixSurround9(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 9)
+            {
+                buffer[i] = ClampOne(
+                    buffer[baseIndex + 2] +
+                    (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 3] + buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 6]) * COEFF_3DB +
+                    (buffer[baseIndex + 7] + buffer[baseIndex + 8]) * COEFF_6DB);
+            }
+        }
+
+        private static void DownmixSurround12(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 12)
+            {
+                buffer[i] = ClampOne(
+                    buffer[baseIndex + 2] +
+                    (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 6] + buffer[baseIndex + 7] + buffer[baseIndex + 3]) * COEFF_3DB +
+                    (buffer[baseIndex + 8] + buffer[baseIndex + 9] + buffer[baseIndex + 10] + buffer[baseIndex + 11]) * COEFF_6DB);
+            }
+        }
+
+        private static void DownmixSurround16(Span<float> buffer, int samplesPerChannel)
+        {
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += 16)
+            {
+                buffer[i] = ClampOne(
+                    buffer[baseIndex + 2] +
+                    (buffer[baseIndex] + buffer[baseIndex + 1] + buffer[baseIndex + 6] + buffer[baseIndex + 7] + buffer[baseIndex + 8] + buffer[baseIndex + 9] + buffer[baseIndex + 3]) * COEFF_3DB +
+                    (buffer[baseIndex + 4] + buffer[baseIndex + 5] + buffer[baseIndex + 10] + buffer[baseIndex + 11] + buffer[baseIndex + 12] + buffer[baseIndex + 13] + buffer[baseIndex + 14] + buffer[baseIndex + 15]) * COEFF_6DB);
+            }
+        }
+
+        private static void DownmixGeneric(Span<float> buffer, int samplesPerChannel, int numChannels)
+        {
+            float scale = 1f / numChannels;
+            for (int i = 0, baseIndex = 0; i < samplesPerChannel; i++, baseIndex += numChannels)
+            {
+                float monoSample = 0f;
+                int end = baseIndex + numChannels;
+                for (int ch = baseIndex; ch < end; ch++)
                 {
-                    case 2: // L, R
-                        monoSample = (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_6DB;
-                        break;
-
-                    case 4: // FL, FR, RL, RR
-                        monoSample = (buffer[baseIndex] + buffer[baseIndex + 1] +
-                                    buffer[baseIndex + 2] + buffer[baseIndex + 3]) * COEFF_12DB;
-                        break;
-
-                    case 6: // L, R, C, LFE, SL, SR
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C (full gain)
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
-                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
-                            -1.0f, 1.0f);
-                        break;
-
-                    case 7: // L, R, C, LFE, SL, SR, BC
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
-                            buffer[baseIndex + 6] * COEFF_3DB + // BC
-                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
-                            -1.0f, 1.0f);
-                        break;
-
-                    case 8: // L, R, C, LFE, SL, SR, BL, BR
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
-                            (buffer[baseIndex + 6] + buffer[baseIndex + 7]) * COEFF_3DB + // BL, BR
-                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
-                            -1.0f, 1.0f);
-                        break;
-
-                    case 9: // L, R, C, SL, SR, BL, BR, TFL, TFR
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 3] + buffer[baseIndex + 4]) * COEFF_3DB + // SL, SR
-                            (buffer[baseIndex + 5] + buffer[baseIndex + 6]) * COEFF_3DB + // BL, BR
-                            (buffer[baseIndex + 7] + buffer[baseIndex + 8]) * COEFF_6DB, // Top channels
-                            -1.0f, 1.0f);
-                        break;
-
-                    case 12: // L, R, C, LFE, SL, SR, BL, BR, TFL, TFR, TRL, TRR
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_3DB + // SL, SR
-                            (buffer[baseIndex + 6] + buffer[baseIndex + 7]) * COEFF_3DB + // BL, BR
-                            (buffer[baseIndex + 8] + buffer[baseIndex + 9] +
-                             buffer[baseIndex + 10] + buffer[baseIndex + 11]) * COEFF_6DB + // All top channels
-                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
-                            -1.0f, 1.0f);
-                        break;
-
-                    case 16: // 16 channels
-                        monoSample = Math.Clamp(
-                            buffer[baseIndex + 2] + // C
-                            (buffer[baseIndex] + buffer[baseIndex + 1]) * COEFF_3DB + // L, R
-                            (buffer[baseIndex + 4] + buffer[baseIndex + 5]) * COEFF_6DB + // LW, RW
-                            (buffer[baseIndex + 6] + buffer[baseIndex + 7] +
-                             buffer[baseIndex + 8] + buffer[baseIndex + 9]) * COEFF_3DB + // Surround channels
-                            (buffer[baseIndex + 10] + buffer[baseIndex + 11] + buffer[baseIndex + 12] +
-                             buffer[baseIndex + 13] + buffer[baseIndex + 14] + buffer[baseIndex + 15]) * COEFF_6DB + // Top channels
-                            buffer[baseIndex + 3] * COEFF_3DB, // LFE
-                            -1.0f, 1.0f);
-                        break;
-
-                    default: // Generic fallback - simple averaging
-                        for (int ch = 0; ch < numChannels; ch++)
-                        {
-                            monoSample += buffer[baseIndex + ch];
-                        }
-                        monoSample /= numChannels;
-                        break;
+                    monoSample += buffer[ch];
                 }
 
-                // Write mono sample back to buffer (only first channel used for mono output)
-                buffer[i] = monoSample;
+                buffer[i] = monoSample * scale;
             }
+        }
+
+        private static float DownmixPair(float left, float right)
+        {
+            float mixed = (left + right) * COEFF_6DB;
+            float leftAbs = Math.Abs(left);
+            float rightAbs = Math.Abs(right);
+            float strongest = leftAbs >= rightAbs ? left : right;
+            float strongestAbs = leftAbs >= rightAbs ? leftAbs : rightAbs;
+
+            // Microphone endpoints may expose two channels that are phase-inverted.
+            // A plain L+R mono fold-down cancels those to silence, so preserve the stronger
+            // channel when the summed result collapses relative to the source level.
+            if (strongestAbs > 1e-6f && Math.Abs(mixed) < strongestAbs * 0.125f)
+            {
+                return strongest;
+            }
+
+            return mixed;
+        }
+
+        private static float ClampOne(float value)
+        {
+            if (value > 1f) return 1f;
+            return value < -1f ? -1f : value;
         }
     }
 }

@@ -1,700 +1,195 @@
-← [最佳实践](best-practices.md) | [文档首页](../README.md) | [English Version](../en/troubleshooting.md) →
+# 故障排除
 
-# 🔧 故障排除
+先看诊断计数器。它们会告诉你问题是在设备启动、采集输入、播放输出、队列压力，还是处理器工作。
 
-Easy Mic 的常见问题、解决方案和调试技术。
+## 没有麦克风输入
 
-## 🚨 安装问题
+### 现象
 
-### 找不到包
+`EasyMicAPI.Devices` 为空，录音无法启动，或 callback count 一直为零。
 
-**问题：** Unity Package Manager 无法找到 Easy Mic 包。
+### 可能原因
 
-**解决方案：**
+- 缺少麦克风权限。
+- 设备断开或被禁用。
+- 当前平台缺少原生 miniaudio plugin。
+- 另一个应用以独占方式占用了设备。
 
-1. **验证 Git URL：**
+### 修复
 
-   ```
-   https://github.com/EitanWong/com.eitan.easymic.git#upm
-   ```
+- 录音前在主线程调用 `PermissionUtils.HasPermission()`。
+- 调用 `EasyMicAPI.Refresh()` 并检查 `EasyMicAPI.Devices`。
+- 检查 `EasyMicAPI.IsAvailable` 和 `EasyMicAPI.UnavailabilityReason`。
+- 使用 `Recording Example` sample 测试。
+- 在 macOS 上，确认 Unity Editor 或已构建 player 的麦克风权限。
 
-2. **检查 Unity 版本：**
+## 没有播放输出
 
-   - 需要 Unity 2021.3 LTS 或更高版本
-   - 如果使用较旧版本请更新 Unity
+### 现象
 
-3. **网络问题：**
+`AudioPlayback.PlayClip` 返回有效 handle，但听不到声音。
 
-   ```bash
-   # 测试 Git 访问
-   git ls-remote https://github.com/EitanWong/com.eitan.easymic.git
-   ```
+### 可能原因
 
-4. **使用 OpenUPM（替代方案）：**
-   ```bash
-   openupm add com.eitan.easymic
-   ```
+- 输出设备初始化失败。
+- 音量为零、mute，或路由到了其他设备。
+- Clip 数据为空或不受支持。
+- Stream 从未 feed，或数据到达前就 complete。
 
-### 编译错误
+### 修复
 
-**问题：** 安装后 C# 编译错误。
+- 检查 `AudioSystem.Instance.IsRunning`。
+- 检查系统输出路由和音量。
+- 查看 `AudioSystem.Instance.Telemetry.CallbackCount`。
+- 对 stream，检查 `PlaybackHandle.BufferedSeconds` 和 `TryEnqueue` 结果状态。
 
-**常见错误和解决方案：**
+## 频繁 Playback Underruns
 
-```csharp
-// 错误："Span<T> 不可用"
-// 解决方案：确保 .NET Standard 2.1 或更高版本
-// Player Settings > Configuration > Api Compatibility Level
-```
+### 现象
 
-```csharp
-// 错误："不允许不安全代码"
-// 解决方案：在 Player Settings 中启用不安全代码
-// Player Settings > Allow 'unsafe' Code ✓
-```
+音频 glitch 或静音；`TransportUnderruns` 和 `ZeroFilledFrames` 增加。
 
-**程序集定义问题：**
+### 可能原因
 
-1. 验证脚本中的程序集引用
-2. 将 `Eitan.EasyMic` 添加到程序集依赖项
+- Latency profile 太激进。
+- Playback render worker 被阻塞。
+- Stream producer 入队太晚。
+- Source 或 mixer processors 过于昂贵。
+- Scene loading 或 GC 影响 worker 调度。
 
----
+### 修复
 
-## 🎤 设备和权限问题
+- 使用 `Balanced` 或 `Stable`。
+- 保持 playback processors 小且少分配。
+- 为 streaming 维护 producer-side buffer budget。
+- 低延迟播放活动时，避免 scene load 期间执行重工作。
 
-### 找不到麦克风设备
+## Capture Overflows
 
-**问题：** `EasyMicAPI.Devices` 返回空数组。
+### 现象
 
-**诊断步骤：**
+录音时 `TransportOverruns` 或 `FramesDropped` 增加。
 
-```csharp
-public void DiagnoseDeviceIssues()
-{
-    // 1. 首先检查权限
-    if (!PermissionUtils.HasPermission())
-    {
-        Debug.LogError("❌ 未授予麦克风权限");
-        return;
-    }
+### 可能原因
 
-    // 2. 刷新设备列表
-    EasyMicAPI.Refresh();
-    var devices = EasyMicAPI.Devices;
+- Capture worker 无法足够快地 drain ring。
+- Capture processors 阻塞或分配。
+- `UltraLowLatency` 对目标设备太激进。
 
-    if (devices.Length == 0)
-    {
-        Debug.LogError("❌ 刷新后未找到设备");
-        Debug.Log("检查系统音频设置并确保麦克风已连接");
-    }
-    else
-    {
-        Debug.Log($"✅ 找到 {devices.Length} 个设备：");
-        foreach (var device in devices)
-        {
-            Debug.Log($"  - {device.Name} (默认：{device.IsDefault})");
-        }
-    }
-}
-```
+### 修复
 
-**平台特定解决方案：**
+- 使用 `Balanced` 或 `Stable`。
+- 把重分析移动到 `AudioReader` 或另一个 worker queue。
+- 避免在处理器中执行文件 I/O、网络 I/O、Unity API 调用和长时间持锁。
 
-#### Windows
+## 高延迟
 
-- 检查隐私设置：`设置 > 隐私 > 麦克风`
-- 验证麦克风在设备管理器中未被禁用
-- 在 Windows 录音机中测试麦克风
+### 现象
 
-#### macOS
+输入监听或 streamed playback 感觉延迟较高。
 
-- 检查系统偏好设置：`安全性与隐私 > 隐私 > 麦克风`
-- 将 Unity/你的应用添加到允许的应用程序
-- 重置麦克风权限：`tccutil reset Microphone`
+### 可能原因
 
-#### Linux
+- `Balanced` 或 `Stable` 缓冲本来就更大。
+- Producer 预缓冲过多。
+- 平台 backend 增加设备/OS 延迟。
+- 采样率转换或外部音频路由增加延迟。
 
-- 检查 ALSA/PulseAudio 配置
-- 验证用户权限：`sudo usermod -a -G audio $USER`
-- 测试：`arecord -l` 列出捕获设备
-
-#### Android
-
-- 在 `AndroidManifest.xml` 中添加权限：
-  ```xml
-  <uses-permission android:name="android.permission.RECORD_AUDIO" />
-  ```
-- 在物理设备上测试（模拟器麦克风可能不工作）
-
-#### iOS
-
-- 仅在物理设备上测试
-- 检查 iOS 设置：`设置 > 隐私 > 麦克风`
-
-### 权限被拒绝错误
-
-**问题：** 录音因权限错误失败。
-
-**解决方案模式：**
-
-```csharp
-public class SafeRecordingStarter : MonoBehaviour
-{
-    public void StartRecordingWithPermissionCheck()
-    {
-        if (!PermissionUtils.HasPermission())
-        {
-            Debug.LogError("❌ 未授予麦克风权限");
-            return;
-        }
-        StartRecording();
-    }
-
-    // 提示：如未授权，请引导用户在系统设置中开启权限
-
-    private void StartRecording()
-    {
-        EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-
-        if (devices.Length > 0)
-        {
-            var handle = EasyMicAPI.StartRecording(devices[0].Name);
-            if (handle.IsValid)
-            {
-                Debug.Log("🎙️ 录音成功开始");
-            }
-            else
-            {
-                Debug.LogError("❌ 录音开始失败");
-            }
-        }
-    }
-}
-```
-
----
-
-## 🎧 音频质量问题
-
-### 未捕获音频
-
-**问题：** 录音似乎工作但未捕获音频。
-
-**调试步骤：**
-
-```csharp
-public class AudioDebugger : MonoBehaviour
-{
-    private RecordingHandle _handle;
-    private AudioCapturer _capturer;
-    private VolumeMonitor _monitor;
-
-    void Start()
-    {
-        _handle = EasyMicAPI.StartRecording();
-
-        // 添加音量监控器检查音频是否流动
-        _monitor = new VolumeMonitor();
-        EasyMicAPI.AddProcessor(_handle, _monitor);
-
-        // 添加捕获器
-        _capturer = new AudioCapturer();
-        EasyMicAPI.AddProcessor(_handle, _capturer);
-
-        // 检查音量等级
-        InvokeRepeating(nameof(CheckAudioLevels), 1f, 1f);
-    }
-
-    void CheckAudioLevels()
-    {
-        float volume = _monitor.GetCurrentVolume();
-        Debug.Log($"当前音量：{volume:F4} ({20 * Mathf.Log10(volume + 1e-10f):F1} dB)");
-
-        if (volume < 0.001f)
-        {
-            Debug.LogWarning("⚠️ 检测到非常低的音频等级 - 检查：");
-            Debug.LogWarning("  - 麦克风未静音");
-            Debug.LogWarning("  - 系统麦克风等级");
-            Debug.LogWarning("  - 麦克风在其他应用中工作");
-        }
-    }
-}
-
-public class VolumeMonitor : AudioReader
-{
-    private float _currentVolume;
-
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
-    {
-        float sum = 0f;
-        for (int i = 0; i < buffer.Length; i++)
-            sum += buffer[i] * buffer[i];
-        _currentVolume = MathF.Sqrt(sum / buffer.Length);
-    }
-
-    public float GetCurrentVolume() => _currentVolume;
-}
-```
-
-### 音频丢失/故障
-
-**问题：** 音频有间隙、爆音或故障。
-
-**常见原因和解决方案：**
-
-#### 1. 缓冲区不足
-
-```csharp
-// ✅ 预览缓存由系统自动调优，只需使用默认构造即可。
-var capturer = new AudioCapturer();
-```
-
-#### 2. 处理过重
-
-```csharp
-// ❌ 音频线程上的重处理
-public class HeavyProcessor : AudioWriter
-{
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        foreach (var sample in buffer)
-        {
-            // 复杂的数学运算 - 导致丢失！
-            var result = Math.Sin(Math.Cos(Math.Tan(sample * Math.PI)));
-        }
-    }
-}
-
-// ✅ 轻量级处理
-public class EfficientProcessor : AudioWriter
-{
-    private float _precomputedGain;
-
-    public override void Initialize(AudioContext state)
-    {
-        base.Initialize(state);
-        _precomputedGain = 1.5f; // 预计算
-    }
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= _precomputedGain; // 简单乘法
-    }
-}
-```
-
-#### 3. 线程问题
-
-```csharp
-// ❌ 不安全的属性访问
-public class UnsafeProcessor : AudioWriter
-{
-    public float Gain { get; set; } = 1.0f; // 从UI线程修改！
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        // 竞态条件 - Gain可能在处理中途改变！
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= Gain;
-    }
-}
-
-// ✅ 线程安全的属性访问
-public class SafeProcessor : AudioWriter
-{
-    private volatile float _gain = 1.0f;
-
-    public float Gain
-    {
-        get => _gain;
-        set => _gain = value; // 原子写入
-    }
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        float currentGain = _gain; // 原子读取
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] *= currentGain;
-    }
-}
-```
-
-### 低音频质量
-
-**问题：** 音频听起来沉闷、失真或低质量。
-
-**解决方案：**
-
-#### 1. 使用更高采样率
-
-```csharp
-// ❌ 低质量
-var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz8000);
-
-// ✅ 高质量
-var handle = EasyMicAPI.StartRecording("Microphone", SampleRate.Hz48000);
-```
-
-#### 2. 检查处理器顺序
-
-```csharp
-// ❌ 处理顺序差
-var bpc = new AudioWorkerBlueprint(() => new AudioCapturer(),  key: "capture");
-var bpg = new AudioWorkerBlueprint(() => new VolumeGateFilter(), key: "gate");
-var bpd = new AudioWorkerBlueprint(() => new AudioDownmixer(),   key: "downmix");
-EasyMicAPI.AddProcessor(handle, bpc);      // 早期捕获
-EasyMicAPI.AddProcessor(handle, bpg);      // 捕获后门控
-EasyMicAPI.AddProcessor(handle, bpd);      // 太晚
-
-// ✅ 最佳处理顺序
-EasyMicAPI.AddProcessor(handle, bpg);      // 先去除噪音
-EasyMicAPI.AddProcessor(handle, bpd);      // 转换格式
-EasyMicAPI.AddProcessor(handle, bpc);      // 捕获干净音频
-```
-
-#### 3. 正确的声道处理
-
-```csharp
-// 检查设备能力
-var device = EasyMicAPI.Devices[0];
-Debug.Log($"设备支持 {device.MaxChannels} 声道");
-
-// 使用适当的声道数
-var channelMode = device.MaxChannels > 1 ? Channel.Stereo : Channel.Mono;
-var handle = EasyMicAPI.StartRecording(device.Name, SampleRate.Hz48000, channelMode);
-```
-
----
-
-## 🏗️ 流水线问题
-
-### 处理器不工作
-
-**问题：** 添加到流水线的处理器但对音频无效果。
-
-**调试步骤：**
-
-```csharp
-public class PipelineDebugger : MonoBehaviour
-{
-    private RecordingHandle _handle;
-
-    void Start()
-    {
-        _handle = EasyMicAPI.StartRecording();
-
-        // 添加测试处理器验证流水线工作
-        var testProcessor = new PipelineTestProcessor();
-        EasyMicAPI.AddProcessor(_handle, testProcessor);
-
-        // 添加实际处理器
-        var gate = new VolumeGateFilter();
-        EasyMicAPI.AddProcessor(_handle, gate);
-
-        // 监控流水线
-        InvokeRepeating(nameof(CheckPipelineStatus), 1f, 1f);
-    }
-
-    void CheckPipelineStatus()
-    {
-        var info = EasyMicAPI.GetRecordingInfo(_handle);
-        Debug.Log($"录音活动：{info.IsActive}，处理器：{info.ProcessorCount}");
-    }
-}
-
-public class PipelineTestProcessor : AudioWriter
-{
-    private int _frameCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        _frameCount++;
-        if (_frameCount % 100 == 0)
-        {
-            Debug.Log($"✅ 流水线活动 - 已处理 {_frameCount} 帧");
-        }
-    }
-}
-```
-
-### 处理器异常
-
-**问题：** 处理器中抛出的异常导致录音崩溃。
-
-**安全处理器模板：**
-
-```csharp
-public class SafeProcessor : AudioWriter
-{
-    private bool _hasError = false;
-    private int _errorCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        if (_hasError) return; // 如果处于错误状态则跳过处理
-
-        try
-        {
-            ProcessAudioSafely(buffer, state);
-        }
-        catch (Exception ex)
-        {
-            _errorCount++;
-            Debug.LogError($"处理器错误 ({_errorCount})：{ex.Message}");
-
-            if (_errorCount > 5)
-            {
-                Debug.LogError("错误过多，禁用处理器");
-                _hasError = true;
-            }
-        }
-    }
-
-    private void ProcessAudioSafely(Span<float> buffer, AudioContext state)
-    {
-        // 你的处理代码
-    }
-}
-```
-
----
-
-## 🛠️ 性能问题
-
-### 高 CPU 使用率
-
-**问题：** Easy Mic 使用过多 CPU。
-
-**性能分析和优化：**
-
-```csharp
-public class PerformanceProfiler : AudioWriter
-{
-    private readonly System.Diagnostics.Stopwatch _stopwatch = new System.Diagnostics.Stopwatch();
-    private long _totalTime = 0;
-    private int _frameCount = 0;
-
-    protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
-    {
-        _stopwatch.Restart();
-
-        // 你的处理代码
-        ProcessAudio(buffer, state);
-
-        _stopwatch.Stop();
-        _totalTime += _stopwatch.ElapsedTicks;
-        _frameCount++;
-
-        // 每1000帧报告一次
-        if (_frameCount % 1000 == 0)
-        {
-            double avgMs = (_totalTime / (double)_frameCount) / TimeSpan.TicksPerMillisecond;
-            Debug.Log($"平均处理时间：{avgMs:F3}ms 每帧");
-
-            if (avgMs > 1.0) // 超过1ms令人担忧
-            {
-                Debug.LogWarning("⚠️ 检测到高处理时间！");
-            }
-        }
-    }
-}
-```
-
-**常见优化：**
-
-1. **在 Initialize() 中预计算值**
-2. **尽可能使用定点数学而非浮点数**
-3. **最小化内存分配**
-4. **使用高效算法（O(n) vs O(n²)）**
-
-### 内存泄漏
-
-**问题：** 内存使用随时间增长。
-
-**泄漏检测：**
-
-```csharp
-public class MemoryMonitor : MonoBehaviour
-{
-    void Start()
-    {
-        InvokeRepeating(nameof(CheckMemory), 5f, 5f);
-    }
-
-    void CheckMemory()
-    {
-        long memory = System.GC.GetTotalMemory(false);
-        Debug.Log($"内存使用：{memory / 1024 / 1024}MB");
-
-        // 强制GC检查泄漏
-        System.GC.Collect();
-        long afterGC = System.GC.GetTotalMemory(true);
-        Debug.Log($"GC后：{afterGC / 1024 / 1024}MB");
-    }
-}
-```
-
-**常见泄漏源：**
-
-1. **未释放处理器**
-2. **未移除事件处理器**
-3. **对处理器实例的静态引用**
-4. **未清除的大缓冲区**
-
-**正确清理：**
-
-```csharp
-public class ProperCleanup : MonoBehaviour
-{
-    private RecordingHandle _handle;
-    private List<IAudioWorker> _processors = new List<IAudioWorker>();
-
-    void OnDestroy()
-    {
-        // 先停止录音
-        if (_handle.IsValid)
-            EasyMicAPI.StopRecording(_handle);
-
-        // 释放所有处理器
-        foreach (var processor in _processors)
-            processor?.Dispose();
-
-        _processors.Clear();
-
-        // 最终清理
-        EasyMicAPI.Cleanup();
-    }
-}
-```
-
----
-
-## 🔍 调试工具
-
-### 音频流水线可视化器
-
-```csharp
-public class PipelineVisualizer : AudioReader
-{
-    public event System.Action<float[], AudioContext> OnAudioData;
-    private float[] _visualData = new float[1024];
-
-    protected override void OnAudioRead(ReadOnlySpan<float> buffer, AudioContext state)
-    {
-        // 降采样用于可视化
-        int step = Math.Max(1, buffer.Length / _visualData.Length);
-
-        for (int i = 0; i < _visualData.Length && i * step < buffer.Length; i++)
-        {
-            _visualData[i] = buffer[i * step];
-        }
-
-        OnAudioData?.Invoke(_visualData, state);
-    }
-}
-
-// 在UI中使用
-public class AudioVisualizer : MonoBehaviour
-{
-    private PipelineVisualizer _visualizer;
-
-    void Start()
-    {
-        _visualizer = new PipelineVisualizer();
-        _visualizer.OnAudioData += DrawWaveform;
-        EasyMicAPI.AddProcessor(recordingHandle, _visualizer);
-    }
-
-    void DrawWaveform(float[] data, AudioContext state)
-    {
-        // 在Unity UI中绘制波形或使用Debug.Log
-        float peak = data.Max(x => Math.Abs(x));
-        Debug.Log($"波形峰值：{peak:F3}");
-    }
-}
-```
-
-### 录音会话检查器
-
-```csharp
-[System.Serializable]
-public class RecordingSessionInspector
-{
-    public static void InspectSession(RecordingHandle handle)
-    {
-        var info = EasyMicAPI.GetRecordingInfo(handle);
-
-        Debug.Log("=== 录音会话信息 ===");
-        Debug.Log($"句柄有效：{handle.IsValid}");
-        Debug.Log($"设备：{info.Device.Name}");
-        Debug.Log($"采样率：{info.SampleRate}");
-        Debug.Log($"声道：{info.Channel}");
-        Debug.Log($"活动：{info.IsActive}");
-        Debug.Log($"处理器：{info.ProcessorCount}");
-        Debug.Log("===========================");
-    }
-}
-```
-
-## 🆘 获取帮助
-
-### 报告问题前
-
-1. **检查 Unity 控制台**的错误消息
-2. **用最小设置测试**（仅 AudioCapturer）
-3. **如可能在多个设备上验证**
-4. **检查 Unity 版本兼容性**
-
-### 报告错误时
-
-包含此信息：
-
-- Unity 版本
-- 目标平台
-- Easy Mic 版本
-- 最小重现代码
-- 控制台输出/错误消息
-- 设备规格
-
-### 有用的调试代码
-
-```csharp
-public static class EasyMicDebugInfo
-{
-    public static void PrintSystemInfo()
-    {
-        Debug.Log("=== Easy Mic 调试信息 ===");
-        Debug.Log($"Unity版本：{Application.unityVersion}");
-        Debug.Log($"平台：{Application.platform}");
-        Debug.Log($"设备型号：{SystemInfo.deviceModel}");
-        Debug.Log($"操作系统：{SystemInfo.operatingSystem}");
-
-        EasyMicAPI.Refresh();
-        var devices = EasyMicAPI.Devices;
-        Debug.Log($"音频设备：{devices.Length}");
-
-        foreach (var device in devices)
-        {
-            Debug.Log($"  - {device.Name} (默认：{device.IsDefault})");
-            Debug.Log($"    声道：{device.MaxChannels}");
-            Debug.Log($"    采样率：{device.MinSampleRate}-{device.MaxSampleRate}Hz");
-        }
-
-        Debug.Log("=========================");
-    }
-}
-```
-
----
-
-## 🔍 下一步
-
-- **[示例](examples.md)** - 查看工作实现
-- **[API 参考](api-reference.md)** - 完整的 API 文档
-- **[最佳实践](best-practices.md)** - 优化技术
-
----
-
-← [最佳实践](best-practices.md) | **下一步：[示例](examples.md)** →
+### 修复
+
+- 桌面端尝试 `LowLatency`。
+- 降低 producer-side buffering。
+- 在目标硬件上测量，不只在 Editor 中测量。
+- 对 latency-sensitive monitoring，避免使用 Bluetooth 路由。
+
+## 场景加载期间出现 Glitch
+
+### 现象
+
+加载场景、资源或模型时出现音频 glitch。
+
+### 可能原因
+
+- CPU 和 GC 尖峰延迟 transport workers。
+- Main-thread event queues 堵塞。
+- 处理器在 transition 期间分配。
+
+### 修复
+
+- 重 transition 期间使用 `Balanced` 或 `Stable`。
+- 启动低延迟音频前预加载资源。
+- 降低事件频率并避免大型事件 payload。
+
+## 进入或退出 Play Mode 后出现问题
+
+### 现象
+
+设备仍被占用，callback 停止，或旧事件在 domain reload 后触发。
+
+### 可能原因
+
+- Handles 未释放。
+- Components 销毁时没有停止其持有的 sessions。
+- 静态状态重置时，用户代码仍持有旧 handles。
+
+### 修复
+
+- 在 `OnDisable` / `OnDestroy` 中停止录音。
+- 释放长生命周期的 `PlaybackHandle`。
+- 需要主动重置麦克风系统时调用 `EasyMicAPI.Cleanup()`。
+
+## Android 延迟或路由问题
+
+### 现象
+
+延迟高于桌面端，路由意外变化，或不同设备行为不一致。
+
+### 可能原因
+
+- Android backend 和设备特定 buffer 行为。
+- Bluetooth 或 voice communication routing。
+- 缺少运行时权限。
+
+### 修复
+
+- 从 `Balanced` 开始。
+- 测试真实设备。
+- 添加 `RECORD_AUDIO` 权限。
+- 不要假设 emulator 音频行为和手机一致。
+
+## 处理器导致卡顿
+
+### 现象
+
+添加自定义处理器后开始出现 glitch。
+
+### 可能原因
+
+- Worker 路径中存在 blocking calls、locks、allocation、exceptions 或 Unity APIs。
+- 每个 audio block CPU 开销过高。
+- 共享可变状态没有线程安全访问。
+
+### 修复
+
+- 遵守 [处理器契约](processors.md)。
+- 使用预分配 buffers。
+- 把 Unity 工作 dispatch 到主线程。
+- 检查 `ProcessorExceptions` 和 `WorkerMaxMicroseconds`。
+
+## Event Queue Drops
+
+### 现象
+
+`EventQueueDrops` 增加，或 UI callbacks 丢失更新。
+
+### 可能原因
+
+- Unity-facing events 太多。
+- 主线程被阻塞。
+- 事件 payload 过大。
+
+### 修复
+
+- 降低事件频率。
+- 发送摘要而不是完整音频 buffers。
+- 保持主线程 handlers 很短。

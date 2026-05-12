@@ -4,6 +4,8 @@ using UnityEngine.Android;
 
 namespace Eitan.EasyMic.Runtime
 {
+    using Eitan.EasyMic;
+
     /// <summary>
     /// A self-contained module for handling microphone permissions on different platforms.
     /// </summary>
@@ -11,6 +13,7 @@ namespace Eitan.EasyMic.Runtime
     {
         private static bool IsGranted;
         private static bool s_iOSAuthorizationRequested;
+        private static bool s_macosAuthorizationRequested;
         // 安卓权限的字符串常量
 
 #if UNITY_ANDROID
@@ -22,7 +25,7 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         public static bool HasPermission()
         {
-            // 针对非 Android 平台：Unity 会自行弹出权限窗或无需权限，直接视为已授权。
+            // Platforms with OS-level microphone privacy must be granted before native capture starts.
 #if UNITY_ANDROID && !UNITY_EDITOR
             EasyMicUnityThread.TryCaptureFromCurrentThread();
             if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
@@ -35,7 +38,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 if (Permission.HasUserAuthorizedPermission(Permission.Microphone))
                 {
-                    IsGranted = true;
+                    MarkPermissionGranted();
                 }
                 else
                 {
@@ -47,7 +50,16 @@ namespace Eitan.EasyMic.Runtime
 #elif UNITY_IOS && !UNITY_EDITOR
             if (UnityEngine.Application.HasUserAuthorization(UnityEngine.UserAuthorization.Microphone))
             {
-                IsGranted = true;
+                MarkPermissionGranted();
+                return true;
+            }
+
+            RequestPlatformPermission();
+            return false;
+#elif (UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX)
+            if (UnityEngine.Application.HasUserAuthorization(UnityEngine.UserAuthorization.Microphone))
+            {
+                MarkPermissionGranted();
                 return true;
             }
 
@@ -63,9 +75,7 @@ namespace Eitan.EasyMic.Runtime
         private static void RequestPlatformPermission()
         {
 
-#if UNITY_STANDALONE || UNITY_EDITOR
-            return;
-#elif UNITY_ANDROID && !UNITY_EDITOR
+#if UNITY_ANDROID && !UNITY_EDITOR
         if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
         {
             return;
@@ -88,12 +98,29 @@ namespace Eitan.EasyMic.Runtime
 
         s_iOSAuthorizationRequested = true;
         UnityEngine.Application.RequestUserAuthorization(UnityEngine.UserAuthorization.Microphone);
+#elif (UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX)
+        if (s_macosAuthorizationRequested)
+        {
+            return;
+        }
+
+        s_macosAuthorizationRequested = true;
+        UnityEngine.Application.RequestUserAuthorization(UnityEngine.UserAuthorization.Microphone);
+#elif UNITY_STANDALONE || UNITY_EDITOR
+            return;
 #endif
         }
 
         private static void OnPermissionResult(bool granted)
         {
-            IsGranted = granted;
+            if (granted)
+            {
+                MarkPermissionGranted();
+            }
+            else
+            {
+                IsGranted = false;
+            }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (!EasyMicPlatformSupport.RequiresAndroidMainThread || EasyMicUnityThread.IsMainThread)
@@ -101,6 +128,17 @@ namespace Eitan.EasyMic.Runtime
                 UnityEngine.Microphone.End(null); // stop Recording for permission request
             }
 #endif
+        }
+
+        private static void MarkPermissionGranted()
+        {
+            if (IsGranted)
+            {
+                return;
+            }
+
+            IsGranted = true;
+            EasyMicAPI.Cleanup();
         }
 
 
