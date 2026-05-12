@@ -15,11 +15,29 @@ namespace Eitan.EasyMic.Runtime
         private static readonly Dictionary<int, PlaybackAudioSession> s_playbacks = new Dictionary<int, PlaybackAudioSession>();
         private static int s_nextId = 1;
 
+        public static EasyMicLatencyProfile DefaultLatencyProfile
+        {
+            get
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                return EasyMicLatencyProfile.Balanced;
+#else
+                return EasyMicLatencyProfile.LowLatency;
+#endif
+            }
+        }
+
         private static void EnsureAudioSystem()
+        {
+            EnsureAudioSystem(DefaultLatencyProfile);
+        }
+
+        private static void EnsureAudioSystem(EasyMicLatencyProfile latencyProfile)
         {
             var sys = AudioSystem.Instance;
             if (!sys.IsRunning)
             {
+                sys.LatencyProfile = latencyProfile;
                 sys.PreferNativeFormat();
                 sys.Start();
             }
@@ -28,11 +46,21 @@ namespace Eitan.EasyMic.Runtime
 
         public static PlaybackHandle PlayClip(AudioClip clip, bool loop = false, float volume = 1f, bool autoDisposeOnComplete = true)
         {
+            return PlayClip(clip, loop, volume, autoDisposeOnComplete, DefaultLatencyProfile);
+        }
+
+        public static PlaybackHandle PlayClip(
+            AudioClip clip,
+            bool loop,
+            float volume,
+            bool autoDisposeOnComplete,
+            EasyMicLatencyProfile latencyProfile)
+        {
             if (clip == null)
             {
                 throw new ArgumentNullException(nameof(clip));
             }
-            var handle = CreatePlayback(volume, loop, out var session);
+            var handle = CreatePlayback(volume, loop, latencyProfile, out var session);
             session.Volume = volume;
             session.PlayClip(clip, loop, autoPlay: true);
 
@@ -51,7 +79,12 @@ namespace Eitan.EasyMic.Runtime
 
         public static PlaybackHandle CreateStream(float volume = 1f)
         {
-            var handle = CreatePlayback(volume, loop: true, out var session);
+            return CreateStream(volume, DefaultLatencyProfile);
+        }
+
+        public static PlaybackHandle CreateStream(float volume, EasyMicLatencyProfile latencyProfile)
+        {
+            var handle = CreatePlayback(volume, loop: true, latencyProfile, out var session);
             session.Volume = volume;
             session.Play();
             return handle;
@@ -106,10 +139,17 @@ namespace Eitan.EasyMic.Runtime
 
         internal static void Enqueue(int id, float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
         {
+            TryEnqueue(id, samples, count, channels, sampleRate, markEndOfStream);
+        }
+
+        internal static EasyMicEnqueueResult TryEnqueue(int id, float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
+        {
             if (TryGet(id, out var session))
             {
-                session.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+                return session.TryEnqueue(samples, count, channels, sampleRate, markEndOfStream);
             }
+
+            return EasyMicEnqueueResult.Disposed(count);
         }
 
         internal static void CompleteStream(int id)
@@ -161,12 +201,17 @@ namespace Eitan.EasyMic.Runtime
 
         private static PlaybackHandle CreatePlayback(float volume, bool loop, out PlaybackAudioSession session)
         {
+            return CreatePlayback(volume, loop, DefaultLatencyProfile, out session);
+        }
+
+        private static PlaybackHandle CreatePlayback(float volume, bool loop, EasyMicLatencyProfile latencyProfile, out PlaybackAudioSession session)
+        {
             int id;
             lock (s_lock)
             {
                 id = s_nextId++;
 
-                EnsureAudioSystem();
+                EnsureAudioSystem(latencyProfile);
 
                 session = new PlaybackAudioSession($"Playback-{id}")
                 {
@@ -208,6 +253,9 @@ namespace Eitan.EasyMic.Runtime
 
         public void Enqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
             => AudioPlayback.Enqueue(_id, samples, count, channels, sampleRate, markEndOfStream);
+
+        public EasyMicEnqueueResult TryEnqueue(float[] samples, int count, int channels, int sampleRate, bool markEndOfStream = false)
+            => AudioPlayback.TryEnqueue(_id, samples, count, channels, sampleRate, markEndOfStream);
 
         public bool IsPlaying => AudioPlayback.IsPlaying(_id);
         public double BufferedSeconds => AudioPlayback.GetBufferedSeconds(_id);

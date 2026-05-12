@@ -12,7 +12,7 @@ using UnityEngine;
 namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 {
 
-    [AddComponentMenu("Audio/EasyMic/TTS/Speech Synthesizer")]
+    [AddComponentMenu("SherpaONNX/Speech Synthesis/EasyMic Playback Speech Synthesizer")]
     [RequireComponent(typeof(PlaybackAudioSourceBehaviour))]
     public class SpeechSynthesizer : MonoBehaviour
     {

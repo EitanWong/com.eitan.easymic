@@ -7,19 +7,26 @@ namespace Eitan.EasyMic.Runtime
     /// </summary>
     internal sealed class GainTable
     {
-        public static readonly GainTable Empty = new GainTable(Array.Empty<MixNodeEntry>(), 0, false);
+        public static readonly GainTable Empty = new GainTable(Array.Empty<MixNodeEntry>(), 0, 0, false);
 
         public GainTable(MixNodeEntry[] entries, int version, bool hasSolo)
+            : this(entries, entries?.Length ?? 0, version, hasSolo)
+        {
+        }
+
+        public GainTable(MixNodeEntry[] entries, int count, int version, bool hasSolo)
         {
             Entries = entries ?? Array.Empty<MixNodeEntry>();
+            Count = Math.Max(0, Math.Min(count, Entries.Length));
             Version = version;
             HasSolo = hasSolo;
         }
 
         public MixNodeEntry[] Entries { get; }
+        public int Count { get; }
         public int Version { get; }
         public bool HasSolo { get; }
-        public bool IsEmpty => Entries.Length == 0;
+        public bool IsEmpty => Count == 0;
     }
 
     /// <summary>

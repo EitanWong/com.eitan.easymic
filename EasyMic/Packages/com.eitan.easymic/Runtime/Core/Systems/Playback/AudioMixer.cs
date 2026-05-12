@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading;
 
 namespace Eitan.EasyMic.Runtime
@@ -42,6 +43,7 @@ namespace Eitan.EasyMic.Runtime
 
         private float[] _accumBuf = Array.Empty<float>();
         private float[] _scratchBuf = Array.Empty<float>();
+        private int _preparedBlockSamples;
 
         private AudioContext _state;
 
@@ -147,6 +149,39 @@ namespace Eitan.EasyMic.Runtime
             EnsureGainTable();
         }
 
+        internal void PrepareForRealtimeRender(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            if (maxBlockSamples <= 0)
+            {
+                return;
+            }
+
+            EnsureGainTable();
+            EnsureAccumBuffer(maxBlockSamples);
+            EnsureScratchBuffer(maxBlockSamples);
+            Volatile.Write(ref _preparedBlockSamples, Math.Max(Volatile.Read(ref _preparedBlockSamples), maxBlockSamples));
+            PrepareActiveNodesForRealtime(maxBlockSamples, systemChannels, systemSampleRate);
+        }
+
+        private void PrepareActiveNodesForRealtime(int maxBlockSamples, int systemChannels, int systemSampleRate)
+        {
+            var table = Volatile.Read(ref _activeTable);
+            var entries = table.Entries;
+            int count = Math.Min(table.Count, entries.Length);
+            for (int i = 0; i < count; i++)
+            {
+                var node = entries[i].Node;
+                if (node is AudioMixer mixer)
+                {
+                    mixer.PrepareForRealtimeRender(maxBlockSamples, systemChannels, systemSampleRate);
+                }
+                else if (node is PlaybackAudioSource source)
+                {
+                    source.PrepareForRealtimeRender(maxBlockSamples, systemChannels, systemSampleRate);
+                }
+            }
+        }
+
         public void SetMasterVolume(float volume) => MasterVolume = volume;
         public void SetPerceptualExponent(float exponent) => PerceptualExponent = exponent;
 
@@ -210,6 +245,63 @@ namespace Eitan.EasyMic.Runtime
             RenderAdditive(buffer, systemChannels, systemSampleRate, 1f);
         }
 
+        internal void RenderMaster(Span<float> buffer, int systemChannels, int systemSampleRate)
+        {
+            if (buffer.IsEmpty || _mute)
+            {
+                return;
+            }
+
+            EnsureGainTable();
+            var table = Volatile.Read(ref _activeTable);
+            if (table.IsEmpty)
+            {
+                return;
+            }
+
+            var entries = table.Entries;
+            var runtime = Volatile.Read(ref _runtime);
+            int entryCount = Math.Min(table.Count, entries.Length);
+            if (entryCount == 0 || runtime.Length < entryCount)
+            {
+                return;
+            }
+
+            int rampSamples = CalculateRampSamples(systemSampleRate, systemChannels);
+            for (int i = 0; i < entryCount; i++)
+            {
+                ref var envelope = ref runtime[i];
+                var entry = entries[i];
+                var node = entry.Node;
+                if (node == null)
+                {
+                    UpdateGainEnvelope(ref envelope, 0f, rampSamples);
+                    continue;
+                }
+
+                float targetGain = entry.EffectiveGain;
+                bool include = targetGain > GainEpsilon && node.IsActive && !node.Mute;
+                if (!include)
+                {
+                    UpdateGainEnvelope(ref envelope, 0f, rampSamples);
+                    continue;
+                }
+
+                try
+                {
+                    node.RenderInto(buffer, systemChannels, systemSampleRate, ref envelope, targetGain, rampSamples, Span<float>.Empty);
+                }
+                catch
+                {
+                    // Hard RT safety: swallow node exceptions to avoid device dropout.
+                }
+            }
+
+            _state.Length = buffer.Length;
+            try { Pipeline.OnAudioPass(buffer, _state); } catch { }
+            ApplySoftLimitIfNeeded(buffer);
+        }
+
         internal void RenderAdditive(Span<float> buffer, int systemChannels, int systemSampleRate, float upstreamGain)
         {
             if (buffer.IsEmpty || _mute)
@@ -226,7 +318,8 @@ namespace Eitan.EasyMic.Runtime
 
             var entries = table.Entries;
             var runtime = Volatile.Read(ref _runtime);
-            if (entries.Length == 0 || runtime.Length < entries.Length)
+            int entryCount = Math.Min(table.Count, entries.Length);
+            if (entryCount == 0 || runtime.Length < entryCount)
             {
                 return;
             }
@@ -240,7 +333,7 @@ namespace Eitan.EasyMic.Runtime
 
             int rampSamples = CalculateRampSamples(systemSampleRate, systemChannels);
 
-            for (int i = 0; i < entries.Length; i++)
+            for (int i = 0; i < entryCount; i++)
             {
                 ref var envelope = ref runtime[i];
                 var entry = entries[i];
@@ -315,6 +408,36 @@ namespace Eitan.EasyMic.Runtime
                 }
                 return list.ToArray();
             }
+        }
+
+        public EasyMicMixerSnapshot GetPipelineSnapshot()
+        {
+            var sources = GetSources();
+            var sourceSnapshots = sources.Length == 0
+                ? Array.Empty<EasyMicPlaybackSourceSnapshot>()
+                : new EasyMicPlaybackSourceSnapshot[sources.Length];
+            for (int i = 0; i < sources.Length; i++)
+            {
+                sourceSnapshots[i] = sources[i].GetPipelineSnapshot();
+            }
+
+            var children = GetChildren();
+            var childSnapshots = children.Length == 0
+                ? Array.Empty<EasyMicMixerSnapshot>()
+                : new EasyMicMixerSnapshot[children.Length];
+            for (int i = 0; i < children.Length; i++)
+            {
+                childSnapshots[i] = children[i].GetPipelineSnapshot();
+            }
+
+            return new EasyMicMixerSnapshot(
+                name,
+                MasterVolume,
+                Mute,
+                Solo,
+                Pipeline.GetProcessorSnapshots(),
+                sourceSnapshots,
+                childSnapshots);
         }
 
         string IMixNode.Name => name ?? string.Empty;
@@ -431,6 +554,10 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 handler = OnNodeStateChanged;
+                if (_nodes.Count == _nodes.Capacity)
+                {
+                    _nodes.Capacity = Math.Max(8, _nodes.Capacity * 2);
+                }
                 _nodes.Add(new NodeRegistration(node, handler));
             }
 
@@ -493,6 +620,14 @@ namespace Eitan.EasyMic.Runtime
             }
 
             EnsureGainTable();
+            int prepared = Volatile.Read(ref _preparedBlockSamples);
+            if (prepared > 0)
+            {
+                EnsureAccumBuffer(prepared);
+                EnsureScratchBuffer(prepared);
+                PrepareActiveNodesForRealtime(prepared, _state?.ChannelCount ?? 1, _state?.SampleRate ?? 48000);
+            }
+
             GraphDirty?.Invoke(this);
             _stateChanged?.Invoke(this);
         }
@@ -504,7 +639,7 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return;
             }
@@ -597,22 +732,12 @@ namespace Eitan.EasyMic.Runtime
             var previousRuntime = Volatile.Read(ref _runtime);
             var runtime = AcquireEnvelopeBuffer(nodeCount);
 
-            if (previousTable.Entries.Length > 0 && previousRuntime.Length > 0)
+            if (previousTable.Count > 0 && previousRuntime.Length > 0)
             {
-                var envelopeMap = new Dictionary<IMixNode, MixerGainEnvelope>(previousTable.Entries.Length);
-                for (int i = 0; i < previousTable.Entries.Length && i < previousRuntime.Length; i++)
-                {
-                    var prevNode = previousTable.Entries[i].Node;
-                    if (prevNode != null)
-                    {
-                        envelopeMap[prevNode] = previousRuntime[i];
-                    }
-                }
-
                 for (int i = 0; i < nodeCount; i++)
                 {
                     var node = entries[i].Node;
-                    runtime[i] = node != null && envelopeMap.TryGetValue(node, out var env) ? env : default;
+                    runtime[i] = FindPreviousEnvelope(node, previousTable.Entries, previousTable.Count, previousRuntime);
                 }
             }
             else
@@ -620,7 +745,7 @@ namespace Eitan.EasyMic.Runtime
                 Array.Clear(runtime, 0, runtime.Length);
             }
 
-            var table = new GainTable(entries, ++_tableVersion, hasSolo);
+            var table = new GainTable(entries, nodeCount, ++_tableVersion, hasSolo);
             Volatile.Write(ref _runtime, runtime);
             Volatile.Write(ref _activeTable, table);
 
@@ -628,18 +753,37 @@ namespace Eitan.EasyMic.Runtime
             _activeEnvelopesAreA = !_activeEnvelopesAreA;
         }
 
+        private static MixerGainEnvelope FindPreviousEnvelope(IMixNode node, MixNodeEntry[] previousEntries, int previousCount, MixerGainEnvelope[] previousRuntime)
+        {
+            if (node == null)
+            {
+                return default;
+            }
+
+            int count = Math.Min(Math.Min(previousEntries.Length, previousRuntime.Length), previousCount);
+            for (int i = 0; i < count; i++)
+            {
+                if (ReferenceEquals(previousEntries[i].Node, node))
+                {
+                    return previousRuntime[i];
+                }
+            }
+
+            return default;
+        }
+
         private MixNodeEntry[] AcquireEntryBuffer(int required)
         {
             if (_activeEntriesAreA)
             {
-                if (_entriesB.Length != required)
+                if (_entriesB.Length < required)
                 {
                     _entriesB = new MixNodeEntry[required];
                 }
                 return _entriesB;
             }
 
-            if (_entriesA.Length != required)
+            if (_entriesA.Length < required)
             {
                 _entriesA = new MixNodeEntry[required];
             }
@@ -650,14 +794,14 @@ namespace Eitan.EasyMic.Runtime
         {
             if (_activeEnvelopesAreA)
             {
-                if (_envelopesB.Length != required)
+                if (_envelopesB.Length < required)
                 {
                     _envelopesB = new MixerGainEnvelope[required];
                 }
                 return _envelopesB;
             }
 
-            if (_envelopesA.Length != required)
+            if (_envelopesA.Length < required)
             {
                 _envelopesA = new MixerGainEnvelope[required];
             }
@@ -730,6 +874,13 @@ namespace Eitan.EasyMic.Runtime
             int remaining = envelope.SamplesRemaining;
             float target = envelope.Target;
 
+            if (remaining <= 0)
+            {
+                ApplyConstantGainAndAccumulate(destination, source, current);
+                envelope.Step = 0f;
+                return;
+            }
+
             for (int i = 0; i < source.Length; i++)
             {
                 float sample = source[i] * current;
@@ -751,6 +902,38 @@ namespace Eitan.EasyMic.Runtime
             if (remaining <= 0)
             {
                 envelope.Step = 0f;
+            }
+        }
+
+        private static void ApplyConstantGainAndAccumulate(Span<float> destination, Span<float> source, float gain)
+        {
+            if (Vector.IsHardwareAccelerated && source.Length >= 4)
+            {
+                var gainVector = new Vector4(gain, gain, gain, gain);
+                int vectorizedLength = source.Length - (source.Length % 4);
+
+                for (int i = 0; i < vectorizedLength; i += 4)
+                {
+                    var src = new Vector4(source[i], source[i + 1], source[i + 2], source[i + 3]);
+                    var dst = new Vector4(destination[i], destination[i + 1], destination[i + 2], destination[i + 3]);
+                    var mixed = dst + src * gainVector;
+                    destination[i] = mixed.X;
+                    destination[i + 1] = mixed.Y;
+                    destination[i + 2] = mixed.Z;
+                    destination[i + 3] = mixed.W;
+                }
+
+                for (int i = vectorizedLength; i < source.Length; i++)
+                {
+                    destination[i] += source[i] * gain;
+                }
+
+                return;
+            }
+
+            for (int i = 0; i < source.Length; i++)
+            {
+                destination[i] += source[i] * gain;
             }
         }
 
@@ -799,7 +982,7 @@ namespace Eitan.EasyMic.Runtime
                 return true;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return false;
             }
@@ -820,7 +1003,7 @@ namespace Eitan.EasyMic.Runtime
                 return true;
             }
 
-            if (EasyMicThreading.IsAudioThread)
+            if (EasyMicThreading.IsRealtimeSensitiveThread)
             {
                 return false;
             }

@@ -5,10 +5,9 @@ namespace Eitan.EasyMic.Runtime
     using System.Threading;
 
     /// <summary>
-    /// 顺序化音频管线：严格按添加顺序执行。
-    /// - 遇到 AudioWriter：在回调线程串行就地处理
-    /// - 遇到 AudioReader：立即分发（Reader 内部仅快速入队，绝不阻塞）
-    /// 使用不可变快照数组 + CAS 原子替换，避免回调线程加锁。
+    /// Sequential transport-worker audio pipeline. The miniaudio callback never runs
+    /// this graph; capture/playback workers execute immutable snapshots at block
+    /// boundaries.
     /// </summary>
     public sealed class AudioPipeline : AudioWriter
     {
@@ -25,6 +24,23 @@ namespace Eitan.EasyMic.Runtime
         private int _retiredDrainScheduled;
 
         public int WorkerCount => Volatile.Read(ref _stagesSnap).Length;
+
+        public EasyMicProcessorSnapshot[] GetProcessorSnapshots()
+        {
+            var stages = Volatile.Read(ref _stagesSnap);
+            if (stages.Length == 0)
+            {
+                return Array.Empty<EasyMicProcessorSnapshot>();
+            }
+
+            var snapshots = new EasyMicProcessorSnapshot[stages.Length];
+            for (int i = 0; i < stages.Length; i++)
+            {
+                snapshots[i] = new EasyMicProcessorSnapshot(i, stages[i]);
+            }
+
+            return snapshots;
+        }
 
         public override void Initialize(AudioContext state)
         {
@@ -61,6 +77,7 @@ namespace Eitan.EasyMic.Runtime
                 throw new ArgumentNullException(nameof(worker));
             }
 
+            ValidateWorkerThreadContract(worker);
 
             if (Volatile.Read(ref _isInitialized) != 0)
             {
@@ -72,7 +89,8 @@ namespace Eitan.EasyMic.Runtime
             }
 
 
-            while (true)
+            bool exchanged;
+            do
             {
                 var cur = Volatile.Read(ref _stagesSnap);
                 // 去重
@@ -86,12 +104,9 @@ namespace Eitan.EasyMic.Runtime
                 Array.Copy(cur, next, cur.Length);
                 next[^1] = worker;
                 var prev = Interlocked.CompareExchange(ref _stagesSnap, next, cur);
-                if (ReferenceEquals(prev, cur))
-                {
-                    break;
-                }
-
+                exchanged = ReferenceEquals(prev, cur);
             }
+            while (!exchanged);
         }
 
         public void RemoveWorker(IAudioWorker worker)
@@ -101,13 +116,14 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            while (true)
+            bool exchanged;
+            do
             {
                 var cur = Volatile.Read(ref _stagesSnap);
                 int idx = Array.IndexOf(cur, worker);
                 if (idx < 0)
                 {
-                    break;
+                    return;
                 }
 
 
@@ -123,12 +139,13 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var prev = Interlocked.CompareExchange(ref _stagesSnap, next, cur);
-                if (ReferenceEquals(prev, cur))
+                exchanged = ReferenceEquals(prev, cur);
+                if (exchanged)
                 {
                     RetireWorker(worker);
-                    break;
                 }
             }
+            while (!exchanged);
         }
 
         protected override void OnAudioWrite(Span<float> buffer, AudioContext state)
@@ -309,22 +326,12 @@ namespace Eitan.EasyMic.Runtime
                     }
                 }
 
-                while (true)
+                while (TryDequeueRetiredWorker(out var worker))
                 {
-                    IAudioWorker worker;
-                    lock (_retiredLock)
-                    {
-                        if (_retiredWorkers.Count == 0)
-                        {
-                            Interlocked.Exchange(ref _retiredDrainScheduled, 0);
-                            return;
-                        }
-
-                        worker = _retiredWorkers.Dequeue();
-                    }
-
                     SafeDispose(worker);
                 }
+
+                Interlocked.Exchange(ref _retiredDrainScheduled, 0);
             }
             catch
             {
@@ -332,9 +339,35 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
+        private bool TryDequeueRetiredWorker(out IAudioWorker worker)
+        {
+            lock (_retiredLock)
+            {
+                if (_retiredWorkers.Count == 0)
+                {
+                    worker = null;
+                    return false;
+                }
+
+                worker = _retiredWorkers.Dequeue();
+                return true;
+            }
+        }
+
         private static void SafeDispose(IAudioWorker worker)
         {
             try { worker?.Dispose(); } catch { }
+        }
+
+        private static void ValidateWorkerThreadContract(IAudioWorker worker)
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (worker is IMainThreadAudioProcessor || worker is IRealtimeForbiddenProcessor)
+            {
+                throw new InvalidOperationException(
+                    $"EasyMic processor '{worker.GetType().Name}' is marked as main-thread/realtime-forbidden and cannot be added to an audio transport pipeline.");
+            }
+#endif
         }
     }
 }

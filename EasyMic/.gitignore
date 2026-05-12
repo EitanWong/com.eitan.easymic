@@ -1,6 +1,10 @@
 # Unity/Mono crash dumps generated during editor or runtime failures
 mono_crash.*.json
 
+# Unity Package Manager imported samples are local project artifacts.
+/Assets/Samples/
+/Assets/Samples.meta
+
 # Local bundled .NET SDK/cache used by editor tooling
 /.dotnet_home/
 

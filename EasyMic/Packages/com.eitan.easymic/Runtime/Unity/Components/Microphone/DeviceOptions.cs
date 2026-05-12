@@ -1,6 +1,5 @@
 using System;
 using Eitan.EasyMic.Runtime;
-using Eitan.EasyMic.Runtime.Exceptions;
 
 namespace Eitan.EasyMic.Runtime.Mono
 {
@@ -27,23 +26,6 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         public bool HasDeviceName => !string.IsNullOrEmpty(DeviceName);
 
-        public static DeviceOptions Default
-        {
-            get
-            {
-                if (!EasyMicAPI.IsAvailable)
-                {
-                    return new DeviceOptions(string.Empty, Channel.Mono, SampleRate.Hz16000);
-                }
-
-                var defaultDevice = EasyMicAPI.Default;
-                if (!defaultDevice.HasValidId)
-                {
-                    throw new EasyMicDeviceNotFoundException("No default microphone devices found !");
-                }
-
-                return new DeviceOptions(defaultDevice.Name, defaultDevice.GetPreferredChannel(), defaultDevice.GetPreferredSampleRate());
-            }
-        }
+        public static DeviceOptions Default => new DeviceOptions(string.Empty, Channel.Mono, SampleRate.Hz16000);
     }
 }

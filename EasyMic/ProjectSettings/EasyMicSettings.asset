@@ -1,0 +1,131 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &1
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 560f3802d82042018342079c80ee2643, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  version: 1
+  runtime:
+    backendMode: 0
+    latencyProfile: 1
+    bufferStrategy: 0
+    customBufferFrames: 256
+    preferNativeDeviceFormat: 1
+    enableTelemetry: 1
+    enableRuntimeDiagnostics: 1
+    enableLogging: 1
+    logLevel: 1
+    enableDspLimiter: 1
+    enableDriftCorrection: 1
+    resamplerQuality: 1
+    audioThreadPriority: 0
+    runInBackground: 1
+    autoFallback: 1
+    autoRefreshDevices: 1
+    deviceRefreshIntervalSeconds: 2
+    defaultSampleRate: 48000
+    defaultChannels: 2
+    streamingQueueMilliseconds: 250
+  editor:
+    enableEditorDiagnostics: 1
+    enableGraphAnimations: 1
+    showAdvancedPipelineMetrics: 0
+    followUnityEditorTheme: 1
+    highContrastGraphs: 0
+    developerMode: 0
+    diagnosticsMode: 0
+    telemetryRefreshRate: 30
+    graphMaximumVisibleNodes: 128
+  windows:
+    backendMode: 0
+    overrideLatencyProfile: 0
+    latencyProfile: 1
+    overrideBufferFrames: 0
+    bufferFrames: 256
+    enableDspLimiter: 1
+    enableDiagnostics: 0
+    preferNativeDeviceFormat: 1
+    enableDriftCorrection: 1
+    forceSafeDeviceEnumeration: 0
+    useAAudio: 1
+    useWasapiExclusiveMode: 0
+    useCoreAudioVoiceProcessing: 0
+    enablePulseAudioFallback: 1
+  macOS:
+    backendMode: 0
+    overrideLatencyProfile: 0
+    latencyProfile: 1
+    overrideBufferFrames: 0
+    bufferFrames: 256
+    enableDspLimiter: 1
+    enableDiagnostics: 0
+    preferNativeDeviceFormat: 1
+    enableDriftCorrection: 1
+    forceSafeDeviceEnumeration: 0
+    useAAudio: 1
+    useWasapiExclusiveMode: 0
+    useCoreAudioVoiceProcessing: 0
+    enablePulseAudioFallback: 1
+  linux:
+    backendMode: 0
+    overrideLatencyProfile: 0
+    latencyProfile: 1
+    overrideBufferFrames: 0
+    bufferFrames: 256
+    enableDspLimiter: 1
+    enableDiagnostics: 0
+    preferNativeDeviceFormat: 1
+    enableDriftCorrection: 1
+    forceSafeDeviceEnumeration: 0
+    useAAudio: 1
+    useWasapiExclusiveMode: 0
+    useCoreAudioVoiceProcessing: 0
+    enablePulseAudioFallback: 1
+  android:
+    backendMode: 0
+    overrideLatencyProfile: 0
+    latencyProfile: 1
+    overrideBufferFrames: 0
+    bufferFrames: 256
+    enableDspLimiter: 1
+    enableDiagnostics: 0
+    preferNativeDeviceFormat: 1
+    enableDriftCorrection: 1
+    forceSafeDeviceEnumeration: 1
+    useAAudio: 1
+    useWasapiExclusiveMode: 0
+    useCoreAudioVoiceProcessing: 0
+    enablePulseAudioFallback: 1
+  iOS:
+    backendMode: 0
+    overrideLatencyProfile: 0
+    latencyProfile: 1
+    overrideBufferFrames: 0
+    bufferFrames: 256
+    enableDspLimiter: 1
+    enableDiagnostics: 0
+    preferNativeDeviceFormat: 1
+    enableDriftCorrection: 1
+    forceSafeDeviceEnumeration: 0
+    useAAudio: 1
+    useWasapiExclusiveMode: 0
+    useCoreAudioVoiceProcessing: 0
+    enablePulseAudioFallback: 1
+  experimental:
+    enableBurstDsp: 0
+    enableSimdKernels: 0
+    enableLowLatencyCapturePath: 0
+    enableAdvancedTelemetry: 0
+    enableFutureDspGraph: 0
+  localization:
+    followUnityEditorLanguage: 1
+    languageOverride: 
+    showMissingLocalizationKeys: 0

@@ -18,6 +18,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private SerializedProperty _muteProp;
 
         private GUIStyle _headerStyle;
+        private GUIStyle _controlsPanelStyle;
+        private GUIStyle _controlButtonStyle;
+        private GUIStyle _diagnosticsButtonStyle;
 
         [MenuItem("GameObject/Audio/Playback Audio Source", false, -1)]
         public static void AddPlaybackAudioSource()
@@ -110,6 +113,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 EditorGUILayout.LabelField("Runtime", _headerStyle);
 
                 var src = behaviour.Source;
+                bool runtime = Application.isPlaying;
                 bool hasSrc = src != null;
                 bool playing = hasSrc && src.IsPlaying;
                 float progress = behaviour.ProgressNormalized;
@@ -150,30 +154,72 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                 }
                 GUILayout.Space(4);
 
+                DrawRuntimeControls(behaviour, runtime, playing);
+            }
+        }
+
+        private void DrawRuntimeControls(PlaybackAudioSourceBehaviour behaviour, bool runtime, bool playing)
+        {
+            using (new EditorGUILayout.VerticalScope(_controlsPanelStyle))
+            {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    using (new EditorGUI.DisabledScope(!Application.isPlaying))
+                    GUILayout.Label("Controls", EditorStyles.miniBoldLabel, GUILayout.Width(58));
+                    GUILayout.FlexibleSpace();
+                    if (!runtime)
                     {
-                        if (GUILayout.Button("Play"))
+                        GUILayout.Label("Enter Play Mode", EditorStyles.miniLabel);
+                    }
+                }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    using (new EditorGUI.DisabledScope(!runtime))
+                    {
+                        if (playing)
                         {
-                            try { behaviour.Play(); } catch { }
+                            if (ControlButton("Pause", new Color(1f, 0.86f, 0.42f)))
+                            {
+                                try { behaviour.Pause(); } catch { }
+                            }
+                            if (ControlButton("Stop", new Color(1f, 0.55f, 0.5f)))
+                            {
+                                try { behaviour.Stop(); } catch { }
+                            }
                         }
-                        if (GUILayout.Button("Pause"))
+                        else
                         {
-                            try { behaviour.Pause(); } catch { }
-                        }
-                        if (GUILayout.Button("Stop"))
-                        {
-                            try { behaviour.Stop(); } catch { }
+                            if (ControlButton("Play", new Color(0.5f, 0.88f, 0.58f)))
+                            {
+                                try { behaviour.Play(); } catch { }
+                            }
+                            if (ControlButton("Resume", new Color(0.52f, 0.72f, 1f)))
+                            {
+                                try { behaviour.Resume(); } catch { }
+                            }
+                            if (ControlButton("Stop", new Color(1f, 0.55f, 0.5f)))
+                            {
+                                try { behaviour.Stop(); } catch { }
+                            }
                         }
                     }
+
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("Diagnostics"))
+                    if (GUILayout.Button("Diagnostics", _diagnosticsButtonStyle, GUILayout.Height(24), GUILayout.MinWidth(92)))
                     {
                         Runtime.Editor.AudioSystemDiagnosticsWindow.ShowWindow();
                     }
                 }
             }
+        }
+
+        private bool ControlButton(string label, Color tint)
+        {
+            Color previous = GUI.backgroundColor;
+            GUI.backgroundColor = tint;
+            bool clicked = GUILayout.Button(label, _controlButtonStyle, GUILayout.Height(26), GUILayout.MinWidth(72));
+            GUI.backgroundColor = previous;
+            return clicked;
         }
 
         private void StatusDot(Color c)
@@ -203,6 +249,36 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             if (_headerStyle == null)
             {
                 _headerStyle = new GUIStyle(EditorStyles.boldLabel);
+            }
+
+            if (_controlsPanelStyle == null)
+            {
+                _controlsPanelStyle = new GUIStyle(EditorStyles.helpBox)
+                {
+                    padding = new RectOffset(8, 8, 6, 7),
+                    margin = new RectOffset(0, 0, 4, 2)
+                };
+            }
+
+            if (_controlButtonStyle == null)
+            {
+                _controlButtonStyle = new GUIStyle(GUI.skin.button)
+                {
+                    fontStyle = FontStyle.Bold,
+                    fixedHeight = 26,
+                    margin = new RectOffset(2, 2, 2, 2),
+                    padding = new RectOffset(10, 10, 3, 4)
+                };
+            }
+
+            if (_diagnosticsButtonStyle == null)
+            {
+                _diagnosticsButtonStyle = new GUIStyle(EditorStyles.miniButton)
+                {
+                    fixedHeight = 24,
+                    margin = new RectOffset(8, 0, 3, 2),
+                    padding = new RectOffset(10, 10, 3, 4)
+                };
             }
         }
     }

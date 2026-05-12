@@ -1,0 +1,27 @@
+{
+    "name": "Eitan.EasyMic.Samples.SherpaONNXUnity.AudioTaggingInput",
+    "rootNamespace": "Eitan.EasyMic.Samples.SherpaONNXUnity.AudioTaggingInput",
+    "references": [
+        "Eitan.EasyMic",
+        "Eitan.EasyMic.Integration.SherpaONNXUnity",
+        "Eitan.SherpaONNXUnity",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.eitan.sherpa-onnx-unity",
+            "expression": "",
+            "define": "EITAN_SHERPA_ONNX_UNITY_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}

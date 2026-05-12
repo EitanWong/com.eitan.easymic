@@ -213,6 +213,18 @@ namespace Eitan.EasyMic
             }
         }
 
+        public static bool RecordingCallbackDiagnosticsEnabled
+        {
+            get => TryGetMicSys(out var system, logFailure: false) && system.RecordingCallbackDiagnosticsEnabled;
+            set
+            {
+                if (TryGetMicSys(out var system, logFailure: false))
+                {
+                    system.RecordingCallbackDiagnosticsEnabled = value;
+                }
+            }
+        }
+
         public static RecordingHandle StartRecording(SampleRate sampleRate = SampleRate.Hz16000)
         {
             return StartRecordingInternal(null, null, sampleRate, null, _defaultWorkers);
@@ -240,7 +252,17 @@ namespace Eitan.EasyMic
 
         public static RecordingHandle StartRecording(MicDevice device, SampleRate sampleRate, Channel channel, IEnumerable<AudioWorkerBlueprint> workers)
         {
-            return StartRecordingInternal(device, null, sampleRate, channel, workers);
+            return StartRecordingInternal(device, null, sampleRate, channel, workers, EasyMicLatencyProfile.Balanced);
+        }
+
+        public static RecordingHandle StartRecording(
+            MicDevice device,
+            SampleRate sampleRate,
+            Channel channel,
+            IEnumerable<AudioWorkerBlueprint> workers,
+            EasyMicLatencyProfile latencyProfile)
+        {
+            return StartRecordingInternal(device, null, sampleRate, channel, workers, latencyProfile);
         }
 
         public static List<AudioWorkerBlueprint> DefaultWorkers
@@ -289,6 +311,18 @@ namespace Eitan.EasyMic
             return RequireMicSys().GetRecordingInfo(handle);
         }
 
+        public static EasyMicRecordingPipelineSnapshot[] GetRecordingPipelineSnapshots()
+        {
+            return TryGetMicSys(out var system, logFailure: false)
+                ? system.GetRecordingPipelineSnapshots()
+                : Array.Empty<EasyMicRecordingPipelineSnapshot>();
+        }
+
+        public static void SetRecordingCallbackDiagnostics(RecordingHandle handle, bool enabled)
+        {
+            RequireMicSys().SetRecordingCallbackDiagnostics(handle, enabled);
+        }
+
         public static T GetProcessor<T>(RecordingHandle handle, AudioWorkerBlueprint blueprint) where T : class, IAudioWorker
         {
             return RequireMicSys().GetProcessor<T>(handle, blueprint);
@@ -312,7 +346,23 @@ namespace Eitan.EasyMic
             _defaultWorkers = null;
         }
 
-        private static RecordingHandle StartRecordingInternal(MicDevice? preferredDevice, string deviceName, SampleRate sampleRate, Channel? requestedChannel, IEnumerable<AudioWorkerBlueprint> workers)
+        private static RecordingHandle StartRecordingInternal(
+            MicDevice? preferredDevice,
+            string deviceName,
+            SampleRate sampleRate,
+            Channel? requestedChannel,
+            IEnumerable<AudioWorkerBlueprint> workers)
+        {
+            return StartRecordingInternal(preferredDevice, deviceName, sampleRate, requestedChannel, workers, EasyMicLatencyProfile.Balanced);
+        }
+
+        private static RecordingHandle StartRecordingInternal(
+            MicDevice? preferredDevice,
+            string deviceName,
+            SampleRate sampleRate,
+            Channel? requestedChannel,
+            IEnumerable<AudioWorkerBlueprint> workers,
+            EasyMicLatencyProfile latencyProfile)
         {
             if (!EnsurePermission("start recording", asError: true))
             {
@@ -329,7 +379,7 @@ namespace Eitan.EasyMic
             var resolvedRate = chosen.ResolveSampleRate(sampleRate);
             var blueprintSet = workers ?? _defaultWorkers;
 
-            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet);
+            return MicSys.StartRecording(chosen, resolvedRate, channelToUse, blueprintSet, latencyProfile);
         }
 
         private static Channel ResolveChannel(MicDevice device, Channel? requested)
@@ -416,7 +466,7 @@ namespace Eitan.EasyMic
                 return true;
             }
 
-            var message = $"Cannot {actionDescription}. Microphone permission not granted. Call EasyMic.RequestPermission() first.";
+            var message = $"Cannot {actionDescription}. Microphone permission not granted. Call PermissionUtils.HasPermission() on the main thread first.";
             if (asError)
             {
                 if (_micSystem != null)

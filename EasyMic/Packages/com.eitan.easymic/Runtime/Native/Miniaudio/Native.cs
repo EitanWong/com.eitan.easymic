@@ -93,7 +93,6 @@ namespace Eitan.EasyMic.Runtime
             IntPtr pDeviceID,
             out NativeDeviceInfo deviceInfo);
 
-
         #endregion
 
         #region Device
@@ -119,9 +118,6 @@ namespace Eitan.EasyMic.Runtime
 
         [DllImport(LibraryName, EntryPoint = "ma_encoder_config_init", CallingConvention = CallingConvention.Cdecl)]
         private static extern EncoderConfig EncoderConfigInit(EncodingFormat encodingFormat, SampleFormat format, uint channels, uint sampleRate);
-
-        [DllImport(LibraryName, EntryPoint = "ma_device_config_init", CallingConvention = CallingConvention.Cdecl)]
-        private static extern DeviceConfig DeviceConfigInit(DeviceType deviceType);
 
         #endregion
 
@@ -170,14 +166,63 @@ namespace Eitan.EasyMic.Runtime
             AudioCallback dataCallback,
             out bool usesExtendedCallback)
         {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                EasyMicLatencyProfile.Balanced,
+                IntPtr.Zero,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            out bool usesExtendedCallback)
+        {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                latencyProfile,
+                IntPtr.Zero,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            IntPtr userData,
+            out bool usesExtendedCallback)
+        {
             if (dataCallback == null)
             {
                 throw new ArgumentNullException(nameof(dataCallback));
             }
 
-            var config = DeviceConfigInit(capabilityType);
-            config.SampleRate = sampleRate;
+            var config = CreateDeviceConfig(capabilityType, sampleRate);
             config.DataCallback = Marshal.GetFunctionPointerForDelegate(dataCallback);
+            config.UserData = userData;
 
             if (capabilityType == DeviceType.Playback || capabilityType == DeviceType.Mixed || capabilityType == DeviceType.Loopback)
             {
@@ -193,9 +238,30 @@ namespace Eitan.EasyMic.Runtime
                 config.Capture.DeviceId = captureDevice;
             }
 
-            AndroidLegacyDeviceConfig.ApplyLowLatencyAndroidConfig(ref config, sampleRate, capabilityType == DeviceType.Playback);
+            MiniaudioDeviceConfigPolicy.Apply(ref config, sampleRate, capabilityType, latencyProfile);
             usesExtendedCallback = false;
             return CopyStructToNative(config);
+        }
+
+        private static DeviceConfig CreateDeviceConfig(DeviceType capabilityType, uint sampleRate)
+        {
+            return new DeviceConfig
+            {
+                DeviceType = capabilityType,
+                SampleRate = sampleRate,
+                Resampling = new ResamplerConfig
+                {
+                    Format = SampleFormat.Unknown,
+                    Channels = 0,
+                    SampleRateIn = 0,
+                    SampleRateOut = 0,
+                    Algorithm = 0,
+                    Linear = new ResamplerLinearConfig
+                    {
+                        LpfOrder = 4
+                    }
+                }
+            };
         }
 
         public static IntPtr AllocateContext(out NativeAllocationSource allocationSource)

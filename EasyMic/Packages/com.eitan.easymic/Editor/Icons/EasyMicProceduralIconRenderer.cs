@@ -46,9 +46,11 @@ namespace Eitan.EasyMic.Editor.Icons
                     DrawArrow(c, accent, 0.78f, 0.5f, 0.56f, 0.5f);
                     break;
                 case EasyMicIconId.AudioOutput:
-                case EasyMicIconId.PlaybackSource:
                     DrawSpeaker(c, primary, secondary);
                     DrawWave(c, accent, 0.62f, 0.5f, 0.2f, 2.0f);
+                    break;
+                case EasyMicIconId.PlaybackSource:
+                    DrawPlaybackSource(c, primary, secondary, accent);
                     break;
                 case EasyMicIconId.DeviceBinding:
                     DrawChip(c, primary, secondary);
@@ -93,6 +95,45 @@ namespace Eitan.EasyMic.Editor.Icons
                     break;
                 case EasyMicIconId.Keyword:
                     DrawKey(c, primary, accent);
+                    break;
+                case EasyMicIconId.SherpaAudioInputSource:
+                    DrawMicrophone(c, primary, secondary);
+                    DrawNodeLink(c, accent);
+                    DrawArrow(c, accent, 0.74f, 0.5f, 0.57f, 0.5f);
+                    break;
+                case EasyMicIconId.SherpaVoiceMicrophone:
+                    DrawMicrophone(c, primary, secondary);
+                    DrawSpeechBubble(c, accent, primary);
+                    DrawNodeLink(c, accent);
+                    break;
+                case EasyMicIconId.SherpaRealtimeSpeechRecognition:
+                    DrawSpeechBubble(c, primary, secondary);
+                    DrawWaveform(c, accent, accent);
+                    c.StrokeLine(0.74f, 0.18f, 0.62f, 0.43f, accent, 0.07f);
+                    c.StrokeLine(0.62f, 0.43f, 0.77f, 0.43f, accent, 0.07f);
+                    c.StrokeLine(0.77f, 0.43f, 0.65f, 0.73f, accent, 0.07f);
+                    break;
+                case EasyMicIconId.SherpaOfflineSpeechRecognition:
+                    DrawDocument(c, primary, secondary);
+                    c.StrokePolyline(accent, 0.06f, 0.28f, 0.6f, 0.38f, 0.6f, 0.45f, 0.46f, 0.55f, 0.67f, 0.64f, 0.52f, 0.72f, 0.52f);
+                    break;
+                case EasyMicIconId.SherpaKeywordSpotting:
+                    DrawKey(c, primary, accent);
+                    DrawWave(c, accent, 0.34f, 0.43f, 0.22f, 1.6f);
+                    break;
+                case EasyMicIconId.SherpaVoiceActivity:
+                    DrawSpeechBubble(c, primary, secondary);
+                    c.StrokePolyline(accent, 0.07f, 0.24f, 0.48f, 0.35f, 0.48f, 0.43f, 0.35f, 0.52f, 0.61f, 0.62f, 0.41f, 0.7f, 0.48f);
+                    c.StrokePolyline(accent, 0.07f, 0.51f, 0.75f, 0.62f, 0.84f, 0.82f, 0.61f);
+                    break;
+                case EasyMicIconId.SherpaAudioTagging:
+                    DrawTag(c, primary, secondary);
+                    c.StrokePolyline(accent, 0.055f, 0.34f, 0.55f, 0.44f, 0.55f, 0.5f, 0.43f, 0.58f, 0.62f, 0.66f, 0.5f);
+                    break;
+                case EasyMicIconId.SherpaPlaybackSpeechSynthesis:
+                    DrawSpeaker(c, primary, secondary);
+                    DrawSpeechBubble(c, accent, primary);
+                    c.FillTriangle(0.66f, 0.33f, 0.66f, 0.49f, 0.76f, 0.41f, accent);
                     break;
                 case EasyMicIconId.License:
                     c.StrokeRoundedRect(0.18f, 0.18f, 0.64f, 0.64f, 0.08f, primary, 0.07f);
@@ -165,6 +206,13 @@ namespace Eitan.EasyMic.Editor.Icons
             c.FillTriangle(0.31f, 0.61f, 0.52f, 0.76f, 0.31f, 0.39f, primary);
         }
 
+        private static void DrawPlaybackSource(IconCanvas c, Color primary, Color secondary, Color accent)
+        {
+            DrawSpeaker(c, primary, secondary);
+            c.StrokeRoundedRect(0.58f, 0.31f, 0.25f, 0.38f, 0.06f, accent, 0.055f);
+            c.FillTriangle(0.67f, 0.42f, 0.67f, 0.58f, 0.77f, 0.5f, accent);
+        }
+
         private static void DrawWave(IconCanvas c, Color color, float centerX, float centerY, float radius, float thickness)
         {
             c.StrokeArc(centerX, centerY, radius, -52f, 52f, color, 0.035f * thickness);
@@ -207,6 +255,37 @@ namespace Eitan.EasyMic.Editor.Icons
             c.StrokeLine(0.45f, 0.52f, 0.78f, 0.76f, accent, 0.075f);
             c.StrokeLine(0.66f, 0.67f, 0.62f, 0.78f, accent, 0.06f);
             c.StrokeLine(0.74f, 0.72f, 0.7f, 0.83f, accent, 0.06f);
+        }
+
+        private static void DrawSpeechBubble(IconCanvas c, Color outline, Color fill)
+        {
+            c.StrokeRoundedRect(0.48f, 0.19f, 0.36f, 0.26f, 0.08f, outline, 0.055f);
+            c.FillTriangle(0.6f, 0.45f, 0.67f, 0.55f, 0.7f, 0.44f, outline);
+            c.StrokeLine(0.57f, 0.31f, 0.75f, 0.31f, fill, 0.035f);
+        }
+
+        private static void DrawDocument(IconCanvas c, Color primary, Color secondary)
+        {
+            c.StrokeRoundedRect(0.22f, 0.16f, 0.56f, 0.68f, 0.055f, primary, 0.065f);
+            c.StrokeLine(0.33f, 0.32f, 0.66f, 0.32f, secondary, 0.045f);
+            c.StrokeLine(0.33f, 0.43f, 0.58f, 0.43f, secondary, 0.045f);
+        }
+
+        private static void DrawTag(IconCanvas c, Color primary, Color secondary)
+        {
+            c.StrokeRoundedRect(0.24f, 0.29f, 0.56f, 0.38f, 0.08f, primary, 0.065f);
+            c.FillTriangle(0.24f, 0.48f, 0.35f, 0.29f, 0.35f, 0.67f, primary);
+            c.FillCircle(0.39f, 0.4f, 0.045f, secondary);
+        }
+
+        private static void DrawNodeLink(IconCanvas c, Color color)
+        {
+            c.StrokeLine(0.65f, 0.25f, 0.78f, 0.38f, color, 0.045f);
+            c.StrokeLine(0.65f, 0.25f, 0.8f, 0.21f, color, 0.045f);
+            c.StrokeLine(0.78f, 0.38f, 0.8f, 0.21f, color, 0.045f);
+            c.FillCircle(0.65f, 0.25f, 0.04f, color);
+            c.FillCircle(0.78f, 0.38f, 0.04f, color);
+            c.FillCircle(0.8f, 0.21f, 0.04f, color);
         }
 
         private static void DrawGear(IconCanvas c, Color primary, Color accent)

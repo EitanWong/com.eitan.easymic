@@ -50,5 +50,60 @@ namespace Eitan.EasyMic.Tests
                     $"AudioReader subclass disposer must call base.Dispose(): {file}");
             }
         }
+
+        [Test]
+        public void Dispose_DrainsQueuedAudioBeforeWorkerStops()
+        {
+            var reader = new DrainProbeReader();
+            var state = new AudioContext(1, 16000, 4);
+            var frame = new float[] { 0.1f, -0.2f, 0.3f, -0.4f };
+
+            reader.Initialize(state);
+            reader.OnAudioPass(frame, state);
+            reader.Dispose();
+
+            Assert.That(reader.TotalSamplesRead, Is.EqualTo(frame.Length));
+        }
+
+        [Test]
+        public void UnsafeAudioRingBuffer_WrapsWithoutAllocatingManagedStorage()
+        {
+            using var ring = new UnsafeAudioRingBuffer(7);
+            Span<float> firstRead = stackalloc float[4];
+            Span<float> secondRead = stackalloc float[6];
+
+            Assert.That(ring.TryWriteExact(new float[] { 1f, 2f, 3f, 4f, 5f, 6f }), Is.True);
+            Assert.That(ring.TryReadExact(firstRead, 4), Is.True);
+            Assert.That(firstRead.ToArray(), Is.EqualTo(new[] { 1f, 2f, 3f, 4f }));
+
+            Assert.That(ring.TryWriteExact(new float[] { 7f, 8f, 9f, 10f }), Is.True);
+            Assert.That(ring.TryReadExact(secondRead, 6), Is.True);
+            Assert.That(secondRead.ToArray(), Is.EqualTo(new[] { 5f, 6f, 7f, 8f, 9f, 10f }));
+        }
+
+        [Test]
+        public void UnsafeAudioRingBuffer_PartialReadWriteMatchesAudioBufferSemantics()
+        {
+            using var ring = new UnsafeAudioRingBuffer(3);
+            Span<float> read = stackalloc float[4];
+
+            Assert.That(ring.Capacity, Is.EqualTo(3));
+            Assert.That(ring.IsEmpty, Is.True);
+            Assert.That(ring.Write(new float[] { 1f, 2f, 3f, 4f }), Is.EqualTo(3));
+            Assert.That(ring.IsFull, Is.True);
+            Assert.That(ring.Read(read), Is.EqualTo(3));
+            Assert.That(read.Slice(0, 3).ToArray(), Is.EqualTo(new[] { 1f, 2f, 3f }));
+            Assert.That(ring.IsEmpty, Is.True);
+        }
+
+        private sealed class DrainProbeReader : AudioReader
+        {
+            public int TotalSamplesRead { get; private set; }
+
+            protected override void OnAudioReadAsync(ReadOnlySpan<float> audiobuffer)
+            {
+                TotalSamplesRead += audiobuffer.Length;
+            }
+        }
     }
 }
