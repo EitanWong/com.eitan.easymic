@@ -42,9 +42,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         generationTask = RunGenerationWorkerAsync(sessionId, token);
                     }
 
+                    using var reg = token.Register(() => { /* wake on cancel */ });
                     try
                     {
-                        await Task.Delay(25, token).ConfigureAwait(false);
+                        await _jobArrivalSignal.WaitAsync(token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {

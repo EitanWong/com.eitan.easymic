@@ -29,7 +29,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return true;
         }
 
-        public new void SendMessage(string message)
+        public void SubmitUserMessage(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
             {

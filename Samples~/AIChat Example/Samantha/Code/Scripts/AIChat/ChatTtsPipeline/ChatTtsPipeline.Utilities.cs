@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -60,6 +61,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            // CRITICAL: ManualResetEventSlim.Wait() BLOCKS the calling thread.
+            // From a thread pool thread this causes thread pool starvation.
+            // Use async dispatch instead (DispatchToMainThreadAsync) from async code.
+            // This sync-only fallback now has a shorter timeout to avoid hanging.
             using (var completed = new ManualResetEventSlim(false))
             {
                 _mainThreadDispatcher(() =>
@@ -74,7 +79,62 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                 });
 
-                completed.Wait();
+                if (!completed.Wait(1000))
+                {
+                    UnityEngine.Debug.LogWarning(
+                        "[ParallelTtsPipeline] DispatchToMainThread (sync) timed out after 1s — " +
+                        "main thread may be blocked. Action was not executed.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Async dispatch to main thread — does NOT block the calling thread.
+        /// Uses SemaphoreSlim.WaitAsync so the thread pool thread is freed while waiting.
+        /// This prevents thread pool starvation when dispatching many audio chunks.
+        /// </summary>
+        private async Task DispatchToMainThreadAsync(Action action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            if (_mainThreadDispatcher == null)
+            {
+                action();
+                return;
+            }
+
+            if (IsMainThread)
+            {
+                action();
+                return;
+            }
+
+            using (var completed = new SemaphoreSlim(0, 1))
+            {
+                _mainThreadDispatcher(() =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    finally
+                    {
+                        try { completed.Release(); }
+                        catch (ObjectDisposedException) { }
+                    }
+                });
+
+                // 5-second timeout prevents permanent hang if main thread is blocked.
+                // Thread is NOT blocked during this wait — it's an async wait.
+                if (!await completed.WaitAsync(5000).ConfigureAwait(false))
+                {
+                    UnityEngine.Debug.LogWarning(
+                        "[ParallelTtsPipeline] DispatchToMainThreadAsync timed out after 5s — " +
+                        "main thread may be blocked. Action was not executed.");
+                }
             }
         }
 
@@ -91,13 +151,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             lock (_inFlightLock)
             {
-                if (_inFlightSentences.Contains(sentence))
-                {
-                    return false;
-                }
-
-                _inFlightSentences.Add(sentence);
-                return true;
+                // HashSet.Add returns false if already present — single lookup instead of Contains+Add
+                return _inFlightSentences.Add(sentence);
             }
         }
 

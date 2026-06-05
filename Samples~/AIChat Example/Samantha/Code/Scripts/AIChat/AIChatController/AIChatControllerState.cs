@@ -61,6 +61,23 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             get { lock (_sync) { return _isShuttingDown; } }
             set { lock (_sync) { _isShuttingDown = value; } }
         }
+        public struct StateSnapshot
+        {
+            public bool LlmInFlight;
+            public bool IsAssistantSpeaking;
+        }
+
+        public StateSnapshot GetSnapshot()
+        {
+            lock (_sync)
+            {
+                return new StateSnapshot
+                {
+                    LlmInFlight = _llmInFlight,
+                    IsAssistantSpeaking = _isAssistantSpeaking
+                };
+            }
+        }
     }
 }
 #endif

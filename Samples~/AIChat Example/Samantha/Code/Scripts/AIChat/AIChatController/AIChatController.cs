@@ -1,11 +1,13 @@
 #if EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Diagnostics;
+using System.Threading.Tasks;
+
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
@@ -67,6 +69,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public bool HasConfigurationPolicy => _fixedSettingsOverride != null && _fixedSettingsOverride.EnabledOverride;
         public AIChatConfigurationPolicy.PolicyPreset ConfigurationPolicyPreset =>
             _fixedSettingsOverride != null ? _fixedSettingsOverride.Preset : AIChatConfigurationPolicy.PolicyPreset.Custom;
+        public PipelineDebugTracker LatencyTracker => _latencyTracker;
 
         public void SetApiKey(string apiKey)
         {
@@ -134,6 +137,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private float _lastFirstAudioLatencyMs;
         private float _lastPlaybackBufferedSeconds;
         private int _interruptionCount;
+        private readonly System.Threading.ManualResetEventSlim _drainCompleteGate = new System.Threading.ManualResetEventSlim(true);
+        private PipelineDebugTracker _latencyTracker;
 
         private bool _llmInFlight
         {
@@ -189,6 +194,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             CaptureUnityThreadContext();
             InitializeComponents();
+            _latencyTracker = new PipelineDebugTracker();
+            // Auto-connect PipelineDebugPanel if present in scene
+            var panel = FindObjectOfType<PipelineDebugPanel>();
+            if (panel != null)
+                panel.AssignTracker(_latencyTracker);
             if (_initializationFailed)
             {
                 return;
@@ -274,6 +284,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _openAiClient?.Dispose();
             _openAiClient = null;
+            _drainCompleteGate?.Dispose();
         }
         #endregion
 
@@ -420,6 +431,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _isAssistantSpeaking = false;
         }
 
+        private void SafeFireAndForget(Func<Task> asyncFunc, string context)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await asyncFunc().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogError($"[AIChat] Unhandled exception in fire-and-forget ({context}): {ex}");
+                }
+            });
+        }
+
+        private void SafeFireAndForget(Task task, string context)
+        {
+            task.ContinueWith(t =>
+            {
+                if (t.IsFaulted && t.Exception != null)
+                {
+                    UnityEngine.Debug.LogError($"[AIChat] Unhandled exception in fire-and-forget ({context}): {t.Exception.InnerException?.Message ?? t.Exception.Message}");
+                }
+            }, TaskContinuationOptions.OnlyOnFaulted);
+        }
+
         private bool IsUnityObjectOperational()
         {
             if (_isShuttingDown || this == null)
@@ -459,6 +496,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 #else
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using UnityEngine;
 
@@ -523,7 +561,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void ReportMissingDependency()
         {
             string message = GetMissingDependencyMessage();
-            Debug.LogWarning($"[AIChat] {message}", this);
+            UnityEngine.Debug.LogWarning($"[AIChat] {message}", this);
             OnLoadingCallback?.Invoke(0f);
             OnIdleStateChanged?.Invoke(true);
             OnNetworkQualityChanged?.Invoke(NetworkQualityInfo.Default);

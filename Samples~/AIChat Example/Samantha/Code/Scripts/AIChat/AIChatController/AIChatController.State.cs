@@ -180,6 +180,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _isChatActive = false;
             _initialized = false;
+
+            try { _drainCompleteGate?.Dispose(); } catch { }
         }
 
         private void UpdateServiceLoading(string key, float progress)

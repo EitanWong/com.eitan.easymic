@@ -37,8 +37,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         return Behaviour.BufferedSeconds;
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.LogWarning($"[Playback] BufferedSeconds getter failed: {ex.Message}");
                         return 0d;
                     }
                 }
@@ -57,8 +58,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         Behaviour.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.LogWarning($"[Playback] Enqueue failed: {ex.Message}");
                     }
                 }
                 else
@@ -80,8 +82,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         Behaviour.CompleteStream();
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.LogWarning($"[Playback] CompleteStream failed: {ex.Message}");
                     }
                 }
                 else
@@ -103,8 +106,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                         Behaviour.Stop();
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.LogWarning($"[Playback] Stop failed: {ex.Message}");
                     }
                 }
                 else
@@ -188,14 +192,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             stagnantCycles = 0;
                         }
 
-                        try
-                        {
-                            await Task.Delay(10, token).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
+                        await AdaptiveDelayAsync(5, 80, token, stagnantCycles > 0);
                     }
                 }
             }
@@ -231,8 +228,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 double bufferBudget = GetAdaptiveBufferBudgetSeconds();
                 await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
                 chunkBuffer = CopyChunk(job.AudioSamples, offset, count, ref chunkBuffer);
-                EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
-                ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
+
+                // NOTE: Must synchronize with the main thread when using Behaviour to ensure
+                // buffer data is updated before the next WaitForBufferBudgetAsync check.
+                // Using SafeInvoke (fire-and-forget) causes WaitForBufferBudgetAsync
+                // on the next iteration to see stale buffer data, defeating backpressure
+                // and flooding the sink with bursts => audio choppiness/dropout.
+                // When using raw Handle (thread-safe), dispatch is unnecessary overhead.
+                // CRITICAL: Use async dispatch to avoid blocking the thread pool thread.
+                if (sink.UseBehaviour)
+                {
+                    await DispatchToMainThreadAsync(() =>
+                    {
+                        EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
+                        ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
+                    }).ConfigureAwait(false);
+                }
+                else
+                {
+                    EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
+                    ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
+                }
             }
         }
 
@@ -339,11 +355,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     break;
                 }
 
-                try
-                {
-                    await Task.Delay(PlaybackPollDelayMs, token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
+                await AdaptiveDelayAsync(5, 80, token, idleCycles > 0);
+
+                if (token.IsCancellationRequested)
                 {
                     break;
                 }
@@ -380,7 +394,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     if (_playbackSource != null)
                     {
-                        DispatchToMainThread(() => PreparePlaybackSource(_playbackSource), waitForCompletion: true);
+                        // MUST NOT hold _playbackLock while blocking on main thread
+                        // (deadlock: background thread holds lock + waits for main,
+                        //  main thread tries same lock). SafeInvoke is fire-and-forget
+                        // for initialization that has no downstream data dependency.
+                        SafeInvoke(() => PreparePlaybackSource(_playbackSource));
 
                         _playbackSink = new PlaybackSink
                         {
@@ -484,11 +502,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     lastBuffered = buffered;
                 }
 
-                try
-                {
-                    await Task.Delay(PlaybackPollDelayMs, token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
+                await AdaptiveDelayAsync(5, 80, token, stagnantCount > 0);
+
+                if (token.IsCancellationRequested)
                 {
                     break;
                 }
@@ -497,6 +513,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async Task WaitForBufferBudgetAsync(PlaybackSink sink, double budgetSeconds, CancellationToken token)
         {
+            const int maxIterations = 200; // ~20s total at max 100ms per iteration
+            int iterations = 0;
+
             while (!token.IsCancellationRequested)
             {
                 if (!sink.IsValid)
@@ -509,11 +528,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     break;
                 }
 
-                try
+                iterations++;
+                if (iterations >= maxIterations)
                 {
-                    await Task.Delay(PlaybackPollDelayMs, token).ConfigureAwait(false);
+                    Debug.LogWarning($"[ParallelTtsPipeline] WaitForBufferBudgetAsync timed out after {maxIterations} iterations — buffer never dropped below {budgetSeconds:F2}s");
+                    break;
                 }
-                catch (OperationCanceledException)
+
+                await AdaptiveDelayAsync(10, 100, token, backingOff: true).ConfigureAwait(false);
+
+                if (token.IsCancellationRequested)
                 {
                     break;
                 }
@@ -579,11 +603,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void EnqueueSinkSamples(PlaybackSink sink, float[] samples, int count, int channels, int sampleRate, bool markEndOfStream)
         {
-            if (!sink.IsValid || samples == null || count <= 0)
+            if (!sink.IsValid)
             {
                 return;
             }
-            sink.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+
+            // Always allow markEndOfStream: true through, even with null/empty samples.
+            // Without this, the end-of-stream signal is swallowed and the sink never
+            // finalizes the stream, causing the next sentence's audio to overlap/corrupt playback.
+            if (markEndOfStream || (samples != null && count > 0))
+            {
+                sink.Enqueue(samples, count, channels, sampleRate, markEndOfStream);
+            }
         }
 
         private async Task<float[]> FlushStreamingBatchAsync(
@@ -596,7 +627,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             string sentence,
             CancellationToken token)
         {
-            if (pendingBatchCount <= 0 || !sink.IsValid)
+            // Early out if nothing to flush
+            if (pendingBatchCount <= 0)
             {
                 return pendingBatch;
             }
@@ -609,8 +641,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 SafeInvoke(() => OnSentenceStarted?.Invoke(sentence));
             }
 
-            EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
-            ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
+            // NOTE: Must synchronize with the main thread when using Behaviour to ensure
+            // buffer data is updated before the next WaitForBufferBudgetAsync check.
+            // Using SafeInvoke (fire-and-forget) causes WaitForBufferBudgetAsync
+            // on the next call to see stale buffer data, defeating backpressure.
+            // When using raw Handle (thread-safe), dispatch is unnecessary overhead.
+            // CRITICAL: Use async dispatch to avoid blocking the thread pool thread.
+            if (sink.UseBehaviour)
+            {
+                await DispatchToMainThreadAsync(() =>
+                {
+                    EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
+                    ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
+                }).ConfigureAwait(false);
+            }
+            else
+            {
+                EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
+                ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
+            }
 
             return null;
         }
@@ -682,7 +731,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            DispatchToMainThread(() =>
+            // Fire-and-forget: must not block on main thread while holding _playbackLock.
+            // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
+            // Cleanup operations don't need synchronous completion.
+            SafeInvoke(() =>
             {
                 if (!sink.IsValid)
                 {
@@ -690,7 +742,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 sink.Stop();
-            }, waitForCompletion: true);
+            });
         }
 
         private void CompleteSinkStream(PlaybackSink sink)
@@ -706,7 +758,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            DispatchToMainThread(() =>
+            // Fire-and-forget: must not block on main thread while holding _playbackLock.
+            // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
+            // Cleanup operations don't need synchronous completion.
+            SafeInvoke(() =>
             {
                 if (!sink.IsValid)
                 {
@@ -714,7 +769,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 sink.CompleteStream();
-            }, waitForCompletion: true);
+            });
         }
 
         private void DisposeSink(PlaybackSink sink)
@@ -725,8 +780,26 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            DispatchToMainThread(sink.Dispose, waitForCompletion: true);
+            // Fire-and-forget: must not block on main thread while holding _playbackLock.
+            // Called from DisposePlaybackUnsafe which holds the lock.
+            // Cleanup operations don't need synchronous completion.
+            SafeInvoke(sink.Dispose);
         }
+
+        private async Task AdaptiveDelayAsync(int minMs, int maxMs, CancellationToken token, bool backingOff)
+        {
+            int delayMs = backingOff ? Math.Min(_adaptiveDelayMs * 2, maxMs) : minMs;
+            _adaptiveDelayMs = delayMs;
+            try
+            {
+                await Task.Delay(delayMs, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private int _adaptiveDelayMs = 5;
     }
 }
 #endif

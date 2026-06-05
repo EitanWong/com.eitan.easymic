@@ -53,12 +53,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async Task<string> ReadLineWithTimeoutAsync(StreamReader reader, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var readTask = reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(_idleTimeout, cancellationToken);
+            var timeoutTask = Task.Delay(_idleTimeout, CancellationToken.None);
             var completed = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
+
+            // Check cancellation first — if cancelled, the read result may be stale/incorrect
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (completed == timeoutTask)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                // Ensure the read task doesn't leak — it will be abandoned when the reader is disposed
                 throw new TimeoutException("Stream idle timeout.");
             }
 

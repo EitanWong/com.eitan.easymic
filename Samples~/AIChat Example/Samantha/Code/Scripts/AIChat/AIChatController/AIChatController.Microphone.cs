@@ -82,6 +82,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             string trimmed = utterance.Trim();
+            _latencyTracker?.RecordAsrEnd(trimmed);
             MarkUserActivity();
 
             lock (_stateLock)
@@ -108,7 +109,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             TryDispatchBufferedInput();
         }
 
-        private async void OnSpeakingChangedHandler(bool isSpeaking)
+        private void OnSpeakingChangedHandler(bool isSpeaking)
         {
             if (IsOnUnityThread)
             {
@@ -121,6 +122,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (isSpeaking)
             {
+                Debug.Log("[PipelineDebug] Microphone: about to call RecordAsrStart");
+                _latencyTracker?.RecordAsrStart();
                 MarkUserActivity();
             }
 
@@ -130,7 +133,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 !IsResponseCancellationPending())
             {
                 _interruptionCount++;
-                await CancelActiveResponseAsync().ConfigureAwait(false);
+                SafeFireAndForget(
+                    () => CancelActiveResponseAsync(),
+                    nameof(OnSpeakingChangedHandler) + ".CancelActiveResponse");
             }
         }
 

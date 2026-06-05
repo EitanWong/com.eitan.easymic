@@ -13,7 +13,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
-        private async void BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
+        private void BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
         {
             if (_initializationFailed)
             {
@@ -39,7 +39,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            await CancelActiveResponseAsync(advanceGeneration: false).ConfigureAwait(false);
+            SignalCancelActiveResponse(advanceGeneration: false);
             if (!IsCurrentResponseGeneration(generation))
             {
                 return;
@@ -47,6 +47,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _requestOrchestrator?.ResetCurrentResponse();
             ResetResponseLatencyTracking();
+            _latencyTracker?.RecordLlmRequestSent();
 
             _llmInFlight = true;
             _totalRequestCount++;
@@ -70,11 +71,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             NotifyPluginHost(host => host.NotifyAssistantRequestStarted(userInput, isProactive));
 
-            _ = RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive);
+            SafeFireAndForget(RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive), nameof(RunChatCompletionAsync));
         }
 
-        private async Task CancelActiveResponseAsync(bool advanceGeneration = true)
+        private void SignalCancelActiveResponse(bool advanceGeneration = true)
         {
+            // Capture state before clearing flags — used to decide whether to cancel
+            bool hadActiveResponse = _llmInFlight || _isAssistantSpeaking;
+
             if (advanceGeneration)
             {
                 Interlocked.Increment(ref _responseGeneration);
@@ -82,6 +86,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             CancelAndDisposeCts(TakeResponseCancellationTokenSource());
 
+            _requestOrchestrator?.ResetCurrentResponse();
+            _llmInFlight = false;
+            SetAssistantSpeakingState(false);
+            UpdateIdleState();
+
+            NotifyChatStateChanged(ChatState.Idle, null);
+            // Only cancel tracker round if there was an active response (avoids destroying
+            // the ASR round when BeginAssistantResponse calls cancel during normal flow)
+            if (hadActiveResponse)
+                _latencyTracker?.CancelCurrentRound();
+            _drainCompleteGate.Reset();
+            SafeFireAndForget(DrainPipelineAfterCancelAsyncInternal(), nameof(DrainPipelineAfterCancelAsyncInternal));
+        }
+
+        private async Task DrainPipelineAfterCancelAsync()
+        {
             if (_ttsPipeline != null)
             {
                 try
@@ -104,11 +124,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     Debug.LogWarning($"[AIChat] Error stopping synthesizer: {ex.Message}");
                 }
             }
+        }
 
-            _requestOrchestrator?.ResetCurrentResponse();
-            _llmInFlight = false;
-            SetAssistantSpeakingState(false);
-            UpdateIdleState();
+        private async Task DrainPipelineAfterCancelAsyncInternal()
+        {
+            await DrainPipelineAfterCancelAsync().ConfigureAwait(false);
+            _drainCompleteGate.Set();
+        }
+
+        private async Task CancelActiveResponseAsync(bool advanceGeneration = true)
+        {
+            SignalCancelActiveResponse(advanceGeneration);
+            await DrainPipelineAfterCancelAsync().ConfigureAwait(false);
         }
 
         private async Task RunChatCompletionAsync(long generation, string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
@@ -145,6 +172,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         firstChunkReceived = true;
                         float latencyMs = (float)stopwatch.Elapsed.TotalMilliseconds;
                         TryCaptureLatencyMilestone(ref _lastFirstTokenLatencyMs, generation);
+                        _latencyTracker?.RecordLlmFirstToken();
                         _networkHandler.RecordLatency(latencyMs);
                         UpdateAverageLatency(latencyMs);
 
@@ -182,6 +210,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 FlushPendingSentences();
+                _latencyTracker?.RecordLlmLastToken();
 
                 finalResponse = GetCleanedResponse();
                 string rawResponse = GetRawResponse();
@@ -227,14 +256,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     if (_ttsPipeline != null)
                     {
-                        try
-                        {
-                            await _ttsPipeline.WaitForIdleAsync().ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.LogWarning($"[AIChat] Error waiting for TTS idle: {ex.Message}");
-                        }
+                        SafeFireAndForget(_ttsPipeline.WaitForIdleAsync(), nameof(_ttsPipeline.WaitForIdleAsync));
                     }
                 }
 
@@ -262,7 +284,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            _ = plugin.RefreshInstructionFromContextAsync(client, ResolveLlmModel(), userInput, binding, token);
+            SafeFireAndForget(plugin.RefreshInstructionFromContextAsync(client, ResolveLlmModel(), userInput, binding, token), nameof(RefreshExpressiveTtsInstruction));
         }
 
         private void AppendConversationHistory(string userMessage, string assistantMessage)
@@ -304,6 +326,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             TryCaptureLatencyMilestone(ref _lastFirstSentenceLatencyMs, Interlocked.Read(ref _responseGeneration));
+            _latencyTracker?.RecordTtsSentenceDispatched();
             _ttsPipeline?.Enqueue(cleaned);
         }
 
