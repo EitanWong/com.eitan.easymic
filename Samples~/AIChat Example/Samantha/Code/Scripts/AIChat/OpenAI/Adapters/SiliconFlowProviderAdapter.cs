@@ -4,9 +4,16 @@ using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
+    /// <summary>
+    /// Models that support the enable_thinking parameter on SiliconFlow.
+    /// For these models, we MUST explicitly set enable_thinking=false
+    /// in voice chat scenarios to avoid thinking/reasoning latency.
+    /// When omitted, these models default to thinking mode (enabled),
+    /// which adds significant delay to audio responses.
+    /// </summary>
     internal sealed class SiliconFlowProviderAdapter : OpenAIProviderAdapterBase
     {
-        private static readonly HashSet<string> EnableThinkingModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        private static readonly HashSet<string> DisableThinkingModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Pro/zai-org/GLM-5",
             "Pro/zai-org/GLM-4.7",
@@ -40,7 +47,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             string model = request.Model?.Trim() ?? string.Empty;
-            if (!EnableThinkingModels.Contains(model))
+            if (!DisableThinkingModels.Contains(model))
             {
                 return base.BuildChatCompletionsPayload(request);
             }

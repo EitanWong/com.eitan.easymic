@@ -132,6 +132,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 (_llmInFlight || _isAssistantSpeaking) &&
                 !IsResponseCancellationPending())
             {
+                // BARGE-IN TIME GUARD: Prevent false barge-in from imperfect AEC
+                // (microphone picking up AI's own voice). If the response just started
+                // within the last 300ms, suppress the cancellation to avoid the AI
+                // interrupting itself via echo feedback.
+                float elapsedSinceResponseStart = Time.realtimeSinceStartup - _lastResponseStartRealtime;
+                if (elapsedSinceResponseStart < 0.3f)
+                {
+                    Debug.Log($"[AIChat] Suppressed barge-in: only {elapsedSinceResponseStart*1000:F0}ms since response start (<300ms echo guard).");
+                    return;
+                }
+
                 _interruptionCount++;
                 SafeFireAndForget(
                     () => CancelActiveResponseAsync(),

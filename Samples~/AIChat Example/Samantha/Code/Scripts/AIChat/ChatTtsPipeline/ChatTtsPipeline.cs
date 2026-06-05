@@ -280,6 +280,30 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             ClearQueues();
 
+            // CRITICAL: Explicitly stop the AudioSource to immediately clear its buffered audio.
+            // Without this, buffered audio continues playing through the AudioSource pipeline
+            // even after the TTS sink is stopped. This ensures barge-in silence is instant.
+            // Use async dispatch to avoid blocking the thread pool thread while ensuring the
+            // AudioSource.Stop() has actually executed before proceeding to DisposePlaybackUnsafe.
+            if (_playbackSource != null)
+            {
+                try
+                {
+                    await DispatchToMainThreadAsync(() =>
+                    {
+                        if (_playbackSource != null)
+                        {
+                            try { _playbackSource.Stop(); }
+                            catch (Exception ex) { Debug.LogWarning($"[ParallelTtsPipeline] Error stopping playback source: {ex.Message}"); }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ParallelTtsPipeline] Error dispatching playback source stop: {ex.Message}");
+                }
+            }
+
             if (_config.UseLocalTts && _config.LocalSynthesizer != null)
             {
                 try

@@ -26,6 +26,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             long generation = Interlocked.Increment(ref _responseGeneration);
+            _lastResponseStartRealtime = Time.realtimeSinceStartup;
 
             if (_openAiClient == null)
             {
@@ -40,6 +41,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             SignalCancelActiveResponse(advanceGeneration: false);
+            if (!IsCurrentResponseGeneration(generation))
+            {
+                return;
+            }
+
+            // Wait for TTS pipeline drain from SignalCancelActiveResponse to complete
+            // before creating the new tracker round. Without this, a stale TTS drain
+            // event from the previous response can fire OnPipelineSpeakingStateChanged(false)
+            // after RecordLlmRequestSent creates the new round, causing RecordPlaybackDrained
+            // to finalize the new round prematurely (= corrupted timing data).
+            try
+            {
+                if (!_drainCompleteGate.Wait(1000))
+                {
+                    Debug.LogWarning("[AIChat] Drain gate timeout — proceeding with new response anyway.");
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             if (!IsCurrentResponseGeneration(generation))
             {
                 return;
@@ -84,6 +106,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Interlocked.Increment(ref _responseGeneration);
             }
 
+            // STOP TTS AUDIO FIRST: Begin draining the TTS pipeline before cancelling the LLM.
+            // Industry best practice: stop audio output immediately, then cancel generation.
+            // This ensures the user hears silence as fast as possible during barge-in.
+            _drainCompleteGate.Reset();
+            SafeFireAndForget(DrainPipelineAfterCancelAsyncInternal(), nameof(DrainPipelineAfterCancelAsyncInternal));
+
             CancelAndDisposeCts(TakeResponseCancellationTokenSource());
 
             _requestOrchestrator?.ResetCurrentResponse();
@@ -96,8 +124,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             // the ASR round when BeginAssistantResponse calls cancel during normal flow)
             if (hadActiveResponse)
                 _latencyTracker?.CancelCurrentRound();
-            _drainCompleteGate.Reset();
-            SafeFireAndForget(DrainPipelineAfterCancelAsyncInternal(), nameof(DrainPipelineAfterCancelAsyncInternal));
         }
 
         private async Task DrainPipelineAfterCancelAsync()
@@ -135,7 +161,31 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private async Task CancelActiveResponseAsync(bool advanceGeneration = true)
         {
             SignalCancelActiveResponse(advanceGeneration);
-            await DrainPipelineAfterCancelAsync().ConfigureAwait(false);
+            // Drain is already started as fire-and-forget inside SignalCancelActiveResponse.
+            // Wait for the drain gate instead of calling DrainPipelineAfterCancelAsync again
+            // (which would invoke StopAndWaitAsync a second time on the TTS pipeline).
+            // Use async non-blocking wait to avoid thread pool starvation (nested Task.Run).
+            // ManualResetEventSlim doesn't have WaitAsync, so poll with small async delays.
+            try
+            {
+                int maxWaitMs = 1000;
+                int pollIntervalMs = 10;
+                int elapsedMs = 0;
+                while (elapsedMs < maxWaitMs)
+                {
+                    if (_drainCompleteGate.IsSet)
+                        break;
+                    await Task.Delay(pollIntervalMs).ConfigureAwait(false);
+                    elapsedMs += pollIntervalMs;
+                }
+                if (elapsedMs >= maxWaitMs)
+                {
+                    Debug.LogWarning("[AIChat] CancelActiveResponseAsync drain gate timed out.");
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         private async Task RunChatCompletionAsync(long generation, string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
