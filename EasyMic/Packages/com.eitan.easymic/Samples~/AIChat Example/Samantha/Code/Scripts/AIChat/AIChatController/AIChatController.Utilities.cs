@@ -51,6 +51,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return _requestOrchestrator?.GetCleanedResponse() ?? string.Empty;
         }
 
+        // Compiled regexes for CleanText hot path — merged into fewer passes to reduce GC pressure
+        private static readonly Regex _codeRegex = new Regex(@"```[\s\S]*?```|`[^`]*`", RegexOptions.Compiled | RegexOptions.Multiline);
+        private static readonly Regex _markdownLinkRegex = new Regex(@"!?\[([^\]]*)\]\([^)]*\)", RegexOptions.Compiled);
+        private static readonly Regex _urlRegex = new Regex(
+            @"\b(?:https?|ftp|file):\/\/\S+[\/\w]|(?:\bwww\.|\b[a-zA-Z0-9\.\-]+\.(?:com|org|net|io|ai|cn|dev|gov|edu))\S*[\/\w]?",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex _emphasisRegex = new Regex(@"(\*{1,3}|_{1,3}|~~)(.+?)\1", RegexOptions.Compiled);
+        private static readonly Regex _markdownAndSpecialRegex = new Regex(
+            @"^\s*#{1,6}\s*|\s*[\*\-]\s*|^>\s*|^\s*\d+\.\s*|^\s*[-*_]{3,}\s*$|[\[\]\(\)*_~#>`!]",
+            RegexOptions.Compiled | RegexOptions.Multiline);
+        private static readonly Regex _whitespaceCollapseRegex = new Regex(@"\s+", RegexOptions.Compiled);
+
         private static string CleanText(string input)
         {
             if (string.IsNullOrEmpty(input))
@@ -60,23 +72,81 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             string cleaned = input;
 
-            cleaned = Regex.Replace(cleaned, @"```[\s\S]*?```", string.Empty, RegexOptions.Multiline);
-            cleaned = Regex.Replace(cleaned, @"`[^`]*`", string.Empty);
+            cleaned = _codeRegex.Replace(cleaned, string.Empty);
 
-            cleaned = Regex.Replace(cleaned, @"!?\[([^\]]*)\]\([^)]*\)", "$1");
+            cleaned = _markdownLinkRegex.Replace(cleaned, "$1");
 
-            cleaned = Regex.Replace(cleaned,
-                @"\b(?:https?|ftp|file):\/\/\S+[\/\w]|(?:\bwww\.|\b[a-zA-Z0-9\.\-]+\.(?:com|org|net|io|ai|cn|dev|gov|edu))\S*[\/\w]?",
-                string.Empty, RegexOptions.IgnoreCase);
+            cleaned = _urlRegex.Replace(cleaned, string.Empty);
 
-            cleaned = Regex.Replace(cleaned, @"(\*{1,3}|_{1,3}|~~)(.+?)\1", "$2");
-            cleaned = Regex.Replace(cleaned, @"^\s*#{1,6}\s*|\s*[\*\-]\s*|^>\s*|^\s*\d+\.\s*", string.Empty, RegexOptions.Multiline);
-            cleaned = Regex.Replace(cleaned, @"^\s*[-*_]{3,}\s*$", string.Empty, RegexOptions.Multiline);
-            cleaned = Regex.Replace(cleaned, @"[\[\]\(\)*_~#>`!]", string.Empty);
+            cleaned = _emphasisRegex.Replace(cleaned, "$2");
+            cleaned = _markdownAndSpecialRegex.Replace(cleaned, string.Empty);
 
-            cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+            // Manual whitespace collapse + trim — avoids a Regex.Replace + Trim allocation
+            cleaned = CollapseAndTrim(cleaned);
 
             return cleaned;
+        }
+
+        /// <summary>
+        /// Single-pass whitespace collapse and trim. Avoids Regex.Replace + Trim allocations.
+        /// </summary>
+        private static string CollapseAndTrim(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+            {
+                return string.Empty;
+            }
+
+            int start = 0;
+            int end = input.Length - 1;
+
+            // TrimStart
+            while (start <= end && char.IsWhiteSpace(input[start]))
+            {
+                start++;
+            }
+
+            if (start > end)
+            {
+                return string.Empty;
+            }
+
+            // TrimEnd
+            while (end >= start && char.IsWhiteSpace(input[end]))
+            {
+                end--;
+            }
+
+            int len = end - start + 1;
+            if (len <= 0)
+            {
+                return string.Empty;
+            }
+
+            // Single pass: collapse inner whitespace runs into single spaces
+            var result = new char[len];
+            int writePos = 0;
+            bool inSpace = false;
+
+            for (int i = start; i <= end; i++)
+            {
+                char c = input[i];
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!inSpace)
+                    {
+                        result[writePos++] = ' ';
+                        inSpace = true;
+                    }
+                }
+                else
+                {
+                    result[writePos++] = c;
+                    inSpace = false;
+                }
+            }
+
+            return new string(result, 0, writePos);
         }
 
         private void ResetResponseLatencyTracking()

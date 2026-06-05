@@ -74,12 +74,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void ProcessStreamingChunk(string chunk, Action<string> onSentenceReady)
         {
-            DispatchSentences(chunk, forceFlush: false, onSentenceReady);
+            lock (_sync)
+            {
+                DispatchSentencesLocked(chunk, forceFlush: false, onSentenceReady);
+            }
         }
 
         public void FlushPendingSentences(Action<string> onSentenceReady)
         {
-            DispatchSentences(string.Empty, forceFlush: true, onSentenceReady);
+            lock (_sync)
+            {
+                DispatchSentencesLocked(string.Empty, forceFlush: true, onSentenceReady);
+            }
         }
 
         public string GetRawResponse()
@@ -192,23 +198,29 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void DispatchSentences(string chunk, bool forceFlush, Action<string> onSentenceReady)
         {
+            lock (_sync)
+            {
+                DispatchSentencesLocked(chunk, forceFlush, onSentenceReady);
+            }
+        }
+
+        private void DispatchSentencesLocked(string chunk, bool forceFlush, Action<string> onSentenceReady)
+        {
             if (onSentenceReady == null)
             {
                 return;
             }
 
             List<string> ready = null;
-            lock (_sync)
-            {
-                foreach (string sentence in _sentenceAssembler.Append(chunk, forceFlush))
-                {
-                    if (ready == null)
-                    {
-                        ready = new List<string>();
-                    }
 
-                    ready.Add(sentence);
+            foreach (string sentence in _sentenceAssembler.Append(chunk, forceFlush))
+            {
+                if (ready == null)
+                {
+                    ready = new List<string>();
                 }
+
+                ready.Add(sentence);
             }
 
             if (ready == null)

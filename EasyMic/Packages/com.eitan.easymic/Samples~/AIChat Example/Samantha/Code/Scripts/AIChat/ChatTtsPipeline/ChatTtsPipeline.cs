@@ -23,16 +23,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int RemoteDefaultSampleRate = 24000;
         private const int RemoteDefaultChannels = 1;
         private const int MaxQueuedJobs = 100;
-        private const int PlaybackPollDelayMs = 15;
+        private const int PlaybackPollDelayMs = 5;
         private const double PlaybackDrainEpsilon = 0.08;
-        private const double InitialStreamingPrebufferSeconds = 0.08;
+        private const double InitialStreamingPrebufferSeconds = 0.04;
         private const double MinimumStreamingChunkSeconds = 0.03;
         private const double BufferedPlaybackChunkSeconds = 0.06;
-        private const int StreamingFlushTimeoutMs = 35;
+        private const int StreamingFlushTimeoutMs = 15;
         private const double StreamingStallWarningSeconds = 1.2;
         private const double StreamingStallAbortSeconds = 8.0;
-        private const double AdaptiveBufferDefaultSeconds = 0.18;
-        private const double AdaptiveBufferMinSeconds = 0.10;
+        private const double AdaptiveBufferDefaultSeconds = 0.08;
+        private const double AdaptiveBufferMinSeconds = 0.06;
         private const double AdaptiveBufferMaxSeconds = 0.36;
         private const double AdaptiveBufferIncreaseStep = 0.03;
         private const double AdaptiveBufferDecreaseStep = 0.01;
@@ -45,6 +45,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly ConcurrentDictionary<int, TtsJob> _completedJobs = new ConcurrentDictionary<int, TtsJob>();
         private readonly SemaphoreSlim _generationSemaphore;
         private readonly ResourceMonitor _resourceMonitor;
+    private readonly SemaphoreSlim _jobArrivalSignal = new SemaphoreSlim(0);
         private readonly TtsPipelineSession _session = new TtsPipelineSession();
         private readonly object _playbackLock = new object();
         private readonly object _stateLock = new object();
@@ -261,6 +262,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             int seq = Interlocked.Increment(ref _nextSequenceNumber);
             var job = new TtsJob(seq, trimmed);
             _pendingJobs.Enqueue(job);
+            _jobArrivalSignal.Release();
 
             EnsureOrchestratorRunning();
         }
@@ -360,6 +362,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _generationSemaphore.Dispose();
+            _jobArrivalSignal.Dispose();
         }
     }
 }

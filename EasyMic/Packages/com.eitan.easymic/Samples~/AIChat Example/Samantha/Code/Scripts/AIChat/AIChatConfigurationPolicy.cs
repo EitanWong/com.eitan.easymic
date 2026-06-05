@@ -453,36 +453,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
 
         private static bool TryMapRecognitionMode(int index, out RecognitionMode mode)
-        {
-            switch (index)
-            {
-                case 0:
-                    mode = RecognitionMode.Streaming;
-                    return true;
-                case 1:
-                    mode = RecognitionMode.OfflineWithVad;
-                    return true;
-                case 2:
-                    mode = RecognitionMode.Hybrid;
-                    return true;
-                default:
-                    mode = RecognitionMode.OfflineWithVad;
-                    return false;
-            }
-        }
+            => RecognitionModeMapping.TryMapRecognitionMode(index, out mode);
 
         private static int MapRecognitionModeToIndex(RecognitionMode mode)
-        {
-            switch (mode)
-            {
-                case RecognitionMode.Streaming:
-                    return 0;
-                case RecognitionMode.Hybrid:
-                    return 2;
-                case RecognitionMode.OfflineWithVad:
-                default:
-                    return 1;
-            }
-        }
+            => RecognitionModeMapping.MapRecognitionModeToIndex(mode);
     }
 }

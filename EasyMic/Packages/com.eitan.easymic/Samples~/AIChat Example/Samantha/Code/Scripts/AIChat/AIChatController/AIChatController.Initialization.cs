@@ -374,6 +374,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnPipelineSpeakingStateChanged(bool isSpeaking)
         {
             SetAssistantSpeakingState(isSpeaking);
+            if (!isSpeaking)
+            {
+                _latencyTracker?.RecordPlaybackDrained();
+            }
         }
 
         private void OnTtsSentenceStarted(string sentence)
@@ -388,6 +392,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnTtsSentenceCompleted(string sentence)
         {
+            _latencyTracker?.RecordTtsSentenceCompleted();
             if (Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][TTS] Completed: {sentence}");
