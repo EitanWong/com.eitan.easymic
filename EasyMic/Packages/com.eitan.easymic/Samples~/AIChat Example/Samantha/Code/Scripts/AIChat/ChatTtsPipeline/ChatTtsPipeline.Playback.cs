@@ -731,18 +731,48 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            // Fire-and-forget: must not block on main thread while holding _playbackLock.
-            // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
-            // Cleanup operations don't need synchronous completion.
-            SafeInvoke(() =>
+            // CRITICAL: Immediately stop the AudioSource to clear the playback buffer.
+            // When called from the main thread, call Stop() directly to avoid any dispatch delay.
+            // SafeInvoke is fire-and-forget (async queue) — the delay lets more audio play through.
+            if (IsMainThread)
             {
-                if (!sink.IsValid)
-                {
-                    return;
-                }
-
                 sink.Stop();
-            });
+                // Also stop the AudioSource directly to clear buffered audio immediately
+                StopPlaybackSourceDirect();
+            }
+            else
+            {
+                // Fire-and-forget: must not block on main thread while holding _playbackLock.
+                // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
+                // Cleanup operations don't need synchronous completion.
+                SafeInvoke(() =>
+                {
+                    if (!sink.IsValid)
+                    {
+                        return;
+                    }
+
+                    sink.Stop();
+                    StopPlaybackSourceDirect();
+                });
+            }
+        }
+
+        private void StopPlaybackSourceDirect()
+        {
+            if (_playbackSource == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _playbackSource.Stop();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Playback] AudioSource Stop failed: {ex.Message}");
+            }
         }
 
         private void CompleteSinkStream(PlaybackSink sink)

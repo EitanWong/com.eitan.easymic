@@ -137,6 +137,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private float _lastFirstAudioLatencyMs;
         private float _lastPlaybackBufferedSeconds;
         private int _interruptionCount;
+        private float _lastResponseStartRealtime;
         private readonly System.Threading.ManualResetEventSlim _drainCompleteGate = new System.Threading.ManualResetEventSlim(true);
         private PipelineDebugTracker _latencyTracker;
 

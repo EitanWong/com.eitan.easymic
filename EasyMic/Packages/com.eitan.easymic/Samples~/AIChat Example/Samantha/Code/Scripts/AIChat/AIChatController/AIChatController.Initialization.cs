@@ -376,6 +376,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             SetAssistantSpeakingState(isSpeaking);
             if (!isSpeaking)
             {
+                // Guard: Only record playback drain if this is still the current response.
+                // During interruption, SignalCancelActiveResponse cancels the old round and
+                // starts a new one. The TTS pipeline's stale `NotifySpeakingState(false)` can
+                // arrive AFTER the new round is already created, causing RecordPlaybackDrained
+                // to finalize the new round prematurely (= corrupted timing data).
+                // The generation check rejects stale drain events from previous responses.
                 _latencyTracker?.RecordPlaybackDrained();
             }
         }
