@@ -128,8 +128,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             if (isSpeaking &&
-                Config.InterruptAssistantOnUserSpeech &&
-                !IsResponseCancellationPending())
+                Config.InterruptAssistantOnUserSpeech)
             {
                 // CRITICAL: Use atomic snapshot of state flags. Reading _llmInFlight
                 // and _isAssistantSpeaking via their property accessors is non-atomic
