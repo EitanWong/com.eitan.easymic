@@ -398,6 +398,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        private bool TryTakeResponseCancellationTokenSource(CancellationTokenSource expectedCts, out CancellationTokenSource current)
+        {
+            lock (_stateLock)
+            {
+                current = _responseCts;
+                if (!ReferenceEquals(current, expectedCts))
+                {
+                    current = null;
+                    return false;
+                }
+
+                _responseCts = null;
+                return true;
+            }
+        }
+
         private void ReplaceResponseCancellationTokenSource(CancellationTokenSource nextCts)
         {
             CancellationTokenSource previous;
