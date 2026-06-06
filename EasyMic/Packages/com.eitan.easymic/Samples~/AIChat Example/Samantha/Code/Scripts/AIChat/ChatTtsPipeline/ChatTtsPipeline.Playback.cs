@@ -274,7 +274,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (job.IsFailed && !job.HasPendingChunks)
                 {
-                    Debug.LogWarning("[ParallelTtsPipeline] Streaming job failed before completion.");
+                    ReportStreamingJobFailure(job);
                     break;
                 }
 
@@ -681,6 +681,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 ReportAdaptiveStability(bufferedSeconds);
             }
+        }
+
+        private void ReportStreamingJobFailure(TtsJob job)
+        {
+            if (job == null)
+            {
+                return;
+            }
+
+            if (job.Error is OperationCanceledException)
+            {
+                return;
+            }
+
+            string message = job.Error != null ? job.Error.Message : "unknown error";
+            if (job.HasReceivedChunks)
+            {
+                if (_config.LogSentences)
+                {
+                    Debug.Log($"[ParallelTtsPipeline] Streaming TTS ended after partial audio: {message}");
+                }
+
+                return;
+            }
+
+            Debug.LogWarning($"[ParallelTtsPipeline] Streaming TTS failed before audio was available: {message}");
         }
 
         private static void AppendBatchSamples(ref float[] batch, ref int batchCount, float[] samples)
