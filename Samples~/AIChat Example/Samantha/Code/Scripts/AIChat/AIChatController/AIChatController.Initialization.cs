@@ -389,6 +389,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnTtsSentenceStarted(string sentence)
         {
             TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, Interlocked.Read(ref _responseGeneration));
+            _latencyTracker?.RecordTtsFirstAudio();
 
             if (Config.LogStreamingChunks)
             {

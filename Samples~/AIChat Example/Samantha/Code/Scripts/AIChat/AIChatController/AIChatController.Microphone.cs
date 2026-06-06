@@ -123,7 +123,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (isSpeaking)
             {
-                Debug.Log("[PipelineDebug] Microphone: about to call RecordAsrStart");
                 _latencyTracker?.RecordAsrStart();
                 MarkUserActivity();
             }
