@@ -250,7 +250,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 else
                 {
                     // 非流式响应
-                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     foreach (string chunk in ExtractTextFromResponseJson(json))
                     {
                         if (!string.IsNullOrEmpty(chunk))
@@ -305,7 +305,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 response.EnsureSuccessStatusCode();
 
-                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 var texts = new List<string>();
 
                 foreach (string chunk in ExtractTextFromResponseJson(json))
@@ -328,7 +328,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             HttpResponseMessage response,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            var body = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
             using (body)
             using (var reader = new StreamReader(body, Encoding.UTF8))
             {
@@ -504,7 +504,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                         string errorMessage = TryExtractErrorMessage(errorBody);
                         string statusPrefix = $"HTTP {(int)response.StatusCode}";
                         if (string.IsNullOrWhiteSpace(errorMessage))
@@ -533,7 +533,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     response.EnsureSuccessStatusCode();
 
-                    var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                    var body = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     using (body)
                     using (var reader = new StreamReader(body, Encoding.UTF8))
                     {
@@ -594,7 +594,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (!response.IsSuccessStatusCode)
                 {
-                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     string errorMessage = TryExtractErrorMessage(errorBody);
                     string fallbackMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
                     return new OpenAIChatResult
@@ -606,7 +606,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 response.EnsureSuccessStatusCode();
 
-                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 json = _providerAdapter.NormalizeChatCompletionResponseJson(json);
                 if (string.IsNullOrWhiteSpace(json))
                 {
@@ -703,7 +703,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                         string errorMessage = TryExtractErrorMessage(errorBody);
                         if (string.IsNullOrWhiteSpace(errorMessage))
                             errorMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
@@ -721,7 +721,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
 
                     response.EnsureSuccessStatusCode();
-                    return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    return await ReadContentAsByteArrayAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -779,14 +779,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (!response.IsSuccessStatusCode)
                 {
-                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     string errorMessage = TryExtractErrorMessage(errorBody);
                     if (string.IsNullOrWhiteSpace(errorMessage))
                         errorMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
                     throw new OpenAIApiException(errorMessage);
                 }
 
-                var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                var stream = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 using (stream)
                 {
                     byte[] buffer = new byte[8192];
@@ -806,6 +806,49 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public void Dispose()
         {
             _httpClient?.Dispose();
+        }
+
+        private static Task<string> ReadContentAsStringAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsStringAsync(), cancellationToken);
+        }
+
+        private static Task<byte[]> ReadContentAsByteArrayAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsByteArrayAsync(), cancellationToken);
+        }
+
+        private static Task<Stream> ReadContentAsStreamAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsStreamAsync(), cancellationToken);
+        }
+
+        private static async Task<T> AwaitWithCancellation<T>(Task<T> task, CancellationToken cancellationToken)
+        {
+            if (task == null)
+            {
+                return default;
+            }
+
+            if (task.IsCompleted)
+            {
+                return await task.ConfigureAwait(false);
+            }
+
+            var cancellationSignal = new TaskCompletionSource<bool>();
+            using (cancellationToken.Register(state => ((TaskCompletionSource<bool>)state).TrySetResult(true), cancellationSignal))
+            {
+                Task completed = await Task.WhenAny(task, cancellationSignal.Task).ConfigureAwait(false);
+                if (completed == cancellationSignal.Task)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            }
+
+            return await task.ConfigureAwait(false);
         }
 
         private void TryDumpTtsPayload(OpenAITtsRequest request)

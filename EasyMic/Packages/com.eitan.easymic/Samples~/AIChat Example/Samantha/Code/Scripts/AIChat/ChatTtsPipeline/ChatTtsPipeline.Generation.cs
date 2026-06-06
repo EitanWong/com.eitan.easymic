@@ -55,7 +55,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     if (enqueue)
                     {
-                        _completedJobs[job.SequenceNumber] = job;
+                        TryAddCompletedJob(job);
                     }
                 }
                 catch (OperationCanceledException)

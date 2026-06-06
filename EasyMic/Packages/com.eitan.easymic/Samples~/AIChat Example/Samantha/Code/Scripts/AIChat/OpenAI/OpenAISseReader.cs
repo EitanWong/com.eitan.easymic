@@ -55,19 +55,23 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var readTask = reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(_idleTimeout, CancellationToken.None);
+            var timeoutTask = Task.Delay(_idleTimeout, timeoutCts.Token);
             var completed = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
 
-            // Check cancellation first — if cancelled, the read result may be stale/incorrect
-            cancellationToken.ThrowIfCancellationRequested();
+            // Cancel the timeout task immediately — prevents Timer leak on every SSE line
+            timeoutCts.Cancel();
 
             if (completed == timeoutTask)
             {
-                // Ensure the read task doesn't leak — it will be abandoned when the reader is disposed
+                // Distinguish between caller cancellation and actual idle timeout
+                cancellationToken.ThrowIfCancellationRequested();
+                // readTask will be abandoned — the caller is responsible for disposing the reader
                 throw new TimeoutException("Stream idle timeout.");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             return await readTask.ConfigureAwait(false);
         }
     }

@@ -50,7 +50,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #endregion
 
         #region Public Properties
-        public bool IsIdle => _lastIdleState;
+        public bool IsIdle
+        {
+            get
+            {
+                // Use live state (!_llmInFlight && !_isAssistantSpeaking) instead of
+                // the cached _lastIdleState to avoid a race condition during barge-in:
+                //
+                // After SignalCancelActiveResponse sets _llmInFlight=false and
+                // _isAssistantSpeaking=false on the VAD worker thread, the cached
+                // _lastIdleState is NOT updated until UpdateIdleState runs on the
+                // Unity thread. If OnAsrSubmitHandler fires on the ASR thread before
+                // the Unity thread processes the posted delegate, TryDispatchBufferedInput
+                // sees a stale _lastIdleState=false and refuses to dispatch — the transcript
+                // is "lost" until the next Update() call at best, and under edge conditions
+                // (e.g. nested barge-ins) it can be permanently dropped.
+                if (_initializationFailed) return false;
+                return !_llmInFlight && !_isAssistantSpeaking;
+            }
+        }
         public bool IsChatActive => _isChatActive;
         public bool IsUserSpeaking => Microphone?.IsSpeaking ?? false;
         public bool IsAssistantSpeaking => _isAssistantSpeaking;
@@ -93,7 +111,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #endregion
 
         #region Private Fields
-        private AIChatControllerConfig Config => _config ??= new AIChatControllerConfig();
+        private AIChatControllerConfig Config => _config;
 
         private VoiceMicrophone Microphone => Config.Microphone;
         private SpeechSynthesizer SpeechSynthesizer => Config.SpeechSynthesizer;

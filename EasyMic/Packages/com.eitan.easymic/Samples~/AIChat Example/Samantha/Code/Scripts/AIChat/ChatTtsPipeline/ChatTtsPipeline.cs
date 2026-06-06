@@ -45,7 +45,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly ConcurrentDictionary<int, TtsJob> _completedJobs = new ConcurrentDictionary<int, TtsJob>();
         private readonly SemaphoreSlim _generationSemaphore;
         private readonly ResourceMonitor _resourceMonitor;
-    private readonly SemaphoreSlim _jobArrivalSignal = new SemaphoreSlim(0);
         private readonly TtsPipelineSession _session = new TtsPipelineSession();
         private readonly object _playbackLock = new object();
         private readonly object _stateLock = new object();
@@ -70,6 +69,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private PlaybackAudioSourceBehaviour _playbackSource;
         private bool _playbackInitialized;
         private long _playbackSessionId;
+        private int _restartAfterCurrentSessionRequested;
 
         private bool _localSynthCallbacksBound;
         private SpeechSynthesizer _boundLocalSynthesizer;
@@ -262,7 +262,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             int seq = Interlocked.Increment(ref _nextSequenceNumber);
             var job = new TtsJob(seq, trimmed);
             _pendingJobs.Enqueue(job);
-            _jobArrivalSignal.Release();
 
             EnsureOrchestratorRunning();
         }
@@ -279,30 +278,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             Task taskToWait = stopState.task;
 
             ClearQueues();
-
-            // CRITICAL: Explicitly stop the AudioSource to immediately clear its buffered audio.
-            // Without this, buffered audio continues playing through the AudioSource pipeline
-            // even after the TTS sink is stopped. This ensures barge-in silence is instant.
-            // Use async dispatch to avoid blocking the thread pool thread while ensuring the
-            // AudioSource.Stop() has actually executed before proceeding to DisposePlaybackUnsafe.
-            if (_playbackSource != null)
-            {
-                try
-                {
-                    await DispatchToMainThreadAsync(() =>
-                    {
-                        if (_playbackSource != null)
-                        {
-                            try { _playbackSource.Stop(); }
-                            catch (Exception ex) { Debug.LogWarning($"[ParallelTtsPipeline] Error stopping playback source: {ex.Message}"); }
-                        }
-                    }).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[ParallelTtsPipeline] Error dispatching playback source stop: {ex.Message}");
-                }
-            }
 
             if (_config.UseLocalTts && _config.LocalSynthesizer != null)
             {
@@ -340,6 +315,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             NotifySpeakingState(false);
+
+            if (!_disposed && !_config.UseLocalTts && !_pendingJobs.IsEmpty)
+            {
+                EnsureOrchestratorRunning();
+            }
         }
 
         public async Task WaitForIdleAsync()
@@ -386,7 +366,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _generationSemaphore.Dispose();
-            _jobArrivalSignal.Dispose();
         }
     }
 }

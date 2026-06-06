@@ -79,18 +79,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public ChatMetrics GetMetrics()
         {
-            return new ChatMetrics
+            lock (_stateLock)
             {
-                TotalRequests = _totalRequestCount,
-                FailedRequests = _failedRequestCount,
-                AverageResponseLatencyMs = _averageResponseLatencyMs,
-                LastFirstTokenLatencyMs = _lastFirstTokenLatencyMs,
-                LastFirstSentenceLatencyMs = _lastFirstSentenceLatencyMs,
-                LastFirstAudioLatencyMs = _lastFirstAudioLatencyMs,
-                LastPlaybackBufferedSeconds = _lastPlaybackBufferedSeconds,
-                InterruptionCount = _interruptionCount,
-                NetworkQuality = CurrentNetworkQuality
-            };
+                return new ChatMetrics
+                {
+                    TotalRequests = _totalRequestCount,
+                    FailedRequests = _failedRequestCount,
+                    AverageResponseLatencyMs = _averageResponseLatencyMs,
+                    LastFirstTokenLatencyMs = _lastFirstTokenLatencyMs,
+                    LastFirstSentenceLatencyMs = _lastFirstSentenceLatencyMs,
+                    LastFirstAudioLatencyMs = _lastFirstAudioLatencyMs,
+                    LastPlaybackBufferedSeconds = _lastPlaybackBufferedSeconds,
+                    InterruptionCount = _interruptionCount,
+                    NetworkQuality = CurrentNetworkQuality
+                };
+            }
         }
 
         public AIChatResolvedConfiguration GetResolvedConfiguration()
