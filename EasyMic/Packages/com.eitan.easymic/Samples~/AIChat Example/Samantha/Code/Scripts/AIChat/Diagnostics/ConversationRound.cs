@@ -25,6 +25,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public bool IsComplete;
         public bool WasCancelled;
 
+        internal int Revision;
+
         public float AsrMs => BothValid(AsrStartTime, AsrEndTime) ? Ms(AsrStartTime, AsrEndTime) : -1f;
         public float LlmMs => BothValid(LlmRequestTime, LlmLastTokenTime) ? Ms(LlmRequestTime, LlmLastTokenTime) : -1f;
         public float FirstTokenMs => BothValid(LlmRequestTime, LlmFirstTokenTime) ? Ms(LlmRequestTime, LlmFirstTokenTime) : -1f;

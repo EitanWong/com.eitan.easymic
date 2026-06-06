@@ -70,15 +70,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             ResetResponseLatencyTracking();
+
+            var responseCts = new CancellationTokenSource();
+            ReplaceResponseCancellationTokenSource(responseCts);
+
+            if (!IsCurrentResponseGeneration(generation))
+            {
+                if (TryTakeResponseCancellationTokenSource(responseCts, out var staleCts))
+                {
+                    CancelAndDisposeCts(staleCts);
+                }
+
+                return false;
+            }
+
+            var token = responseCts.Token;
             _latencyTracker?.RecordLlmRequestSent();
 
             _llmInFlight = true;
             Interlocked.Increment(ref _totalRequestCount);
             UpdateIdleState();
 
-            var responseCts = new CancellationTokenSource();
-            ReplaceResponseCancellationTokenSource(responseCts);
-            var token = responseCts.Token;
             RefreshExpressiveTtsInstruction(userInput, token);
 
             if (!_conversationStarted)
@@ -93,6 +105,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             NotifyPluginHost(host => host.NotifyAssistantRequestStarted(userInput, isProactive));
+
+            if (!IsCurrentResponseGeneration(generation) || token.IsCancellationRequested)
+            {
+                if (TryTakeResponseCancellationTokenSource(responseCts, out var staleCts))
+                {
+                    CancelAndDisposeCts(staleCts);
+                    _llmInFlight = false;
+                    UpdateIdleState(dispatchBufferedInput: false);
+                }
+
+                return false;
+            }
 
             SafeFireAndForget(RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive), nameof(RunChatCompletionAsync));
             return true;

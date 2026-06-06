@@ -68,7 +68,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private float _pendingAsrEndTime = -1f;
         private string _pendingTranscript;
         private int _roundRevision;
-        private int _drainGenerationAtCancel;
+        private int _lastCancelledRoundRevision;
         private PipelineLatencyStats _stats = new PipelineLatencyStats();
 
         public ConversationRound[] GetCompletedRoundsSnapshot()
@@ -236,7 +236,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return;
                 }
 
-                if (_currentRound.Index < _drainGenerationAtCancel)
+                if (_currentRound.TtsFirstAudioTime < 0f)
+                {
+                    Trace("Playback drain ignored: playback never started");
+                    return;
+                }
+
+                if (_currentRound.Revision <= _lastCancelledRoundRevision)
                 {
                     Trace("Playback drain ignored: stale cancel generation");
                     return;
@@ -255,7 +261,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (_currentRound != null && !_currentRound.IsComplete)
                 {
-                    _drainGenerationAtCancel = _roundRevision + 1;
+                    _lastCancelledRoundRevision = _currentRound.Revision;
 
                     if (_currentRound.AsrEndTime < 0f && _pendingAsrStartTime >= 0f && _pendingAsrEndTime >= 0f)
                     {
@@ -314,9 +320,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _currentRound = new ConversationRound
             {
                 Index = _roundIndex++,
-                WallClockTime = DateTime.Now
+                WallClockTime = DateTime.Now,
+                Revision = _roundRevision
             };
-            _drainGenerationAtCancel = 0;
             ResetStatuses();
             _sentenceCountInRound = 0;
         }
