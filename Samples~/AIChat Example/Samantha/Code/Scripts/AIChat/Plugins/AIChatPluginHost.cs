@@ -9,6 +9,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly IAIChatPluginContext _context;
         private readonly List<IAIChatPlugin> _plugins = new List<IAIChatPlugin>();
         private readonly HashSet<IAIChatPlugin> _activePlugins = new HashSet<IAIChatPlugin>();
+        private readonly HashSet<IAIChatPlugin> _faultedPlugins = new HashSet<IAIChatPlugin>();
 
         public AIChatPluginHost(IAIChatPluginContext context, IEnumerable<MonoBehaviour> pluginBehaviours)
         {
@@ -18,7 +19,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void RefreshPlugins(IEnumerable<MonoBehaviour> pluginBehaviours)
         {
+            if (_activePlugins.Count > 0)
+            {
+                var activePlugins = new List<IAIChatPlugin>(_activePlugins);
+                for (int i = 0; i < activePlugins.Count; i++)
+                {
+                    TryShutdownPlugin(activePlugins[i]);
+                }
+
+                _activePlugins.Clear();
+            }
+
             _plugins.Clear();
+            _faultedPlugins.Clear();
 
             if (pluginBehaviours == null)
             {
@@ -49,23 +62,38 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     continue;
                 }
 
-                bool enabled = plugin.IsEnabled;
+                if (_faultedPlugins.Contains(plugin))
+                {
+                    continue;
+                }
+
+                if (!TryGetPluginEnabled(plugin, out bool enabled))
+                {
+                    continue;
+                }
+
                 bool isActive = _activePlugins.Contains(plugin);
 
                 if (enabled && !isActive)
                 {
-                    plugin.Initialize(_context);
+                    if (!TryInitializePlugin(plugin))
+                    {
+                        continue;
+                    }
+
                     _activePlugins.Add(plugin);
+                    isActive = true;
                 }
                 else if (!enabled && isActive)
                 {
-                    plugin.Shutdown();
+                    TryShutdownPlugin(plugin);
                     _activePlugins.Remove(plugin);
+                    isActive = false;
                 }
 
-                if (enabled)
+                if (enabled && isActive)
                 {
-                    plugin.Tick(deltaTime);
+                    TryTickPlugin(plugin, deltaTime);
                 }
             }
         }
@@ -102,12 +130,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void Shutdown()
         {
-            foreach (var plugin in _activePlugins)
+            var activePlugins = new List<IAIChatPlugin>(_activePlugins);
+            for (int i = 0; i < activePlugins.Count; i++)
             {
-                plugin.Shutdown();
+                TryShutdownPlugin(activePlugins[i]);
             }
 
             _activePlugins.Clear();
+            _faultedPlugins.Clear();
         }
 
         private void DispatchLifecycle(Action<IAIChatLifecycleListener> dispatch)
@@ -117,13 +147,107 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            foreach (var plugin in _activePlugins)
+            var activePlugins = new List<IAIChatPlugin>(_activePlugins);
+            for (int i = 0; i < activePlugins.Count; i++)
             {
+                var plugin = activePlugins[i];
+                if (plugin == null || _faultedPlugins.Contains(plugin))
+                {
+                    continue;
+                }
+
                 if (plugin is IAIChatLifecycleListener listener)
                 {
-                    dispatch(listener);
+                    try
+                    {
+                        dispatch(listener);
+                    }
+                    catch (Exception ex)
+                    {
+                        MarkPluginFaulted(plugin, "lifecycle callback", ex);
+                    }
                 }
             }
+        }
+
+        private bool TryGetPluginEnabled(IAIChatPlugin plugin, out bool enabled)
+        {
+            enabled = false;
+            try
+            {
+                enabled = plugin.IsEnabled;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MarkPluginFaulted(plugin, "IsEnabled", ex);
+                return false;
+            }
+        }
+
+        private bool TryInitializePlugin(IAIChatPlugin plugin)
+        {
+            try
+            {
+                plugin.Initialize(_context);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MarkPluginFaulted(plugin, "Initialize", ex);
+                return false;
+            }
+        }
+
+        private void TryTickPlugin(IAIChatPlugin plugin, float deltaTime)
+        {
+            try
+            {
+                plugin.Tick(deltaTime);
+            }
+            catch (Exception ex)
+            {
+                MarkPluginFaulted(plugin, "Tick", ex);
+            }
+        }
+
+        private void TryShutdownPlugin(IAIChatPlugin plugin)
+        {
+            if (plugin == null)
+            {
+                return;
+            }
+
+            try
+            {
+                plugin.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AIChatPluginHost] Plugin {GetPluginName(plugin)} failed during Shutdown: {ex.Message}");
+            }
+        }
+
+        private void MarkPluginFaulted(IAIChatPlugin plugin, string operation, Exception ex)
+        {
+            if (plugin == null)
+            {
+                return;
+            }
+
+            _faultedPlugins.Add(plugin);
+
+            if (_activePlugins.Remove(plugin))
+            {
+                TryShutdownPlugin(plugin);
+            }
+
+            Debug.LogError($"[AIChatPluginHost] Plugin {GetPluginName(plugin)} failed during {operation} and was disabled: {ex}");
+        }
+
+        private static string GetPluginName(IAIChatPlugin plugin)
+        {
+            return plugin != null ? plugin.GetType().Name : "<null>";
         }
     }
 }
