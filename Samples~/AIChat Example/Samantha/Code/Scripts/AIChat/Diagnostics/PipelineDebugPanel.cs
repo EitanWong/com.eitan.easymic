@@ -325,7 +325,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             if (duration < 0) return;
             float norm = maxMs > 0 ? duration / maxMs : 0f;
-            int barW = Math.Max(50, (int)(_windowRect.width - 305));
+            int barW = Math.Max(50, (int)(_windowRect.width - 320));
             int fillW = Math.Max(0, (int)(barW * Mathf.Clamp01(norm)));
 
             GUILayout.BeginHorizontal();
@@ -347,7 +347,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             GUILayout.Label($"{duration:F0}ms", GUILayout.Width(55), GUILayout.Height(20));
 
             // Average label — fixed width 85w. ALWAYS emitted to avoid IMGUI control count mismatch.
-            GUILayout.Label(avgMs > 0f ? $"(avg {avgMs:F0}ms)" : "", GUILayout.Width(85), GUILayout.Height(20));
+            GUILayout.Label(avgMs > 0f ? $"(avg {avgMs:F0}ms)" : "", GUILayout.Width(100), GUILayout.Height(20));
 
             // Extra info (e.g. TTFT) — flexible width. ALWAYS emitted to avoid IMGUI control count mismatch.
             GUILayout.Label(extraInfo ?? "", GUILayout.Width(120), GUILayout.Height(20));

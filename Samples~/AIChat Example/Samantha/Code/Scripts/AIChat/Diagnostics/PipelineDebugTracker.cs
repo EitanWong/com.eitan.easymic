@@ -206,16 +206,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     // stale drain events from this cancelled round's TTS pipeline.
                     _drainGenerationAtCancel = _roundRevision + 1;
 
-                    // Apply any pending ASR data that may belong to this round (e.g. if
-                    // RecordAsrEnd fired after RecordLlmRequestSent but before cancel).
-                    if (_currentRound.AsrEndTime < 0f && _pendingAsrEndTime >= 0f)
-                    {
-                        _currentRound.AsrEndTime = _pendingAsrEndTime;
-                        _currentRound.UserInput = _pendingTranscript ?? "";
-                    }
-                    if (_currentRound.AsrStartTime < 0f && _pendingAsrStartTime >= 0f)
+                    // Apply any pending ASR data that may belong to this round.
+                    // ONLY apply when BOTH start AND end are set — that means the
+                    // ASR session completed (RecordAsrEnd fired).  If only start is
+                    // set, RecordAsrStart was just called for the NEXT round and we
+                    // MUST NOT steal its timestamp for the round being cancelled.
+                    if (_currentRound.AsrEndTime < 0f && _pendingAsrStartTime >= 0f && _pendingAsrEndTime >= 0f)
                     {
                         _currentRound.AsrStartTime = _pendingAsrStartTime;
+                        _currentRound.AsrEndTime = _pendingAsrEndTime;
+                        _currentRound.UserInput = _pendingTranscript ?? "";
+                        // Clear applied pending data so RecordLlmRequestSent does
+                        // not re-apply stale timestamps to the next round.
+                        _pendingAsrStartTime = -1f;
+                        _pendingAsrEndTime = -1f;
+                        _pendingTranscript = null;
                     }
 
                     // Save partial round data to history before discarding
@@ -232,12 +237,28 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     PlaybackStatus = StageStatus.Waiting;
                     _currentRound = null;
                     _sentenceCountInRound = 0;
-                    // IMPORTANT: Do NOT clear pending ASR data here. RecordAsrStart() may have
-                    // just set _pendingAsrStartTime for the NEXT round (called from the same
-                    // OnSpeakingChangedHandler that triggered this cancel).  Clearing it here
-                    // would lose the ASR start timestamp for the incoming utterance.
-                    // Pending data is cleared when applied in RecordLlmRequestSent, or when
-                    // overwritten by a fresh RecordAsrStart / RecordAsrEnd call.
+                    // IMPORTANT: Do NOT clear pending ASR data that has only
+                    // _pendingAsrStartTime set (no _pendingAsrEndTime).  RecordAsrStart
+                    // may have just set _pendingAsrStartTime for the NEXT round
+                    // (called from the same OnSpeakingChangedHandler that triggered
+                    // this cancel).  Clearing it here would lose the ASR start
+                    // timestamp for the incoming utterance.  Pending data with BOTH
+                    // start and end set IS cleared above after being applied because
+                    // it belongs to this round and would be stale for the next.
+                }
+                else if (_currentRound == null)
+                {
+                    // No round exists yet (pending ASR data from a cancelled ASR
+                    // session that never reached RecordLlmRequestSent).  Clear
+                    // pending data to prevent stale timestamps from being applied
+                    // to the next round via RecordLlmRequestSent.
+                    if (_pendingAsrStartTime >= 0f || _pendingAsrEndTime >= 0f)
+                    {
+                        Debug.Log("[PipelineDebug] CancelCurrentRound: clearing stale pending ASR data (no round existed).");
+                    }
+                    _pendingAsrStartTime = -1f;
+                    _pendingAsrEndTime = -1f;
+                    _pendingTranscript = null;
                 }
             }
         }

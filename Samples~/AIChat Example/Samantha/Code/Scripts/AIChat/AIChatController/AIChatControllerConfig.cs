@@ -37,6 +37,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         [Header("Experience")]
         public bool InterruptAssistantOnUserSpeech = true;
+        [Min(0f)] public float BargeInEchoGuardSeconds = 0.2f;
         public bool AutoHideMouseCursorWhenIdle = true;
         [Min(0f)] public float MouseCursorHideDelaySeconds = 1.5f;
         [Min(0f)] public float CursorMoveThresholdPixels = 1f;

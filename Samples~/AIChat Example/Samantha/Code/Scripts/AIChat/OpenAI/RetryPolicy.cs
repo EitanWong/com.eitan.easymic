@@ -17,7 +17,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int DefaultMaxRetries = 2;
         private const int DefaultBaseDelayMs = 500;
         private const int DefaultMaxDelayMs = 4000;
-        private static readonly System.Random _rng = new System.Random();
+        private static readonly System.Random _globalRng = new System.Random();
+        [ThreadStatic]
+        private static System.Random _threadRng;
 
         private readonly int _maxRetries;
         private readonly double _baseDelayMs;
@@ -76,7 +78,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public TimeSpan GetDelay(int attempt)
         {
             double exponential = Math.Min(_maxDelayMs, _baseDelayMs * Math.Pow(2, attempt));
-            double jitter = _rng.NextDouble() * exponential;
+
+            var rng = _threadRng;
+            if (rng == null)
+            {
+                lock (_globalRng)
+                {
+                    _threadRng = new System.Random(_globalRng.Next());
+                }
+                rng = _threadRng;
+            }
+
+            double jitter = rng.NextDouble() * exponential;
             return TimeSpan.FromMilliseconds(jitter);
         }
 

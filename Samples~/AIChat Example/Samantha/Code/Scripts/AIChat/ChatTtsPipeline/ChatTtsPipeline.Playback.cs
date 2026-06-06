@@ -142,7 +142,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             DispatchToMainThread(() => PreparePlaybackSource(_playbackSource), waitForCompletion: false);
         }
 
-        private async Task RunPlaybackWorkerAsync(long sessionId, CancellationToken token)
+        private async Task RunPlaybackWorkerAsync(long sessionId, Func<bool> shouldKeepAlive, CancellationToken token)
         {
             int stagnantCycles = 0;
             const int maxStagnantCycles = 200;
@@ -176,7 +176,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                     else
                     {
-                        bool generationDone = _pendingJobs.IsEmpty;
+                        bool generationDone = _pendingJobs.IsEmpty && !(shouldKeepAlive?.Invoke() ?? false);
                         bool noMoreCompleted = _completedJobs.IsEmpty;
 
                         if (generationDone && noMoreCompleted)
@@ -731,48 +731,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            // CRITICAL: Immediately stop the AudioSource to clear the playback buffer.
-            // When called from the main thread, call Stop() directly to avoid any dispatch delay.
-            // SafeInvoke is fire-and-forget (async queue) — the delay lets more audio play through.
-            if (IsMainThread)
+            // Fire-and-forget: must not block on main thread while holding _playbackLock.
+            // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
+            // Cleanup operations don't need synchronous completion.
+            SafeInvoke(() =>
             {
-                sink.Stop();
-                // Also stop the AudioSource directly to clear buffered audio immediately
-                StopPlaybackSourceDirect();
-            }
-            else
-            {
-                // Fire-and-forget: must not block on main thread while holding _playbackLock.
-                // Called from DisposePlaybackUnsafe / CompletePlaybackStream which hold the lock.
-                // Cleanup operations don't need synchronous completion.
-                SafeInvoke(() =>
+                if (!sink.IsValid)
                 {
-                    if (!sink.IsValid)
-                    {
-                        return;
-                    }
+                    return;
+                }
 
-                    sink.Stop();
-                    StopPlaybackSourceDirect();
-                });
-            }
-        }
-
-        private void StopPlaybackSourceDirect()
-        {
-            if (_playbackSource == null)
-            {
-                return;
-            }
-
-            try
-            {
-                _playbackSource.Stop();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[Playback] AudioSource Stop failed: {ex.Message}");
-            }
+                sink.Stop();
+            });
         }
 
         private void CompleteSinkStream(PlaybackSink sink)
