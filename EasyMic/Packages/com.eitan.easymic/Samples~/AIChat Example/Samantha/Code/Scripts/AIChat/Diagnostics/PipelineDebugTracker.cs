@@ -15,21 +15,44 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         Waiting, Running, Done, Failed
     }
 
+    public sealed class PipelineLatencyStats
+    {
+        public int SampleCount;
+        public float AverageAsrMs;
+        public float AverageLlmMs;
+        public float AverageTtsMs;
+        public float AveragePlaybackMs;
+        public float AverageTotalMs;
+        public float AverageFirstTokenMs;
+        public float AverageFirstSentenceMs;
+        public float AverageFirstAudioMs;
+        public float P50FirstAudioMs;
+        public float P90FirstAudioMs;
+        public float BestFirstAudioMs;
+        public float WorstFirstAudioMs;
+    }
+
     public sealed class PipelineDebugTracker
     {
         public int MaxHistoryRounds { get; set; } = 50;
         public bool Enabled { get; set; } = true;
+        public bool LogEvents { get; set; }
 
         public IReadOnlyList<ConversationRound> CompletedRounds => _completedRounds;
         public ConversationRound CurrentRound => _currentRound;
         public int TotalRounds => _roundIndex;
+        public int CancelledRounds { get; private set; }
 
         public float AverageAsrMs { get; private set; }
         public float AverageLlmMs { get; private set; }
         public float AverageTtsMs { get; private set; }
+        public float AveragePlaybackMs { get; private set; }
         public float AverageTotalMs { get; private set; }
         public float AverageFirstTokenMs { get; private set; }
+        public float AverageFirstSentenceMs { get; private set; }
         public float AverageE2EMs { get; private set; }
+        public float P50E2EMs { get; private set; }
+        public float P90E2EMs { get; private set; }
 
         public StageStatus AsrStatus { get; private set; } = StageStatus.Waiting;
         public StageStatus LlmStatus { get; private set; } = StageStatus.Waiting;
@@ -41,30 +64,54 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private ConversationRound _currentRound;
         private int _roundIndex;
         private int _sentenceCountInRound;
-        // Pending ASR data — saved even when no round exists yet, applied when round is created
         private float _pendingAsrStartTime = -1f;
         private float _pendingAsrEndTime = -1f;
         private string _pendingTranscript;
-        // Round revision counter: incremented each time a new round is created.
-        // RecordPlaybackDrained checks this to reject stale drain events from a
-        // previous response that arrive after a new round has started.
         private int _roundRevision;
         private int _drainGenerationAtCancel;
+        private PipelineLatencyStats _stats = new PipelineLatencyStats();
+
+        public ConversationRound[] GetCompletedRoundsSnapshot()
+        {
+            lock (_sync)
+            {
+                return _completedRounds.ToArray();
+            }
+        }
+
+        public PipelineLatencyStats GetStatsSnapshot()
+        {
+            lock (_sync)
+            {
+                return new PipelineLatencyStats
+                {
+                    SampleCount = _stats.SampleCount,
+                    AverageAsrMs = _stats.AverageAsrMs,
+                    AverageLlmMs = _stats.AverageLlmMs,
+                    AverageTtsMs = _stats.AverageTtsMs,
+                    AveragePlaybackMs = _stats.AveragePlaybackMs,
+                    AverageTotalMs = _stats.AverageTotalMs,
+                    AverageFirstTokenMs = _stats.AverageFirstTokenMs,
+                    AverageFirstSentenceMs = _stats.AverageFirstSentenceMs,
+                    AverageFirstAudioMs = _stats.AverageFirstAudioMs,
+                    P50FirstAudioMs = _stats.P50FirstAudioMs,
+                    P90FirstAudioMs = _stats.P90FirstAudioMs,
+                    BestFirstAudioMs = _stats.BestFirstAudioMs,
+                    WorstFirstAudioMs = _stats.WorstFirstAudioMs
+                };
+            }
+        }
 
         public void RecordAsrStart()
         {
-            Debug.Log("[PipelineDebug] ** RecordAsrStart ENTERED **");
             if (!Enabled) return;
             lock (_sync)
             {
-                // Clear stale pending data from previous utterance — this is a NEW ASR session
                 _pendingAsrEndTime = -1f;
                 _pendingTranscript = null;
-                // Save current ASR start time (only in pending — applied to the correct round
-                // in RecordLlmRequestSent.  NEVER touch _currentRound here: it may belong to a
-                // previous response and overwriting its AsrStartTime corrupts the timestamps.)
                 _pendingAsrStartTime = Time.realtimeSinceStartup;
                 AsrStatus = StageStatus.Running;
+                Trace("ASR start");
             }
         }
 
@@ -74,12 +121,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_sync)
             {
                 _pendingAsrEndTime = Time.realtimeSinceStartup;
-                _pendingTranscript = transcript != null && transcript.Length > 80
-                    ? transcript.Substring(0, 80) + "…" : transcript ?? "";
+                _pendingTranscript = transcript != null && transcript.Length > 120
+                    ? transcript.Substring(0, 120) + "..." : transcript ?? "";
                 if (_currentRound == null) return;
                 _currentRound.AsrEndTime = _pendingAsrEndTime;
                 _currentRound.UserInput = _pendingTranscript;
                 AsrStatus = StageStatus.Done;
+                Trace("ASR end");
             }
         }
 
@@ -89,9 +137,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_sync)
             {
                 if (_currentRound == null) EnsureRound();
-                // Apply any pending ASR data — only when BOTH start and end are available (atomic set)
-                // This prevents a stale end time from a previous round being applied separately after
-                // the start time, which would leave AsrEndTime=-1 and cause AsrMs=-1 in the CSV.
                 if (_pendingAsrStartTime >= 0f && _pendingAsrEndTime >= 0f)
                 {
                     _currentRound.AsrStartTime = _pendingAsrStartTime;
@@ -102,11 +147,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     _pendingTranscript = null;
                     AsrStatus = StageStatus.Done;
                 }
-                Debug.Log("[PipelineDebug] RecordLlmRequestSent called, round=" + (_currentRound != null ? _currentRound.Index.ToString() : "null") +
-                    " pendingStart=" + _pendingAsrStartTime + " pendingEnd=" + _pendingAsrEndTime +
-                    " roundStart=" + _currentRound.AsrStartTime + " roundEnd=" + _currentRound.AsrEndTime);
+
                 _currentRound.LlmRequestTime = Time.realtimeSinceStartup;
                 LlmStatus = StageStatus.Running;
+                Trace("LLM request");
             }
         }
 
@@ -115,9 +159,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (!Enabled) return;
             lock (_sync)
             {
-                if (_currentRound == null) return;
-                Debug.Log("[PipelineDebug] RecordLlmFirstToken called, round=" + (_currentRound != null ? _currentRound.Index.ToString() : "null"));
+                if (_currentRound == null || _currentRound.LlmFirstTokenTime >= 0f) return;
                 _currentRound.LlmFirstTokenTime = Time.realtimeSinceStartup;
+                Trace("LLM first token");
             }
         }
 
@@ -127,9 +171,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_sync)
             {
                 if (_currentRound == null) return;
-                Debug.Log("[PipelineDebug] RecordLlmLastToken called, round=" + (_currentRound != null ? _currentRound.Index.ToString() : "null"));
                 _currentRound.LlmLastTokenTime = Time.realtimeSinceStartup;
                 LlmStatus = StageStatus.Done;
+                Trace("LLM last token");
             }
         }
 
@@ -139,16 +183,28 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_sync)
             {
                 if (_currentRound == null) return;
-                Debug.Log("[PipelineDebug] RecordTtsSentenceDispatched called, round=" + (_currentRound != null ? _currentRound.Index.ToString() : "null"));
                 if (_currentRound.TtsFirstSentenceTime < 0f)
                 {
                     _currentRound.TtsFirstSentenceTime = Time.realtimeSinceStartup;
-                    _currentRound.PlaybackStartTime = Time.realtimeSinceStartup;
                     TtsStatus = StageStatus.Running;
-                    PlaybackStatus = StageStatus.Running;
                 }
+
                 _sentenceCountInRound++;
                 _currentRound.SentenceCount = _sentenceCountInRound;
+                Trace("TTS sentence dispatched");
+            }
+        }
+
+        public void RecordTtsFirstAudio()
+        {
+            if (!Enabled) return;
+            lock (_sync)
+            {
+                if (_currentRound == null || _currentRound.TtsFirstAudioTime >= 0f) return;
+                _currentRound.TtsFirstAudioTime = Time.realtimeSinceStartup;
+                _currentRound.PlaybackStartTime = _currentRound.TtsFirstAudioTime;
+                PlaybackStatus = StageStatus.Running;
+                Trace("TTS first audio");
             }
         }
 
@@ -160,7 +216,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 if (_currentRound == null) return;
                 _currentRound.CompletedSentenceCount++;
                 _currentRound.TtsLastCompleteTime = Time.realtimeSinceStartup;
-                TtsStatus = StageStatus.Done;
+                if (_currentRound.SentenceCount <= 0 ||
+                    _currentRound.CompletedSentenceCount >= _currentRound.SentenceCount)
+                {
+                    TtsStatus = StageStatus.Done;
+                }
             }
         }
 
@@ -170,25 +230,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_sync)
             {
                 if (_currentRound == null) return;
-                Debug.Log("[PipelineDebug] RecordPlaybackDrained called, round=" + (_currentRound != null ? _currentRound.Index.ToString() : "null"));
-                // Guard: If this round is already complete, the drain event is stale
-                // (e.g., from a previous TTS session that fired after the round was cancelled
-                // and a new round was created). Reject it to avoid corrupting the new round.
                 if (_currentRound.IsComplete)
                 {
-                    Debug.Log("[PipelineDebug] RecordPlaybackDrained rejected — round already complete (stale event).");
+                    Trace("Playback drain ignored: round already complete");
                     return;
                 }
-                // STALE DRAIN RACE GUARD: If a cancel occurred (which bumps _roundRevision via
-                // EnsureRound or the next RecordLlmRequestSent), and then a new round was created,
-                // the old TTS pipeline's NotifySpeakingState(false) event can arrive asynchronously
-                // (dispatched via PostToUnityThread). This drain event belongs to the cancelled round,
-                // not the current one. Reject it to prevent corrupting the new round's timing data.
+
                 if (_currentRound.Index < _drainGenerationAtCancel)
                 {
-                    Debug.Log($"[PipelineDebug] RecordPlaybackDrained rejected — round {_currentRound.Index} was created after cancel generation {_drainGenerationAtCancel} (stale event from previous response).");
+                    Trace("Playback drain ignored: stale cancel generation");
                     return;
                 }
+
                 _currentRound.PlaybackEndTime = Time.realtimeSinceStartup;
                 PlaybackStatus = StageStatus.Done;
                 FinalizeRound();
@@ -197,65 +250,37 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void CancelCurrentRound()
         {
-            Debug.Log("[PipelineDebug] CancelCurrentRound called, round=" + (_currentRound != null ? (_currentRound.Index + " complete=" + _currentRound.IsComplete) : "null"));
+            if (!Enabled) return;
             lock (_sync)
             {
                 if (_currentRound != null && !_currentRound.IsComplete)
                 {
-                    // Capture current revision so RecordPlaybackDrained can reject
-                    // stale drain events from this cancelled round's TTS pipeline.
                     _drainGenerationAtCancel = _roundRevision + 1;
 
-                    // Apply any pending ASR data that may belong to this round.
-                    // ONLY apply when BOTH start AND end are set — that means the
-                    // ASR session completed (RecordAsrEnd fired).  If only start is
-                    // set, RecordAsrStart was just called for the NEXT round and we
-                    // MUST NOT steal its timestamp for the round being cancelled.
                     if (_currentRound.AsrEndTime < 0f && _pendingAsrStartTime >= 0f && _pendingAsrEndTime >= 0f)
                     {
                         _currentRound.AsrStartTime = _pendingAsrStartTime;
                         _currentRound.AsrEndTime = _pendingAsrEndTime;
                         _currentRound.UserInput = _pendingTranscript ?? "";
-                        // Clear applied pending data so RecordLlmRequestSent does
-                        // not re-apply stale timestamps to the next round.
                         _pendingAsrStartTime = -1f;
                         _pendingAsrEndTime = -1f;
                         _pendingTranscript = null;
                     }
 
-                    // Save partial round data to history before discarding
+                    _currentRound.WasCancelled = true;
                     _currentRound.IsComplete = true;
                     _currentRound.SentenceCount = _sentenceCountInRound;
                     _completedRounds.Add(_currentRound);
-                    while (_completedRounds.Count > MaxHistoryRounds)
-                        _completedRounds.RemoveAt(0);
+                    CancelledRounds++;
+                    TrimHistory();
                     ComputeAverages();
 
-                    AsrStatus = StageStatus.Waiting;
-                    LlmStatus = StageStatus.Waiting;
-                    TtsStatus = StageStatus.Waiting;
-                    PlaybackStatus = StageStatus.Waiting;
+                    ResetStatuses();
                     _currentRound = null;
                     _sentenceCountInRound = 0;
-                    // IMPORTANT: Do NOT clear pending ASR data that has only
-                    // _pendingAsrStartTime set (no _pendingAsrEndTime).  RecordAsrStart
-                    // may have just set _pendingAsrStartTime for the NEXT round
-                    // (called from the same OnSpeakingChangedHandler that triggered
-                    // this cancel).  Clearing it here would lose the ASR start
-                    // timestamp for the incoming utterance.  Pending data with BOTH
-                    // start and end set IS cleared above after being applied because
-                    // it belongs to this round and would be stale for the next.
                 }
                 else if (_currentRound == null)
                 {
-                    // No round exists yet (pending ASR data from a cancelled ASR
-                    // session that never reached RecordLlmRequestSent).  Clear
-                    // pending data to prevent stale timestamps from being applied
-                    // to the next round via RecordLlmRequestSent.
-                    if (_pendingAsrStartTime >= 0f || _pendingAsrEndTime >= 0f)
-                    {
-                        Debug.Log("[PipelineDebug] CancelCurrentRound: clearing stale pending ASR data (no round existed).");
-                    }
                     _pendingAsrStartTime = -1f;
                     _pendingAsrEndTime = -1f;
                     _pendingTranscript = null;
@@ -263,83 +288,153 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        public string ExportToCsv()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Index,Time,State,Input,ASR_ms,LLM_ms,TTFT_ms,FirstSentence_ms,TTS_FirstAudio_ms,TTS_ms,Playback_ms,TTFA_ms,Total_ms,Sentences,Bottleneck");
+            ConversationRound[] snapshot = GetCompletedRoundsSnapshot();
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                var r = snapshot[i];
+                string input = (r.UserInput ?? "").Replace("\"", "\"\"");
+                string state = r.WasCancelled ? "cancelled" : "completed";
+                sb.AppendLine(
+                    $"{r.Index},{r.WallClockTime:HH:mm:ss},{state},\"{input}\"," +
+                    $"{CsvMs(r.AsrMs)},{CsvMs(r.LlmMs)},{CsvMs(r.FirstTokenMs)},{CsvMs(r.FirstSentenceMs)}," +
+                    $"{CsvMs(r.TtsQueueToFirstAudioMs)},{CsvMs(r.TtsMs)},{CsvMs(r.PlaybackMs)}," +
+                    $"{CsvMs(r.E2EMs)},{CsvMs(r.TotalMs)},{r.CompletedSentenceCount}/{r.SentenceCount},{r.BottleneckStage}");
+            }
+            return sb.ToString();
+        }
+
         private void EnsureRound()
         {
-            lock (_sync)
+            if (_currentRound != null) return;
+            _roundRevision++;
+            _currentRound = new ConversationRound
             {
-                if (_currentRound == null)
-                {
-                    _roundRevision++;
-                    _currentRound = new ConversationRound
-                    {
-                        Index = _roundIndex++,
-                        WallClockTime = DateTime.Now
-                    };
-                    Debug.Log("[PipelineDebug] EnsureRound: created index=" + _currentRound.Index);
-                    _drainGenerationAtCancel = 0;
-                    AsrStatus = StageStatus.Waiting;
-                    LlmStatus = StageStatus.Waiting;
-                    TtsStatus = StageStatus.Waiting;
-                    PlaybackStatus = StageStatus.Waiting;
-                    _sentenceCountInRound = 0;
-                }
-            }
+                Index = _roundIndex++,
+                WallClockTime = DateTime.Now
+            };
+            _drainGenerationAtCancel = 0;
+            ResetStatuses();
+            _sentenceCountInRound = 0;
         }
 
         private void FinalizeRound()
         {
             if (_currentRound == null) return;
-            Debug.Log("[PipelineDebug] FinalizeRound: index=" + _currentRound.Index + " AsrMs=" + _currentRound.AsrMs + " LlmMs=" + _currentRound.LlmMs + " TtsMs=" + _currentRound.TtsMs);
             _currentRound.IsComplete = true;
             _currentRound.SentenceCount = _sentenceCountInRound;
             _completedRounds.Add(_currentRound);
-            while (_completedRounds.Count > MaxHistoryRounds)
-                _completedRounds.RemoveAt(0);
+            TrimHistory();
             ComputeAverages();
             _currentRound = null;
             _sentenceCountInRound = 0;
         }
 
-        private void ComputeAverages()
+        private void TrimHistory()
         {
-            lock (_sync)
-            {
-                int asrC = 0, llmC = 0, ttsC = 0, totC = 0, ftC = 0, e2eC = 0;
-                float asrS = 0, llmS = 0, ttsS = 0, totS = 0, ftS = 0, e2eS = 0;
-                foreach (var r in _completedRounds)
-                {
-                    if (r.AsrMs > 0) { asrS += r.AsrMs; asrC++; }
-                    if (r.LlmMs > 0) { llmS += r.LlmMs; llmC++; }
-                    if (r.TtsMs > 0) { ttsS += r.TtsMs; ttsC++; }
-                    if (r.TotalMs > 0) { totS += r.TotalMs; totC++; }
-                    if (r.FirstTokenMs > 0) { ftS += r.FirstTokenMs; ftC++; }
-                    if (r.E2EMs > 0) { e2eS += r.E2EMs; e2eC++; }
-                }
-                AverageAsrMs = asrC > 0 ? asrS / asrC : 0f;
-                AverageLlmMs = llmC > 0 ? llmS / llmC : 0f;
-                AverageTtsMs = ttsC > 0 ? ttsS / ttsC : 0f;
-                AverageTotalMs = totC > 0 ? totS / totC : 0f;
-                AverageFirstTokenMs = ftC > 0 ? ftS / ftC : 0f;
-                AverageE2EMs = e2eC > 0 ? e2eS / e2eC : 0f;
-            }
+            while (_completedRounds.Count > MaxHistoryRounds)
+                _completedRounds.RemoveAt(0);
         }
 
-        public string ExportToCsv()
+        private void ResetStatuses()
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("Index,Time,Input,ASR_ms,LLM_ms,TTFT_ms,TTS_ms,E2E_ms,Total_ms");
-            ConversationRound[] snapshot;
-            lock (_sync)
+            AsrStatus = StageStatus.Waiting;
+            LlmStatus = StageStatus.Waiting;
+            TtsStatus = StageStatus.Waiting;
+            PlaybackStatus = StageStatus.Waiting;
+        }
+
+        private void ComputeAverages()
+        {
+            int asrC = 0, llmC = 0, ttsC = 0, playC = 0, totC = 0, ftC = 0, fsC = 0, e2eC = 0;
+            float asrS = 0, llmS = 0, ttsS = 0, playS = 0, totS = 0, ftS = 0, fsS = 0, e2eS = 0;
+            var e2eValues = new List<float>(_completedRounds.Count);
+
+            for (int i = 0; i < _completedRounds.Count; i++)
             {
-                snapshot = _completedRounds.ToArray();
+                var r = _completedRounds[i];
+                Accumulate(r.AsrMs, ref asrS, ref asrC);
+                Accumulate(r.LlmMs, ref llmS, ref llmC);
+                Accumulate(r.TtsMs, ref ttsS, ref ttsC);
+                Accumulate(r.PlaybackMs, ref playS, ref playC);
+                Accumulate(r.TotalMs, ref totS, ref totC);
+                Accumulate(r.FirstTokenMs, ref ftS, ref ftC);
+                Accumulate(r.FirstSentenceMs, ref fsS, ref fsC);
+                if (r.E2EMs > 0f)
+                {
+                    e2eS += r.E2EMs;
+                    e2eC++;
+                    e2eValues.Add(r.E2EMs);
+                }
             }
-            foreach (var r in snapshot)
+
+            AverageAsrMs = Average(asrS, asrC);
+            AverageLlmMs = Average(llmS, llmC);
+            AverageTtsMs = Average(ttsS, ttsC);
+            AveragePlaybackMs = Average(playS, playC);
+            AverageTotalMs = Average(totS, totC);
+            AverageFirstTokenMs = Average(ftS, ftC);
+            AverageFirstSentenceMs = Average(fsS, fsC);
+            AverageE2EMs = Average(e2eS, e2eC);
+            P50E2EMs = Percentile(e2eValues, 0.50f);
+            P90E2EMs = Percentile(e2eValues, 0.90f);
+
+            _stats = new PipelineLatencyStats
             {
-                string input = (r.UserInput ?? "").Replace("\"", "\"\"");
-                sb.AppendLine($"{r.Index},{r.WallClockTime:HH:mm:ss},\"{input}\",{r.AsrMs:F0},{r.LlmMs:F0},{r.FirstTokenMs:F0},{r.TtsMs:F0},{r.E2EMs:F0},{r.TotalMs:F0}");
-                Debug.Log($"[PipelineDebug] Export: idx={r.Index} ASR={r.AsrStartTime:F2}/{r.AsrEndTime:F2} LLM={r.LlmRequestTime:F2}/{r.LlmLastTokenTime:F2} TTSfirst={r.TtsFirstSentenceTime:F2} TTSlast={r.TtsLastCompleteTime:F2} PBstart={r.PlaybackStartTime:F2} PBend={r.PlaybackEndTime:F2} startTime={r.startTime:F2} finalEndTime={r.finalEndTime:F2} E2E={r.E2EMs:F0} Total={r.TotalMs:F0}");
+                SampleCount = e2eC,
+                AverageAsrMs = AverageAsrMs,
+                AverageLlmMs = AverageLlmMs,
+                AverageTtsMs = AverageTtsMs,
+                AveragePlaybackMs = AveragePlaybackMs,
+                AverageTotalMs = AverageTotalMs,
+                AverageFirstTokenMs = AverageFirstTokenMs,
+                AverageFirstSentenceMs = AverageFirstSentenceMs,
+                AverageFirstAudioMs = AverageE2EMs,
+                P50FirstAudioMs = P50E2EMs,
+                P90FirstAudioMs = P90E2EMs,
+                BestFirstAudioMs = e2eValues.Count > 0 ? e2eValues[0] : 0f,
+                WorstFirstAudioMs = e2eValues.Count > 0 ? e2eValues[e2eValues.Count - 1] : 0f
+            };
+        }
+
+        private static void Accumulate(float value, ref float sum, ref int count)
+        {
+            if (value <= 0f) return;
+            sum += value;
+            count++;
+        }
+
+        private static float Average(float sum, int count)
+        {
+            return count > 0 ? sum / count : 0f;
+        }
+
+        private static float Percentile(List<float> values, float percentile)
+        {
+            if (values == null || values.Count == 0) return 0f;
+            values.Sort();
+            float position = Mathf.Clamp01(percentile) * (values.Count - 1);
+            int lower = Mathf.FloorToInt(position);
+            int upper = Mathf.CeilToInt(position);
+            if (lower == upper) return values[lower];
+            float t = position - lower;
+            return Mathf.Lerp(values[lower], values[upper], t);
+        }
+
+        private static string CsvMs(float value)
+        {
+            return value > 0f ? value.ToString("F0") : "";
+        }
+
+        private void Trace(string message)
+        {
+            if (LogEvents)
+            {
+                Debug.Log($"[PipelineDebug] {message}");
             }
-            return sb.ToString();
         }
     }
 }
