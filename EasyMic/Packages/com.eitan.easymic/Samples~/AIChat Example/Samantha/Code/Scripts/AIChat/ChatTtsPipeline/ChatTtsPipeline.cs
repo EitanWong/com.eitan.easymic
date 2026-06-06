@@ -279,6 +279,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             ClearQueues();
 
+            lock (_playbackLock)
+            {
+                if (_playbackSessionId == oldSessionId)
+                {
+                    DisposePlaybackUnsafe();
+                }
+            }
+
+            NotifySpeakingState(false);
+
             if (_config.UseLocalTts && _config.LocalSynthesizer != null)
             {
                 try
@@ -305,16 +315,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     Debug.LogWarning($"[ParallelTtsPipeline] Error waiting for orchestrator: {ex.Message}");
                 }
             }
-
-            lock (_playbackLock)
-            {
-                if (_playbackSessionId == oldSessionId)
-                {
-                    DisposePlaybackUnsafe();
-                }
-            }
-
-            NotifySpeakingState(false);
 
             if (!_disposed && !_config.UseLocalTts && !_pendingJobs.IsEmpty)
             {

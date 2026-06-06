@@ -410,14 +410,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             CancelAndDisposeCts(previous);
         }
 
-        private bool IsResponseCancellationPending()
-        {
-            lock (_stateLock)
-            {
-                return _responseCts == null || _responseCts.IsCancellationRequested;
-            }
-        }
-
         private static void CancelAndDisposeCts(CancellationTokenSource cts)
         {
             if (cts == null)
