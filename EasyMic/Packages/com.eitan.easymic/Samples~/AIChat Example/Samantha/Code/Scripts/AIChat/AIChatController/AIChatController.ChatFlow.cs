@@ -304,6 +304,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 bool isCurrentGeneration = IsCurrentResponseGeneration(generation);
                 if (isCurrentGeneration)
                 {
+                    if (!responseSucceeded && !string.IsNullOrEmpty(errorMessage) && recordUserMessage)
+                    {
+                        AppendConversationHistory(userInput, null);
+                    }
+
                     _llmInFlight = false;
                     UpdateIdleState();
                     NotifyPluginHost(host => host.NotifyAssistantResponseFinished(
