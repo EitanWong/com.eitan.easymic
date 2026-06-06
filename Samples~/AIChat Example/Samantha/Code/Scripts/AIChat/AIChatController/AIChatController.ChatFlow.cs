@@ -13,16 +13,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
-        private void BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
+        private bool BeginAssistantResponse(string userInput, bool recordUserMessage = true, bool isProactive = false)
         {
             if (_initializationFailed)
             {
-                return;
+                return true;
             }
 
             if (string.IsNullOrWhiteSpace(userInput))
             {
-                return;
+                return true;
             }
 
             long generation = Interlocked.Increment(ref _responseGeneration);
@@ -37,10 +37,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 Debug.LogWarning("[AIChat] OpenAI client not available.");
                 NotifyChatStateChanged(ChatState.Failed, "API client not configured");
-                return;
+                return true;
             }
 
-            SignalCancelActiveResponse(advanceGeneration: false);
+            SignalCancelActiveResponse(advanceGeneration: false, dispatchBufferedInputOnIdle: false);
 
             // Wait for TTS pipeline drain from SignalCancelActiveResponse to complete
             // before creating the new tracker round. Without this, a stale TTS drain
@@ -66,7 +66,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (!IsCurrentResponseGeneration(generation))
             {
-                return;
+                return false;
             }
 
             ResetResponseLatencyTracking();
@@ -95,9 +95,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             NotifyPluginHost(host => host.NotifyAssistantRequestStarted(userInput, isProactive));
 
             SafeFireAndForget(RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive), nameof(RunChatCompletionAsync));
+            return true;
         }
 
-        private void SignalCancelActiveResponse(bool advanceGeneration = true)
+        private void SignalCancelActiveResponse(bool advanceGeneration = true, bool dispatchBufferedInputOnIdle = true)
         {
             // Capture state before clearing flags — used to decide whether to cancel
             bool hadActiveResponse = _llmInFlight || _isAssistantSpeaking;
@@ -117,8 +118,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _requestOrchestrator?.ResetCurrentResponse();
             _llmInFlight = false;
-            SetAssistantSpeakingState(false);
-            UpdateIdleState();
+            _isAssistantSpeaking = false;
+            UpdateIdleState(dispatchBufferedInputOnIdle);
 
             NotifyChatStateChanged(ChatState.Idle, null);
             // Only cancel tracker round if there was an active response (avoids destroying

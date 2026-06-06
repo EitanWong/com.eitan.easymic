@@ -22,10 +22,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 payload = _userInputBuffer.ToString();
-                _userInputBuffer.Clear();
             }
 
-            BeginAssistantResponse(payload, recordUserMessage: true, isProactive: false);
+            bool consumed = BeginAssistantResponse(payload, recordUserMessage: true, isProactive: false);
+            if (!consumed)
+            {
+                if (IsIdle)
+                {
+                    PostToUnityThread(() => TryDispatchBufferedInput());
+                }
+
+                return false;
+            }
+
+            RemoveDispatchedUserInput(payload);
             return true;
         }
 
@@ -52,8 +62,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return false;
             }
 
-            BeginAssistantResponse(prompt.Trim(), recordUserMessage, isProactive: true);
-            return true;
+            return BeginAssistantResponse(prompt.Trim(), recordUserMessage, isProactive: true);
         }
 
         public async Task CancelResponseAsync()
@@ -74,6 +83,40 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             lock (_stateLock)
             {
                 return _userInputBuffer.ToString();
+            }
+        }
+
+        private void RemoveDispatchedUserInput(string payload)
+        {
+            if (string.IsNullOrEmpty(payload))
+            {
+                return;
+            }
+
+            lock (_stateLock)
+            {
+                string current = _userInputBuffer.ToString();
+                if (current.Length == 0)
+                {
+                    return;
+                }
+
+                if (string.Equals(current, payload, System.StringComparison.Ordinal))
+                {
+                    _userInputBuffer.Clear();
+                    return;
+                }
+
+                if (!current.StartsWith(payload, System.StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _userInputBuffer.Remove(0, payload.Length);
+                while (_userInputBuffer.Length > 0 && char.IsWhiteSpace(_userInputBuffer[0]))
+                {
+                    _userInputBuffer.Remove(0, 1);
+                }
             }
         }
 
