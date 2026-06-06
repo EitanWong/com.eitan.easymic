@@ -15,6 +15,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const float MinWindowHeight = 520f;
         private const float ToolbarHeight = 30f;
         private const float RowHeight = 22f;
+        private const float OverviewHeight = 132f;
+        private const float MetricCardHeight = 74f;
 
         private Rect _windowRect = new Rect(30, 40, 920, 620);
         private PipelineDebugTracker _tracker;
@@ -152,7 +154,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _scroll = GUI.BeginScrollView(contentRect, _scroll, new Rect(0, 0, contentRect.width - 18f, 700f));
             float y = 0f;
-            y = DrawOverview(new Rect(0, y, contentRect.width - 18f, 118f), current, history, stats) + 12f;
+            y = DrawOverview(new Rect(0, y, contentRect.width - 18f, OverviewHeight), current, history, stats) + 12f;
             y = DrawStageBreakdown(new Rect(0, y, contentRect.width - 18f, 190f), current, stats) + 12f;
             y = DrawHandoffBreakdown(new Rect(0, y, contentRect.width - 18f, 178f), current, stats) + 12f;
             DrawCurrentTranscript(new Rect(0, y, contentRect.width - 18f, 94f), current);
@@ -189,10 +191,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             float cardY = rect.y + 38f;
             float cardW = (rect.width - 56f) / 4f;
-            DrawMetricCard(new Rect(rect.x + 14f, cardY, cardW, 62f), "Current TTFA", ttfa, QualityLabel(current != null ? current.UserWaitToFirstAudioMs : LastValid(history, r => r.UserWaitToFirstAudioMs)));
-            DrawMetricCard(new Rect(rect.x + 24f + cardW, cardY, cardW, 62f), "P50 / P90 TTFA", $"{FormatMs(stats.P50FirstAudioMs)} / {FormatMs(stats.P90FirstAudioMs)}", $"{stats.SampleCount} samples");
-            DrawMetricCard(new Rect(rect.x + 34f + cardW * 2f, cardY, cardW, 62f), "Bottleneck", bottleneck, "largest completed stage");
-            DrawMetricCard(new Rect(rect.x + 44f + cardW * 3f, cardY, cardW, 62f), "Rounds", $"{_tracker.TotalRounds} total", $"{state}, {_tracker.CancelledRounds} interrupted");
+            DrawMetricCard(new Rect(rect.x + 14f, cardY, cardW, MetricCardHeight), "Current TTFA", ttfa, QualityLabel(current != null ? current.UserWaitToFirstAudioMs : LastValid(history, r => r.UserWaitToFirstAudioMs)));
+            DrawMetricCard(new Rect(rect.x + 24f + cardW, cardY, cardW, MetricCardHeight), "P50 / P90 TTFA", $"{FormatMs(stats.P50FirstAudioMs)} / {FormatMs(stats.P90FirstAudioMs)}", $"{stats.SampleCount} samples");
+            DrawMetricCard(new Rect(rect.x + 34f + cardW * 2f, cardY, cardW, MetricCardHeight), "Bottleneck", bottleneck, "largest completed stage");
+            DrawMetricCard(new Rect(rect.x + 44f + cardW * 3f, cardY, cardW, MetricCardHeight), "Rounds", $"{_tracker.TotalRounds} total", $"{state}, {_tracker.CancelledRounds} interrupted");
             return rect.yMax;
         }
 
@@ -330,7 +332,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             GUI.DrawTexture(rect, _panelTex);
             GUI.Label(new Rect(rect.x + 10, rect.y + 8, rect.width - 20, 18), title, _mutedStyle);
             GUI.Label(new Rect(rect.x + 10, rect.y + 26, rect.width - 20, 22), value, _valueStyle);
-            GUI.Label(new Rect(rect.x + 10, rect.y + 47, rect.width - 20, 14), subtitle, _mutedStyle);
+            GUI.Label(new Rect(rect.x + 10, rect.y + 50, rect.width - 20, 18), subtitle, _mutedStyle);
         }
 
         private void DrawPanel(Rect rect)
