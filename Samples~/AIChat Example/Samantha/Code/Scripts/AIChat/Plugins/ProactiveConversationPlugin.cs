@@ -104,10 +104,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (now >= _scheduledGreetingTime && CanSendProactive())
                 {
-                    if (_context.TrySendProactiveMessage(GetGreetingPrompt(), _recordPromptAsUserMessage))
+                    string greetingPrompt = GetGreetingPrompt();
+                    if (string.IsNullOrWhiteSpace(greetingPrompt))
                     {
                         _greetingSent = true;
+                        _scheduledGreetingTime = 0f;
+                    }
+                    else if (_context.TrySendProactiveMessage(greetingPrompt, _recordPromptAsUserMessage))
+                    {
+                        _greetingSent = true;
+                        _scheduledGreetingTime = 0f;
                         _lastProactiveTime = now;
+                    }
+                    else
+                    {
+                        ResetProactiveTimer(now);
                     }
                 }
             }
@@ -132,10 +143,21 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_context.TrySendProactiveMessage(GetIdlePrompt(), _recordPromptAsUserMessage))
+            string idlePrompt = GetIdlePrompt();
+            if (string.IsNullOrWhiteSpace(idlePrompt))
+            {
+                ResetProactiveTimer(now);
+                return;
+            }
+
+            if (_context.TrySendProactiveMessage(idlePrompt, _recordPromptAsUserMessage))
             {
                 _lastProactiveTime = now;
                 _currentWaitSeconds = GetNextWaitSeconds();
+            }
+            else
+            {
+                ResetProactiveTimer(now);
             }
         }
 
