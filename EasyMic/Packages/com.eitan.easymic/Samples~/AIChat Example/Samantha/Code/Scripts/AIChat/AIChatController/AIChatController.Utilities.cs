@@ -3,6 +3,7 @@
 using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using System;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -190,6 +191,24 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private bool IsCurrentResponseGeneration(long generation)
         {
             return Interlocked.Read(ref _responseGeneration) == generation;
+        }
+
+        private void DisposeOpenAiClientWhenIdle(OpenAICompatibleClient client)
+        {
+            if (client == null)
+            {
+                return;
+            }
+
+            SafeFireAndForget(async () =>
+            {
+                while (!_isShuttingDown && (_llmInFlight || _isAssistantSpeaking))
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                }
+
+                client.Dispose();
+            }, nameof(DisposeOpenAiClientWhenIdle));
         }
 
         private string ResolveLlmModel(string requestedModel = null)

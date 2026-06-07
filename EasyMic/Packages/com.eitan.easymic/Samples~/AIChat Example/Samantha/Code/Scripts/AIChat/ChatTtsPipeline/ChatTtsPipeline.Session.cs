@@ -11,7 +11,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         private void EnsureOrchestratorRunning()
         {
-            if (_config.UseLocalTts)
+            if (GetConfigSnapshot().UseLocalTts)
             {
                 return;
             }
@@ -59,7 +59,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             finally
             {
                 Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 0);
-                if (!_disposed && !_config.UseLocalTts && (!_pendingJobs.IsEmpty || !_completedJobs.IsEmpty))
+                if (!_disposed && !GetConfigSnapshot().UseLocalTts && (!_pendingJobs.IsEmpty || !_completedJobs.IsEmpty))
                 {
                     EnsureOrchestratorRunning();
                 }

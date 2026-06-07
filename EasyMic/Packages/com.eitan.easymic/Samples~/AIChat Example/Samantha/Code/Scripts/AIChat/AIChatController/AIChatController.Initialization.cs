@@ -120,9 +120,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
-                _openAiClient?.Dispose();
+                OpenAICompatibleClient previousClient = _openAiClient;
                 _openAiClient = new OpenAICompatibleClient(normalized, apiKey);
                 _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
+                DisposeOpenAiClientWhenIdle(previousClient);
                 _lastErrorMessage = string.Empty;
             }
             catch (Exception ex)

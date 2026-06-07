@@ -158,10 +158,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 // RACE FIX: Call SignalCancelActiveResponse synchronously instead of
                 // fire-and-forgetting CancelActiveResponseAsync. The async CancelActiveResponseAsync
-                // has a race window where its SignalCancelActiveResponse (which calls
-                // CancelAndDisposeCts(TakeResponseCancellationTokenSource())) can take the NEW
-                // response's CancellationTokenSource that was set by a concurrent
-                // BeginAssistantResponse (triggered by ASR submit from this same VAD event).
+                // has a race window where SignalCancelActiveResponse can take the NEW response's
+                // CancellationTokenSource that was set by a concurrent BeginAssistantResponse
+                // (triggered by ASR submit from this same VAD event).
                 SignalCancelActiveResponse(advanceGeneration: true);
             }
         }

@@ -70,6 +70,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private bool _playbackInitialized;
         private long _playbackSessionId;
         private int _restartAfterCurrentSessionRequested;
+        private int _generationSemaphoreDisposeRequested;
 
         private bool _localSynthCallbacksBound;
         private SpeechSynthesizer _boundLocalSynthesizer;
@@ -161,6 +162,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        private TtsPipelineConfig GetConfigSnapshot()
+        {
+            lock (_stateLock)
+            {
+                return _config;
+            }
+        }
+
         private void ReportAdaptiveUnderrun()
         {
             double updatedBudget = 0d;
@@ -186,7 +195,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (changed && _config.LogSentences)
+            if (changed && GetConfigSnapshot().LogSentences)
             {
                 Debug.Log($"[ParallelTtsPipeline] Adaptive buffer increased to {updatedBudget:0.00}s");
             }
@@ -223,7 +232,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (changed && _config.LogSentences)
+            if (changed && GetConfigSnapshot().LogSentences)
             {
                 Debug.Log($"[ParallelTtsPipeline] Adaptive buffer decreased to {updatedBudget:0.00}s");
             }
@@ -242,9 +251,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_config.UseLocalTts && _config.LocalSynthesizer != null)
+            var config = GetConfigSnapshot();
+            if (config.UseLocalTts && config.LocalSynthesizer != null)
             {
-                _config.LocalSynthesizer.EnqueueSentence(trimmed);
+                config.LocalSynthesizer.EnqueueSentence(trimmed);
                 return;
             }
 
@@ -276,6 +286,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             var stopState = _session.CancelAndGetTask();
             long oldSessionId = stopState.sessionId;
             Task taskToWait = stopState.task;
+            var config = GetConfigSnapshot();
 
             ClearQueues();
 
@@ -289,11 +300,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             NotifySpeakingState(false);
 
-            if (_config.UseLocalTts && _config.LocalSynthesizer != null)
+            if (config.UseLocalTts && config.LocalSynthesizer != null)
             {
                 try
                 {
-                    await _config.LocalSynthesizer.StopAndWaitAsync().ConfigureAwait(false);
+                    await config.LocalSynthesizer.StopAndWaitAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -316,7 +327,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (!_disposed && !_config.UseLocalTts && !_pendingJobs.IsEmpty)
+            if (!_disposed && !GetConfigSnapshot().UseLocalTts && !_pendingJobs.IsEmpty)
             {
                 EnsureOrchestratorRunning();
             }
@@ -324,7 +335,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public async Task WaitForIdleAsync()
         {
-            if (_config.UseLocalTts)
+            if (GetConfigSnapshot().UseLocalTts)
             {
                 return;
             }
@@ -355,7 +366,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _disposed = true;
-            _session.Dispose();
+            var stopState = _session.CancelAndGetTask();
 
             ClearQueues();
             DetachLocalSynthCallbacks();
@@ -365,7 +376,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 DisposePlaybackUnsafe();
             }
 
-            _generationSemaphore.Dispose();
+            DisposeGenerationSemaphoreWhenTaskCompletes(stopState.task);
+        }
+
+        private void DisposeGenerationSemaphoreWhenTaskCompletes(Task task)
+        {
+            if (Interlocked.Exchange(ref _generationSemaphoreDisposeRequested, 1) == 1)
+            {
+                return;
+            }
+
+            if (task == null || task.IsCompleted)
+            {
+                _generationSemaphore.Dispose();
+                return;
+            }
+
+            task.ContinueWith(
+                _ => _generationSemaphore.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 }
