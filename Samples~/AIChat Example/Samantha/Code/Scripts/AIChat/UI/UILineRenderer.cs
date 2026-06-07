@@ -41,17 +41,17 @@ namespace Radishmouse
         [Tooltip("Normalized roll offset applied to the stylized thickness/opacity profile (useful when geometry rolls).")]
         [Range(0f, 1f)] public float styleRollOffset = 0f;
 
-        // Reused work buffers to minimize GC
-        private static readonly List<Vector2> s_Local = new List<Vector2>(256);
-        private static readonly List<Vector2> s_Path = new List<Vector2>(256);
-        private static readonly List<Vector2> s_Resampled = new List<Vector2>(256);
-        private static readonly List<Vector2> s_SegF = new List<Vector2>(256);
-        private static readonly List<Vector2> s_SegB = new List<Vector2>(256);
-        private static readonly List<Vector2> s_Miter = new List<Vector2>(256);
-        private static readonly List<float> s_SegLen = new List<float>(256);
-        private static readonly List<float> s_PathWidths = new List<float>(256);
-        private static readonly List<float> s_PathWidthScratch = new List<float>(256);
-        private static readonly List<float> s_PathHalfWidth = new List<float>(256);
+        // Reused work buffers to minimize GC — per-instance to avoid threading issues
+        private readonly List<Vector2> _localVerts = new List<Vector2>(256);
+        private readonly List<Vector2> _pathVerts = new List<Vector2>(256);
+        private readonly List<Vector2> _resampledVerts = new List<Vector2>(256);
+        private readonly List<Vector2> _segForward = new List<Vector2>(256);
+        private readonly List<Vector2> _segBackward = new List<Vector2>(256);
+        private readonly List<Vector2> _miterVerts = new List<Vector2>(256);
+        private readonly List<float> _segLengths = new List<float>(256);
+        private readonly List<float> _pathWidths = new List<float>(256);
+        private readonly List<float> _pathWidthScratch = new List<float>(256);
+        private readonly List<float> _pathHalfWidths = new List<float>(256);
 
         private const float MIN_PIXEL_WIDTH = 1f;
         private const float WIDTH_CLAMP_MIN = 0.3f;
@@ -116,32 +116,32 @@ namespace Radishmouse
                 var pv = rt.pivot;
                 pivotOff = new Vector2(rect.width * pv.x, rect.height * pv.y);
             }
-            ConvertToLocalPoints(points, s_Local, pointsInPivotSpace, pivotOff);
+            ConvertToLocalPoints(points, _localVerts, pointsInPivotSpace, pivotOff);
             // -------------------------------------------------------------------------------
 
             // Step 2: optional spline resample (loop-aware)
-            if (useSpline && splineSubdivisions > 1 && s_Local.Count >= 3)
+            if (useSpline && splineSubdivisions > 1 && _localVerts.Count >= 3)
             {
-                ResampleSpline(s_Local, s_Path, closeLoop, splineSubdivisions, splineTension);
+                ResampleSpline(_localVerts, _pathVerts, closeLoop, splineSubdivisions, splineTension);
             }
             else
             {
-                CopyTo(s_Local, s_Path);
+                CopyTo(_localVerts, _pathVerts);
             }
 
 
-            RemoveTinySegments(s_Path);
-            if (s_Path.Count < 2)
+            RemoveTinySegments(_pathVerts);
+            if (_pathVerts.Count < 2)
             {
                 return;
             }
 
-            AdaptiveRefinePath(s_Path, s_Resampled, closeLoop, thickness);
-            CopyTo(s_Resampled, s_Path);
+            AdaptiveRefinePath(_pathVerts, _resampledVerts, closeLoop, thickness);
+            CopyTo(_resampledVerts, _pathVerts);
 
             // Step 3: triangulate thick polyline with miter joins
 
-            BuildMesh(vh, s_Path, thickness, closeLoop, color);
+            BuildMesh(vh, _pathVerts, thickness, closeLoop, color);
         }
 
         // ---------- Helpers ----------
@@ -298,17 +298,17 @@ namespace Radishmouse
         }
         // ---------------------------------------------------------------------------
 
-        private static List<float> ComputeHalfWidths(List<Vector2> path, float baseWidth, bool loop)
+        private List<float> ComputeHalfWidths(List<Vector2> path, float baseWidth, bool loop)
         {
             int n = path.Count;
-            EnsureSize(s_SegLen, n);
-            EnsureSize(s_PathWidths, n);
-            EnsureSize(s_PathWidthScratch, n);
-            EnsureSize(s_PathHalfWidth, n);
+            EnsureSize(_segLengths, n);
+            EnsureSize(_pathWidths, n);
+            EnsureSize(_pathWidthScratch, n);
+            EnsureSize(_pathHalfWidths, n);
 
             if (n == 0)
             {
-                return s_PathHalfWidth;
+                return _pathHalfWidths;
             }
 
 
@@ -317,7 +317,7 @@ namespace Radishmouse
             for (int i = 0; i < n - 1; i++)
             {
                 float len = (path[i + 1] - path[i]).magnitude;
-                s_SegLen[i] = len;
+                _segLengths[i] = len;
                 totalLen += len;
                 prevLen = len;
             }
@@ -325,12 +325,12 @@ namespace Radishmouse
             if (loop)
             {
                 float len = (path[0] - path[n - 1]).magnitude;
-                s_SegLen[n - 1] = len;
+                _segLengths[n - 1] = len;
                 totalLen += len;
             }
             else
             {
-                s_SegLen[n - 1] = prevLen;
+                _segLengths[n - 1] = prevLen;
             }
 
 
@@ -342,29 +342,29 @@ namespace Radishmouse
 
             for (int i = 0; i < n; i++)
             {
-                float lenPrev = loop ? s_SegLen[(i - 1 + n) % n] : (i > 0 ? s_SegLen[i - 1] : s_SegLen[0]);
-                float lenNext = loop ? s_SegLen[i] : (i < n - 1 ? s_SegLen[i] : s_SegLen[Mathf.Max(0, n - 2)]);
+                float lenPrev = loop ? _segLengths[(i - 1 + n) % n] : (i > 0 ? _segLengths[i - 1] : _segLengths[0]);
+                float lenNext = loop ? _segLengths[i] : (i < n - 1 ? _segLengths[i] : _segLengths[Mathf.Max(0, n - 2)]);
                 float localSpacing = 0.5f * (lenPrev + lenNext);
                 float ratio = localSpacing / avgSpacing;
                 float adaptive = 1f + (ratio - 1f) * ADAPTIVE_WEIGHT;
                 float width = Mathf.Clamp(widthBase * adaptive, minWidth, maxWidth);
-                s_PathWidths[i] = width;
+                _pathWidths[i] = width;
             }
 
 
-            SmoothWidths(s_PathWidths, s_PathWidthScratch, loop, minWidth, maxWidth);
+            SmoothWidths(_pathWidths, _pathWidthScratch, loop, minWidth, maxWidth);
 
             for (int i = 0; i < n; i++)
             {
-                float half = 0.5f * Mathf.Clamp(s_PathWidthScratch[i], minWidth, maxWidth);
-                s_PathHalfWidth[i] = Mathf.Max(half, 0.5f * MIN_PIXEL_WIDTH);
+                float half = 0.5f * Mathf.Clamp(_pathWidthScratch[i], minWidth, maxWidth);
+                _pathHalfWidths[i] = Mathf.Max(half, 0.5f * MIN_PIXEL_WIDTH);
             }
 
 
-            return s_PathHalfWidth;
+            return _pathHalfWidths;
         }
 
-        private static void SmoothWidths(List<float> src, List<float> dst, bool loop, float minWidth, float maxWidth)
+        private void SmoothWidths(List<float> src, List<float> dst, bool loop, float minWidth, float maxWidth)
         {
             int n = src.Count;
             if (n == 0)
@@ -547,9 +547,9 @@ namespace Radishmouse
                 widthSpan = 1f;
             }
 
-            EnsureSize(s_SegF, n);
-            EnsureSize(s_SegB, n);
-            EnsureSize(s_Miter, n);
+            EnsureSize(_segForward, n);
+            EnsureSize(_segBackward, n);
+            EnsureSize(_miterVerts, n);
 
             // Segment directions
             if (loop)
@@ -558,8 +558,8 @@ namespace Radishmouse
                 {
                     Vector2 df = path[(i + 1) % n] - path[i];
                     Vector2 db = path[i] - path[(i - 1 + n) % n];
-                    s_SegF[i] = df.sqrMagnitude > 1e-12f ? df.normalized : Vector2.right;
-                    s_SegB[i] = db.sqrMagnitude > 1e-12f ? db.normalized : Vector2.right;
+                    _segForward[i] = df.sqrMagnitude > 1e-12f ? df.normalized : Vector2.right;
+                    _segBackward[i] = db.sqrMagnitude > 1e-12f ? db.normalized : Vector2.right;
                 }
             }
             else
@@ -567,20 +567,20 @@ namespace Radishmouse
                 // first
                 {
                     Vector2 df = path[1] - path[0];
-                    s_SegF[0] = s_SegB[0] = (df.sqrMagnitude > 1e-12f) ? df.normalized : Vector2.right;
+                    _segForward[0] = _segBackward[0] = (df.sqrMagnitude > 1e-12f) ? df.normalized : Vector2.right;
                 }
                 // interior
                 for (int i = 1; i < n - 1; i++)
                 {
                     Vector2 df = path[i + 1] - path[i];
                     Vector2 db = path[i] - path[i - 1];
-                    s_SegF[i] = (df.sqrMagnitude > 1e-12f) ? df.normalized : Vector2.right;
-                    s_SegB[i] = (db.sqrMagnitude > 1e-12f) ? db.normalized : Vector2.right;
+                    _segForward[i] = (df.sqrMagnitude > 1e-12f) ? df.normalized : Vector2.right;
+                    _segBackward[i] = (db.sqrMagnitude > 1e-12f) ? db.normalized : Vector2.right;
                 }
                 // last
                 {
                     Vector2 db = path[n - 1] - path[n - 2];
-                    s_SegB[n - 1] = s_SegF[n - 1] = (db.sqrMagnitude > 1e-12f) ? db.normalized : Vector2.right;
+                    _segBackward[n - 1] = _segForward[n - 1] = (db.sqrMagnitude > 1e-12f) ? db.normalized : Vector2.right;
                 }
             }
 
@@ -592,16 +592,16 @@ namespace Radishmouse
 
                 if (endpoint)
                 {
-                    Vector2 d = (i == 0) ? s_SegF[i] : s_SegB[i];
+                    Vector2 d = (i == 0) ? _segForward[i] : _segBackward[i];
                     Vector2 nSeg = Perp(d);
                     float denom = Vector2.Dot(nSeg, nSeg);
                     float scale = (denom > 1e-6f) ? (half / Mathf.Sqrt(denom)) : half;
-                    s_Miter[i] = nSeg * scale; // butt cap
+                    _miterVerts[i] = nSeg * scale; // butt cap
                 }
                 else
                 {
-                    Vector2 n1 = Perp(s_SegB[i]);
-                    Vector2 n2 = Perp(s_SegF[i]);
+                    Vector2 n1 = Perp(_segBackward[i]);
+                    Vector2 n2 = Perp(_segForward[i]);
                     Vector2 m = n1 + n2;
 
                     if (m.sqrMagnitude < 1e-12f)
@@ -622,7 +622,7 @@ namespace Radishmouse
                     {
                         mit = mit / mitMag * maxLen;
                     }
-                    s_Miter[i] = mit;
+                    _miterVerts[i] = mit;
                 }
             }
 
@@ -637,7 +637,7 @@ namespace Radishmouse
             for (int i = 0; i < n; i++)
             {
                 Vector2 p = path[i];
-                Vector2 off = s_Miter[i];
+                Vector2 off = _miterVerts[i];
                 float normalized = hasWidthRange
                     ? Mathf.Clamp01((halfWidths[i] * 2f - minWidth) / widthSpan)
                     : 1f;
@@ -719,12 +719,12 @@ namespace Radishmouse
 
             float range = max - min;
 
-            EnsureSize(s_PathWidthScratch, n);
+            EnsureSize(_pathWidthScratch, n);
             for (int i = 0; i < n; i++)
             {
                 float norm = Mathf.Clamp01((halfWidths[i] - min) / range);
                 // SmoothStep accentuates contrast without introducing new parameters.
-                s_PathWidthScratch[i] = Mathf.SmoothStep(0f, 1f, norm);
+                _pathWidthScratch[i] = Mathf.SmoothStep(0f, 1f, norm);
             }
 
             if (loop)
@@ -735,25 +735,25 @@ namespace Radishmouse
                     float scaled = offset * n;
                     int whole = n > 0 ? Mathf.FloorToInt(scaled) % n : 0;
                     float frac = scaled - whole;
-                    EnsureSize(s_PathWidths, n);
+                    EnsureSize(_pathWidths, n);
                     for (int i = 0; i < n; i++)
                     {
                         int idxA = (i + whole) % n;
                         int idxB = (idxA + 1) % n;
-                        float vA = s_PathWidthScratch[idxA];
-                        float vB = s_PathWidthScratch[idxB];
-                        s_PathWidths[i] = Mathf.Lerp(vA, vB, frac);
+                        float vA = _pathWidthScratch[idxA];
+                        float vB = _pathWidthScratch[idxB];
+                        _pathWidths[i] = Mathf.Lerp(vA, vB, frac);
                     }
                     for (int i = 0; i < n; i++)
                     {
-                        s_PathWidthScratch[i] = s_PathWidths[i];
+                        _pathWidthScratch[i] = _pathWidths[i];
                     }
                 }
             }
 
             for (int i = 0; i < n; i++)
             {
-                halfWidths[i] = Mathf.Lerp(minHalfTarget, maxHalfTarget, s_PathWidthScratch[i]);
+                halfWidths[i] = Mathf.Lerp(minHalfTarget, maxHalfTarget, _pathWidthScratch[i]);
             }
         }
 

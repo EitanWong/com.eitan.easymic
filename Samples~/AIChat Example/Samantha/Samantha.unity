@@ -10998,10 +10998,10 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
-    Channel: 2
+    DeviceName: MacBook Pro Microphone
+    Channel: 1
     SampleRate: 48000
-  _enableLog: 1
+  _enableLog: 0
   _audioProcessingOptions:
     EnableAEC: 1
     EnableANS: 1
@@ -11049,7 +11049,7 @@ MonoBehaviour:
     LlmModel: Qwen/Qwen3-Omni-30B-A3B-Instruct
     LlmTemperature: 0.7
     SystemPromptProfile: {fileID: 11400000, guid: 6f96afdd81aaa4ba29b81c9310d5e1cd, type: 2}
-    LogStreamingChunks: 1
+    LogStreamingChunks: 0
     MaxHistoryTurns: 6
     AsrTurnDetectionDelaySeconds: 0.8
     UseLocalTts: 0
@@ -11058,6 +11058,7 @@ MonoBehaviour:
     UseStreamingTts: 1
     EnableTtsDiagnostics: 0
     InterruptAssistantOnUserSpeech: 1
+    BargeInEchoGuardSeconds: 0.2
     AutoHideMouseCursorWhenIdle: 1
     MouseCursorHideDelaySeconds: 1.5
     CursorMoveThresholdPixels: 1

@@ -91,11 +91,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _lastAssistantResponseTime = _lastMainThreadTime;
         }
 
-        private void UpdateIdleState()
+        private void UpdateIdleState(bool dispatchBufferedInput = true)
         {
             if (!IsOnUnityThread)
             {
-                PostToUnityThread(UpdateIdleState);
+                PostToUnityThread(() => UpdateIdleState(dispatchBufferedInput));
                 return;
             }
 
@@ -110,7 +110,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             OnIdleStateChanged?.Invoke(newIdle);
             _pluginHost?.NotifyIdleStateChanged(newIdle);
 
-            if (newIdle)
+            if (newIdle && dispatchBufferedInput)
             {
                 TryDispatchBufferedInput();
             }
@@ -130,7 +130,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            PostToUnityThread(UpdateIdleState);
+            PostToUnityThread(() => UpdateIdleState());
         }
 
         private void NotifyChatStateChanged(ChatState state, string message)

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections;
+using System.Threading;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -82,6 +83,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             string trimmed = utterance.Trim();
+            _latencyTracker?.RecordAsrEnd(trimmed);
             MarkUserActivity();
 
             lock (_stateLock)
@@ -108,7 +110,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             TryDispatchBufferedInput();
         }
 
-        private async void OnSpeakingChangedHandler(bool isSpeaking)
+        private void OnSpeakingChangedHandler(bool isSpeaking)
         {
             if (IsOnUnityThread)
             {
@@ -121,16 +123,45 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (isSpeaking)
             {
+                _latencyTracker?.RecordAsrStart();
                 MarkUserActivity();
             }
 
             if (isSpeaking &&
-                Config.InterruptAssistantOnUserSpeech &&
-                (_llmInFlight || _isAssistantSpeaking) &&
-                !IsResponseCancellationPending())
+                Config.InterruptAssistantOnUserSpeech)
             {
-                _interruptionCount++;
-                await CancelActiveResponseAsync().ConfigureAwait(false);
+                // CRITICAL: Use atomic snapshot of state flags. Reading _llmInFlight
+                // and _isAssistantSpeaking via their property accessors is non-atomic
+                // (each acquires _controllerState._sync independently). Between the
+                // two separate lock acquisitions, the state can change, causing a
+                // stale read of either flag. GetSnapshot() reads both under a single lock.
+                var stateSnapshot = _controllerState.GetSnapshot();
+                if (!stateSnapshot.LlmInFlight && !stateSnapshot.IsAssistantSpeaking)
+                {
+                    return;
+                }
+
+                // BARGE-IN ECHO GUARD: Prevent false barge-in from imperfect AEC
+                // (microphone picking up AI's own voice). If the response just started
+                // within the last [BargeInEchoGuardSeconds], suppress the cancellation
+                // to avoid the AI interrupting itself via echo feedback.
+                float lastResponseStartRealtime;
+                lock (_stateLock) lastResponseStartRealtime = _lastResponseStartRealtime;
+                float elapsedSinceResponseStart = Time.realtimeSinceStartup - lastResponseStartRealtime;
+                if (elapsedSinceResponseStart < Config.BargeInEchoGuardSeconds)
+                {
+                    Debug.Log($"[AIChat] Suppressed barge-in: only {elapsedSinceResponseStart*1000:F0}ms since response start (<{Config.BargeInEchoGuardSeconds*1000:F0}ms echo guard).");
+                    return;
+                }
+
+                Interlocked.Increment(ref _interruptionCount);
+
+                // RACE FIX: Call SignalCancelActiveResponse synchronously instead of
+                // fire-and-forgetting CancelActiveResponseAsync. The async CancelActiveResponseAsync
+                // has a race window where SignalCancelActiveResponse can take the NEW response's
+                // CancellationTokenSource that was set by a concurrent BeginAssistantResponse
+                // (triggered by ASR submit from this same VAD event).
+                SignalCancelActiveResponse(advanceGeneration: true);
             }
         }
 

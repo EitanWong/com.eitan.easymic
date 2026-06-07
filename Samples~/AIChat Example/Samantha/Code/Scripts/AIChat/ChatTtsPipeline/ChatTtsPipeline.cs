@@ -23,16 +23,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int RemoteDefaultSampleRate = 24000;
         private const int RemoteDefaultChannels = 1;
         private const int MaxQueuedJobs = 100;
-        private const int PlaybackPollDelayMs = 15;
+        private const int PlaybackPollDelayMs = 5;
         private const double PlaybackDrainEpsilon = 0.08;
-        private const double InitialStreamingPrebufferSeconds = 0.08;
+        private const double InitialStreamingPrebufferSeconds = 0.04;
         private const double MinimumStreamingChunkSeconds = 0.03;
         private const double BufferedPlaybackChunkSeconds = 0.06;
-        private const int StreamingFlushTimeoutMs = 35;
+        private const int StreamingFlushTimeoutMs = 15;
         private const double StreamingStallWarningSeconds = 1.2;
         private const double StreamingStallAbortSeconds = 8.0;
-        private const double AdaptiveBufferDefaultSeconds = 0.18;
-        private const double AdaptiveBufferMinSeconds = 0.10;
+        private const double AdaptiveBufferDefaultSeconds = 0.08;
+        private const double AdaptiveBufferMinSeconds = 0.06;
         private const double AdaptiveBufferMaxSeconds = 0.36;
         private const double AdaptiveBufferIncreaseStep = 0.03;
         private const double AdaptiveBufferDecreaseStep = 0.01;
@@ -69,6 +69,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private PlaybackAudioSourceBehaviour _playbackSource;
         private bool _playbackInitialized;
         private long _playbackSessionId;
+        private int _restartAfterCurrentSessionRequested;
+        private int _generationSemaphoreDisposeRequested;
 
         private bool _localSynthCallbacksBound;
         private SpeechSynthesizer _boundLocalSynthesizer;
@@ -160,6 +162,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        private TtsPipelineConfig GetConfigSnapshot()
+        {
+            lock (_stateLock)
+            {
+                return _config;
+            }
+        }
+
         private void ReportAdaptiveUnderrun()
         {
             double updatedBudget = 0d;
@@ -185,7 +195,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (changed && _config.LogSentences)
+            if (changed && GetConfigSnapshot().LogSentences)
             {
                 Debug.Log($"[ParallelTtsPipeline] Adaptive buffer increased to {updatedBudget:0.00}s");
             }
@@ -222,7 +232,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            if (changed && _config.LogSentences)
+            if (changed && GetConfigSnapshot().LogSentences)
             {
                 Debug.Log($"[ParallelTtsPipeline] Adaptive buffer decreased to {updatedBudget:0.00}s");
             }
@@ -241,9 +251,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_config.UseLocalTts && _config.LocalSynthesizer != null)
+            var config = GetConfigSnapshot();
+            if (config.UseLocalTts && config.LocalSynthesizer != null)
             {
-                _config.LocalSynthesizer.EnqueueSentence(trimmed);
+                config.LocalSynthesizer.EnqueueSentence(trimmed);
                 return;
             }
 
@@ -275,14 +286,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             var stopState = _session.CancelAndGetTask();
             long oldSessionId = stopState.sessionId;
             Task taskToWait = stopState.task;
+            var config = GetConfigSnapshot();
 
             ClearQueues();
 
-            if (_config.UseLocalTts && _config.LocalSynthesizer != null)
+            lock (_playbackLock)
+            {
+                if (_playbackSessionId == oldSessionId)
+                {
+                    DisposePlaybackUnsafe();
+                }
+            }
+
+            NotifySpeakingState(false);
+
+            if (config.UseLocalTts && config.LocalSynthesizer != null)
             {
                 try
                 {
-                    await _config.LocalSynthesizer.StopAndWaitAsync().ConfigureAwait(false);
+                    await config.LocalSynthesizer.StopAndWaitAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -305,20 +327,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            lock (_playbackLock)
+            if (!_disposed && !GetConfigSnapshot().UseLocalTts && !_pendingJobs.IsEmpty)
             {
-                if (_playbackSessionId == oldSessionId)
-                {
-                    DisposePlaybackUnsafe();
-                }
+                EnsureOrchestratorRunning();
             }
-
-            NotifySpeakingState(false);
         }
 
         public async Task WaitForIdleAsync()
         {
-            if (_config.UseLocalTts)
+            if (GetConfigSnapshot().UseLocalTts)
             {
                 return;
             }
@@ -349,7 +366,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _disposed = true;
-            _session.Dispose();
+            var stopState = _session.CancelAndGetTask();
 
             ClearQueues();
             DetachLocalSynthCallbacks();
@@ -359,7 +376,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 DisposePlaybackUnsafe();
             }
 
-            _generationSemaphore.Dispose();
+            DisposeGenerationSemaphoreWhenTaskCompletes(stopState.task);
+        }
+
+        private void DisposeGenerationSemaphoreWhenTaskCompletes(Task task)
+        {
+            if (Interlocked.Exchange(ref _generationSemaphoreDisposeRequested, 1) == 1)
+            {
+                return;
+            }
+
+            if (task == null || task.IsCompleted)
+            {
+                _generationSemaphore.Dispose();
+                return;
+            }
+
+            task.ContinueWith(
+                _ => _generationSemaphore.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 }
