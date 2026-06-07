@@ -22,3 +22,9 @@ mono_crash.*.json
 
 /Assets/EasyMicApmProjectLicenseProvider.cs
 /Assets/EasyMicApmProjectLicenseProvider.cs.meta
+
+# Pipeline debug CSV exports
+/PipelineExports/
+
+# CodeGraph index cache
+/.codegraph/

@@ -11,12 +11,59 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     {
         private void EnsureOrchestratorRunning()
         {
-            if (_config.UseLocalTts)
+            if (GetConfigSnapshot().UseLocalTts)
             {
                 return;
             }
 
-            _session.EnsureStarted(RunOrchestratorAsync);
+            if (_session.EnsureStarted(RunOrchestratorAsync))
+            {
+                Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 0);
+                return;
+            }
+
+            RequestRestartAfterCurrentSession();
+        }
+
+        private void RequestRestartAfterCurrentSession()
+        {
+            if (_disposed || Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 1) == 1)
+            {
+                return;
+            }
+
+            Task currentTask = _session.GetTask();
+            if (currentTask == null || currentTask.IsCompleted)
+            {
+                Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 0);
+                EnsureOrchestratorRunning();
+                return;
+            }
+
+            _ = RestartAfterCurrentSessionAsync(currentTask);
+        }
+
+        private async Task RestartAfterCurrentSessionAsync(Task currentTask)
+        {
+            try
+            {
+                await currentTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ParallelTtsPipeline] Previous session finished with error before restart: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 0);
+                if (!_disposed && !GetConfigSnapshot().UseLocalTts && (!_pendingJobs.IsEmpty || !_completedJobs.IsEmpty))
+                {
+                    EnsureOrchestratorRunning();
+                }
+            }
         }
 
         private async Task RunOrchestratorAsync(long sessionId, CancellationToken token)
@@ -27,24 +74,30 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             try
             {
                 NotifySpeakingState(true);
-                playbackTask = RunPlaybackWorkerAsync(sessionId, token);
                 generationTask = RunGenerationWorkerAsync(sessionId, token);
+                playbackTask = RunPlaybackWorkerAsync(
+                    sessionId,
+                    () => !generationTask.IsCompleted || !_pendingJobs.IsEmpty,
+                    token);
 
                 while (!token.IsCancellationRequested)
                 {
-                    if (_pendingJobs.IsEmpty && generationTask.IsCompleted && _completedJobs.IsEmpty)
-                    {
-                        break;
-                    }
-
                     if (generationTask.IsCompleted && !_pendingJobs.IsEmpty)
                     {
                         generationTask = RunGenerationWorkerAsync(sessionId, token);
                     }
 
+                    if (_pendingJobs.IsEmpty &&
+                        generationTask.IsCompleted &&
+                        _completedJobs.IsEmpty &&
+                        (playbackTask == null || playbackTask.IsCompleted))
+                    {
+                        break;
+                    }
+
                     try
                     {
-                        await Task.Delay(25, token).ConfigureAwait(false);
+                        await Task.Delay(10, token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {

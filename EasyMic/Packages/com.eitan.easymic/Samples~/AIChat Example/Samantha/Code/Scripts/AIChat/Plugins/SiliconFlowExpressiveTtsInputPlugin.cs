@@ -31,6 +31,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const string InstructionSystemPrompt =
             "You are a speech style planner for expressive TTS. " +
             "From user context, output exactly one concise speaking instruction sentence describing emotion, pace, role style, and optional dialect. " +
+            "Prefer natural language controls supported by CosyVoice, such as happiness, excitement, sadness, anger, dialect, pauses, and prosody. " +
             "Return plain text only.";
 
         private static readonly string[] PositiveKeywords =
@@ -48,6 +49,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             "难过", "伤心", "抱歉", "遗憾", "失落", "痛苦"
         };
 
+        private static readonly string[] ExplicitLaughterKeywords =
+        {
+            "haha", "hahaha", "hehe", "lol", "laugh", "laughter",
+            "哈哈", "哈哈哈", "嘿嘿", "笑出声", "大笑"
+        };
+
         private static readonly string[] QuestionKeywords =
         {
             "why", "how", "what", "when", "where", "which",
@@ -58,6 +65,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             "urgent", "quick", "hurry", "immediately", "asap", "now",
             "马上", "立刻", "赶紧", "紧急", "尽快", "快点"
+        };
+
+        private static readonly string[] AngryKeywords =
+        {
+            "angry", "mad", "furious", "annoyed", "frustrated",
+            "生气", "愤怒", "恼火", "烦躁", "气死"
+        };
+
+        private static readonly string[] CantoneseKeywords =
+        {
+            "cantonese", "粤语", "广东话", "港式"
         };
 
         [Serializable]
@@ -242,7 +260,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return $"{existingPrompt} {content}".Trim();
             }
 
-            string instruction = NormalizeInstruction(profile.Instruction, DefaultInstructionChars);
+            string instruction = ResolveInstructionForContent(content, profile.Instruction);
             if (instruction.Length == 0)
             {
                 instruction = DefaultInstruction;
@@ -260,6 +278,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             int clampedMax = Mathf.Clamp(maxCharacters, MinInstructionChars, MaxInstructionChars);
             string collapsed = CollapseWhitespace(value);
+            collapsed = RemoveControlMarkers(collapsed);
             collapsed = TrimSurroundingQuotes(collapsed);
             if (collapsed.Length <= clampedMax)
             {
@@ -291,7 +310,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (!ContainsMarker(output, LaughterMarker) && ShouldInjectLaughter(output))
             {
-                output = AppendMarker(output, LaughterMarker);
+                output = InsertLeadingMarker(output, LaughterMarker);
             }
 
             return CollapseWhitespace(output);
@@ -371,6 +390,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             string normalized = CollapseWhitespace(userContext);
+
+            if (ContainsAny(normalized, CantoneseKeywords))
+            {
+                return "Please read with a natural Cantonese accent, lively rhythm, and conversational warmth.";
+            }
+
+            if (ContainsAny(normalized, AngryKeywords))
+            {
+                return "Please read with controlled anger, firm emphasis, and a tense expressive rhythm.";
+            }
 
             if (ContainsAny(normalized, SadKeywords))
             {
@@ -531,10 +560,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return false;
             }
 
-            return ContainsAny(text, PositiveKeywords);
+            return ContainsAny(text, ExplicitLaughterKeywords);
         }
 
-        private static string AppendMarker(string text, string marker)
+        private static string InsertLeadingMarker(string text, string marker)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -551,7 +580,77 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return text;
             }
 
+            return $"{marker} {text.Trim()}";
+        }
+
+        private static string AppendMarker(string text, string marker)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return marker ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(marker) || ContainsMarker(text, marker))
+            {
+                return text;
+            }
+
             return $"{text.Trim()} {marker}";
+        }
+
+        private static string ResolveInstructionForContent(string content, string baseInstruction)
+        {
+            string normalizedBase = NormalizeInstruction(baseInstruction, DefaultInstructionChars);
+            string inferred = InferInstructionFromContext(content);
+            if (string.IsNullOrWhiteSpace(inferred) ||
+                string.Equals(inferred, DefaultInstruction, StringComparison.Ordinal))
+            {
+                return normalizedBase;
+            }
+
+            if (string.IsNullOrWhiteSpace(normalizedBase) ||
+                string.Equals(normalizedBase, DefaultInstruction, StringComparison.Ordinal))
+            {
+                return inferred;
+            }
+
+            string combined = $"{normalizedBase.TrimEnd('.', '。')} while {ToInstructionClause(inferred)}";
+            return NormalizeInstruction(combined, MaxInstructionChars);
+        }
+
+        private static string ToInstructionClause(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string trimmed = value.Trim();
+            const string prefix = "Please read ";
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                trimmed = "reading " + trimmed.Substring(prefix.Length);
+            }
+
+            if (trimmed.Length == 0 || !char.IsUpper(trimmed[0]))
+            {
+                return trimmed;
+            }
+
+            return char.ToLowerInvariant(trimmed[0]) + trimmed.Substring(1);
+        }
+
+        private static string RemoveControlMarkers(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string cleaned = value.Replace(EndOfPromptMarker, string.Empty);
+            cleaned = cleaned.Replace(BreathMarker, string.Empty);
+            cleaned = cleaned.Replace(LaughterMarker, string.Empty);
+            return CollapseWhitespace(cleaned);
         }
 
         private static int Clamp(int value, int min, int max)

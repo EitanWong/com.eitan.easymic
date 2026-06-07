@@ -108,7 +108,7 @@
 ## 🎬 See It In Action
 
 <div align="center">
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
+  <a href="https://www.bilibili.com/video/BV18hE46rEzw/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
     <img src="https://img.shields.io/badge/🎥_Watch_Demo-Bilibili-ff69b4.svg?style=for-the-badge" alt="Watch Demo">
   </a>
   
@@ -203,7 +203,7 @@
   <p><strong>📧 Contact:</strong> <a href="mailto:unease-equity-5c@icloud.com">unease-equity-5c@icloud.com</a> | <strong>💬 Bilibili:</strong> Send private message</p>
   <p><em>Please contact separately if your project needs AEC, AGC, or ANS.</em></p>
   
-  <a href="https://www.bilibili.com/video/BV1qxb9zKEQN/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
+  <a href="https://www.bilibili.com/video/BV18hE46rEzw/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855">
     <img src="https://img.shields.io/badge/🎥_Demo_Video-Watch_on_Bilibili-ff69b4.svg" alt="Demo Video">
   </a>
 </div>

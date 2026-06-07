@@ -34,6 +34,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly IOpenAIProviderAdapter _providerAdapter;
         private readonly OpenAIFallbackPolicy _fallbackPolicy = new OpenAIFallbackPolicy();
         private readonly OpenAISseReader _sseReader = new OpenAISseReader(StreamIdleTimeout);
+        private readonly ApiRetryPolicy _retryPolicy = new ApiRetryPolicy();
 
         /// <summary>
         /// 是否强制使用 Chat Completions API（跳过 Responses API）
@@ -249,7 +250,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 else
                 {
                     // 非流式响应
-                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     foreach (string chunk in ExtractTextFromResponseJson(json))
                     {
                         if (!string.IsNullOrEmpty(chunk))
@@ -304,7 +305,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 response.EnsureSuccessStatusCode();
 
-                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 var texts = new List<string>();
 
                 foreach (string chunk in ExtractTextFromResponseJson(json))
@@ -327,7 +328,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             HttpResponseMessage response,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            var body = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
             using (body)
             using (var reader = new StreamReader(body, Encoding.UTF8))
             {
@@ -468,73 +469,107 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             request.Stream = true;
 
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _chatEndpoint);
-            httpRequest.Headers.Accept.Clear();
-            httpRequest.Headers.Accept.Add(EventStreamHeader);
-
-            string payload = _providerAdapter.BuildChatCompletionsPayload(request);
-            httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient
-                .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                .ConfigureAwait(false);
-
-            using (response)
+            int attempt = 0;
+            while (true)
             {
-                if (!response.IsSuccessStatusCode)
+                cancellationToken.ThrowIfCancellationRequested();
+
+                string payload = _providerAdapter.BuildChatCompletionsPayload(request);
+
+                HttpResponseMessage response = null;
+                try
                 {
-                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    string errorMessage = TryExtractErrorMessage(errorBody);
-                    string fallbackMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
-                    throw new OpenAIApiException(string.IsNullOrWhiteSpace(errorMessage) ? fallbackMessage : errorMessage);
+                    var httpRequest = new HttpRequestMessage(HttpMethod.Post, _chatEndpoint);
+                    httpRequest.Headers.Accept.Clear();
+                    httpRequest.Headers.Accept.Add(EventStreamHeader);
+                    httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                    response = await _httpClient
+                        .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (_retryPolicy.IsRetryable(ex))
+                {
+                    if (attempt >= _retryPolicy.MaxRetries)
+                        throw;
+
+                    attempt++;
+                    var delay = _retryPolicy.GetDelay(attempt - 1);
+                    Debug.LogWarning($"[OpenAI] Retry {attempt}/{_retryPolicy.MaxRetries} after {(int)delay.TotalMilliseconds}ms: {ex.Message}");
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                response.EnsureSuccessStatusCode();
-
-                var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                using (body)
-                using (var reader = new StreamReader(body, Encoding.UTF8))
+                using (response)
                 {
-                    await foreach (string payloadLineRaw in _sseReader.ReadDataPayloadLinesAsync(reader, cancellationToken))
+                    if (!response.IsSuccessStatusCode)
                     {
-                        string payloadLine = payloadLineRaw;
-                        if (payloadLine.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
+                        string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                        string errorMessage = TryExtractErrorMessage(errorBody);
+                        string statusPrefix = $"HTTP {(int)response.StatusCode}";
+                        if (string.IsNullOrWhiteSpace(errorMessage))
                         {
-                            yield break;
+                            string preview = errorBody ?? string.Empty;
+                            if (preview.Length > 200) preview = preview.Substring(0, 200);
+                            Debug.LogWarning($"[OpenAI] Could not extract error from body ({preview.Length} chars): {preview}");
+                            errorMessage = $"{statusPrefix} {response.ReasonPhrase}";
+                        }
+                        else
+                        {
+                            errorMessage = $"{statusPrefix}: {errorMessage}";
                         }
 
-                        payloadLine = _providerAdapter.NormalizeChatCompletionChunkJson(payloadLine);
-                        if (string.IsNullOrWhiteSpace(payloadLine))
+                        if (attempt < _retryPolicy.MaxRetries && _retryPolicy.IsRetryable(response.StatusCode))
                         {
+                            attempt++;
+                            var delay = _retryPolicy.GetDelay(attempt - 1);
+                            Debug.LogWarning($"[OpenAI] Retry {attempt}/{_retryPolicy.MaxRetries} after {(int)delay.TotalMilliseconds}ms (HTTP {(int)response.StatusCode})");
+                            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                             continue;
                         }
 
-                        OpenAIChatCompletionChunk chunk;
-                        try
-                        {
-                            chunk = JsonUtility.FromJson<OpenAIChatCompletionChunk>(payloadLine);
-                        }
-                        catch (Exception)
-                        {
-                            continue;
-                        }
+                        throw new OpenAIApiException(errorMessage);
+                    }
 
-                        if (chunk?.choices == null)
-                        {
-                            continue;
-                        }
+                    response.EnsureSuccessStatusCode();
 
-
-                        foreach (var choice in chunk.choices)
+                    var body = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                    using (body)
+                    using (var reader = new StreamReader(body, Encoding.UTF8))
+                    {
+                        await foreach (string payloadLineRaw in _sseReader.ReadDataPayloadLinesAsync(reader, cancellationToken))
                         {
-                            string delta = _providerAdapter.SelectChatCompletionDeltaText(choice);
-                            if (!string.IsNullOrEmpty(delta))
+                            string payloadLine = payloadLineRaw;
+                            if (payloadLine.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
+                                yield break;
+
+                            payloadLine = _providerAdapter.NormalizeChatCompletionChunkJson(payloadLine);
+                            if (string.IsNullOrWhiteSpace(payloadLine))
+                                continue;
+
+                            OpenAIChatCompletionChunk chunk;
+                            try
                             {
-                                yield return delta;
+                                chunk = JsonUtility.FromJson<OpenAIChatCompletionChunk>(payloadLine);
+                            }
+                            catch (Exception)
+                            {
+                                continue;
+                            }
+
+                            if (chunk?.choices == null)
+                                continue;
+
+                            foreach (var choice in chunk.choices)
+                            {
+                                string delta = _providerAdapter.SelectChatCompletionDeltaText(choice);
+                                if (!string.IsNullOrEmpty(delta))
+                                    yield return delta;
                             }
                         }
                     }
                 }
+                yield break;
             }
         }
 
@@ -559,7 +594,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 if (!response.IsSuccessStatusCode)
                 {
-                    string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     string errorMessage = TryExtractErrorMessage(errorBody);
                     string fallbackMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
                     return new OpenAIChatResult
@@ -571,7 +606,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 response.EnsureSuccessStatusCode();
 
-                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 json = _providerAdapter.NormalizeChatCompletionResponseJson(json);
                 if (string.IsNullOrWhiteSpace(json))
                 {
@@ -634,21 +669,60 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             TryDumpTtsPayload(request);
 
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
-            httpRequest.Headers.Accept.Clear();
-            httpRequest.Headers.Accept.Add(AudioHeader);
-
-            string payload = _providerAdapter.BuildTtsPayload(request);
-            httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient
-                .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                .ConfigureAwait(false);
-
-            using (response)
+            int attempt = 0;
+            while (true)
             {
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
+                httpRequest.Headers.Accept.Clear();
+                httpRequest.Headers.Accept.Add(AudioHeader);
+
+                string payload = _providerAdapter.BuildTtsPayload(request);
+                httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                HttpResponseMessage response = null;
+                try
+                {
+                    response = await _httpClient
+                        .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (_retryPolicy.IsRetryable(ex))
+                {
+                    if (attempt >= _retryPolicy.MaxRetries)
+                        throw;
+                    attempt++;
+                    var delay = _retryPolicy.GetDelay(attempt - 1);
+                    Debug.LogWarning($"[OpenAI] TTS retry {attempt}/{_retryPolicy.MaxRetries} after {(int)delay.TotalMilliseconds}ms: {ex.Message}");
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                using (response)
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                        string errorMessage = TryExtractErrorMessage(errorBody);
+                        if (string.IsNullOrWhiteSpace(errorMessage))
+                            errorMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+
+                        if (attempt < _retryPolicy.MaxRetries && _retryPolicy.IsRetryable(response.StatusCode))
+                        {
+                            attempt++;
+                            var delay = _retryPolicy.GetDelay(attempt - 1);
+                            Debug.LogWarning($"[OpenAI] TTS retry {attempt}/{_retryPolicy.MaxRetries} after {(int)delay.TotalMilliseconds}ms (HTTP {(int)response.StatusCode})");
+                            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        throw new OpenAIApiException(errorMessage);
+                    }
+
+                    response.EnsureSuccessStatusCode();
+                    return await ReadContentAsByteArrayAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -667,22 +741,52 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             request.stream = true;
             TryDumpTtsPayload(request);
 
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
-            httpRequest.Headers.Accept.Clear();
-            httpRequest.Headers.Accept.Add(AudioHeader);
+            int attempt = 0;
+            HttpResponseMessage response = null;
 
-            string payload = _providerAdapter.BuildTtsPayload(request);
-            httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
 
-            var response = await _httpClient
-                .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                .ConfigureAwait(false);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _ttsEndpoint);
+                httpRequest.Headers.Accept.Clear();
+                httpRequest.Headers.Accept.Add(AudioHeader);
+
+                string payload = _providerAdapter.BuildTtsPayload(request);
+                httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                try
+                {
+                    response = await _httpClient
+                        .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (_retryPolicy.IsRetryable(ex))
+                {
+                    if (attempt >= _retryPolicy.MaxRetries)
+                        throw;
+                    attempt++;
+                    var delay = _retryPolicy.GetDelay(attempt - 1);
+                    Debug.LogWarning($"[OpenAI] TTS stream retry {attempt}/{_retryPolicy.MaxRetries} after {(int)delay.TotalMilliseconds}ms: {ex.Message}");
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                break;
+            }
 
             using (response)
             {
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorBody = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                    string errorMessage = TryExtractErrorMessage(errorBody);
+                    if (string.IsNullOrWhiteSpace(errorMessage))
+                        errorMessage = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                    throw new OpenAIApiException(errorMessage);
+                }
 
-                var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                var stream = await ReadContentAsStreamAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 using (stream)
                 {
                     byte[] buffer = new byte[8192];
@@ -702,6 +806,49 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public void Dispose()
         {
             _httpClient?.Dispose();
+        }
+
+        private static Task<string> ReadContentAsStringAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsStringAsync(), cancellationToken);
+        }
+
+        private static Task<byte[]> ReadContentAsByteArrayAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsByteArrayAsync(), cancellationToken);
+        }
+
+        private static Task<Stream> ReadContentAsStreamAsync(HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AwaitWithCancellation(content.ReadAsStreamAsync(), cancellationToken);
+        }
+
+        private static async Task<T> AwaitWithCancellation<T>(Task<T> task, CancellationToken cancellationToken)
+        {
+            if (task == null)
+            {
+                return default;
+            }
+
+            if (task.IsCompleted)
+            {
+                return await task.ConfigureAwait(false);
+            }
+
+            var cancellationSignal = new TaskCompletionSource<bool>();
+            using (cancellationToken.Register(state => ((TaskCompletionSource<bool>)state).TrySetResult(true), cancellationSignal))
+            {
+                Task completed = await Task.WhenAny(task, cancellationSignal.Task).ConfigureAwait(false);
+                if (completed == cancellationSignal.Task)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            }
+
+            return await task.ConfigureAwait(false);
         }
 
         private void TryDumpTtsPayload(OpenAITtsRequest request)

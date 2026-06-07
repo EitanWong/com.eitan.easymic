@@ -120,9 +120,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
-                _openAiClient?.Dispose();
+                OpenAICompatibleClient previousClient = _openAiClient;
                 _openAiClient = new OpenAICompatibleClient(normalized, apiKey);
                 _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
+                DisposeOpenAiClientWhenIdle(previousClient);
                 _lastErrorMessage = string.Empty;
             }
             catch (Exception ex)
@@ -374,11 +375,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnPipelineSpeakingStateChanged(bool isSpeaking)
         {
             SetAssistantSpeakingState(isSpeaking);
+            if (!isSpeaking)
+            {
+                // Guard: Only record playback drain if this is still the current response.
+                // During interruption, SignalCancelActiveResponse cancels the old round and
+                // starts a new one. The TTS pipeline's stale `NotifySpeakingState(false)` can
+                // arrive AFTER the new round is already created, causing RecordPlaybackDrained
+                // to finalize the new round prematurely (= corrupted timing data).
+                // The generation check rejects stale drain events from previous responses.
+                _latencyTracker?.RecordPlaybackDrained();
+            }
         }
 
         private void OnTtsSentenceStarted(string sentence)
         {
             TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, Interlocked.Read(ref _responseGeneration));
+            _latencyTracker?.RecordTtsFirstAudio();
 
             if (Config.LogStreamingChunks)
             {
@@ -388,6 +400,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnTtsSentenceCompleted(string sentence)
         {
+            _latencyTracker?.RecordTtsSentenceCompleted();
             if (Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][TTS] Completed: {sentence}");

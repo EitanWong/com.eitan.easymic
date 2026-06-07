@@ -55,7 +55,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     if (enqueue)
                     {
-                        _completedJobs[job.SequenceNumber] = job;
+                        TryAddCompletedJob(job);
                     }
                 }
                 catch (OperationCanceledException)
@@ -81,34 +81,35 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             try
             {
+                TtsPipelineConfig config = GetConfigSnapshot();
                 var client = _clientAccessor?.Invoke();
                 if (client == null)
                 {
                     throw new InvalidOperationException("OpenAI client not available");
                 }
 
-                if (string.IsNullOrWhiteSpace(_config.RemoteModel) ||
-                    string.IsNullOrWhiteSpace(_config.RemoteVoice))
+                if (string.IsNullOrWhiteSpace(config.RemoteModel) ||
+                    string.IsNullOrWhiteSpace(config.RemoteVoice))
                 {
                     throw new InvalidOperationException("Remote TTS model or voice not configured");
                 }
 
-                string remoteInput = ResolveRemoteInput(job.Sentence);
+                string remoteInput = ResolveRemoteInput(job.Sentence, config);
 
                 var request = new OpenAITtsRequest
                 {
-                    Model = _config.RemoteModel,
-                    Voice = _config.RemoteVoice,
+                    Model = config.RemoteModel,
+                    Voice = config.RemoteVoice,
                     Input = remoteInput,
                     ResponseFormat = RemoteFormat
                 };
 
-                if (_config.LogSentences)
+                if (config.LogSentences)
                 {
                     Debug.Log($"[ParallelTtsPipeline][TTS] Generating: {job.Sentence}");
                 }
 
-                if (_config.EnableStreamingTts)
+                if (config.EnableStreamingTts)
                 {
                     StreamTtsResult streamed = await TryStreamTtsForJobAsync(job, client, request, token).ConfigureAwait(false);
                     if (streamed == StreamTtsResult.Streamed)
@@ -135,9 +136,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 job.MarkComplete(samples, channels, sampleRate);
-                TrySaveTtsWav(job, samples, channels, sampleRate);
+                TrySaveTtsWav(job, samples, channels, sampleRate, config);
 
-                if (_config.LogSentences)
+                if (config.LogSentences)
                 {
                     Debug.Log($"[ParallelTtsPipeline][TTS] Generated {samples.Length} samples in {job.Stopwatch.ElapsedMilliseconds}ms");
                 }
@@ -155,10 +156,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private string ResolveRemoteInput(string sourceInput)
+        private string ResolveRemoteInput(string sourceInput, TtsPipelineConfig config)
         {
             string original = sourceInput ?? string.Empty;
-            var formatter = _config.RemoteInputFormatter;
+            var formatter = config.RemoteInputFormatter;
 
             if (formatter == null)
             {
@@ -167,7 +168,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
-                string formatted = formatter(original, _config.RemoteModel, _config.RemoteVoice);
+                string formatted = formatter(original, config.RemoteModel, config.RemoteVoice);
                 if (string.IsNullOrWhiteSpace(formatted))
                 {
                     return original;
@@ -272,7 +273,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         if (TryDecodeAudioPayload(payload, expectedChannels, expectedSampleRate, out var samples, out int channels, out int sampleRate))
                         {
                             job.MarkComplete(samples, channels, sampleRate);
-                            TrySaveTtsWav(job, samples, channels, sampleRate);
+                            TrySaveTtsWav(job, samples, channels, sampleRate, GetConfigSnapshot());
                             return StreamTtsResult.BufferedComplete;
                         }
                     }
