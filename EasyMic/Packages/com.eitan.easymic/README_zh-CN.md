@@ -220,6 +220,8 @@ EasyMic APM 是单独付费提供的生产级语音清理扩展：
 - AGC：自动增益控制。
 - ANS：自动噪声抑制。
 
+[B 站演示视频：Unity 数字人语音交互中的回声、音量和噪声处理](https://www.bilibili.com/video/BV18hE46rEzw/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855)
+
 本仓库不包含 EasyMic APM 的实现代码、二进制文件、示例或授权。
 
 联系方式：[unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)
