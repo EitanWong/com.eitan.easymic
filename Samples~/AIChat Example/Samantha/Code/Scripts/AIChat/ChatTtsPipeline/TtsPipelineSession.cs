@@ -12,6 +12,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private long _sessionId;
         private CancellationTokenSource _cts;
         private Task _task = Task.CompletedTask;
+        private bool _disposed;
 
         public bool EnsureStarted(Func<long, CancellationToken, Task> startFactory)
         {
@@ -22,6 +23,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             lock (_sync)
             {
+                if (_disposed)
+                {
+                    return false;
+                }
+
                 if (!_task.IsCompleted)
                 {
                     return false;
@@ -37,6 +43,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public (long sessionId, Task task) CancelAndGetTask()
         {
+            CancellationTokenSource ctsToDispose = null;
+            Task taskToWait;
+
             lock (_sync)
             {
                 if (_cts != null)
@@ -52,12 +61,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     {
                     }
 
-                    _cts.Dispose();
+                    ctsToDispose = _cts;
                     _cts = null;
                 }
 
-                return (_sessionId, _task);
+                taskToWait = _task;
             }
+
+            DisposeCancellationSourceWhenTaskCompletes(ctsToDispose, taskToWait);
+            return (_sessionId, taskToWait);
         }
 
         public Task GetTask()
@@ -70,7 +82,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void Dispose()
         {
+            lock (_sync)
+            {
+                _disposed = true;
+            }
+
             CancelAndGetTask();
+        }
+
+        private static void DisposeCancellationSourceWhenTaskCompletes(CancellationTokenSource cts, Task task)
+        {
+            if (cts == null)
+            {
+                return;
+            }
+
+            if (task == null || task.IsCompleted)
+            {
+                cts.Dispose();
+                return;
+            }
+
+            task.ContinueWith(
+                _ => cts.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 }

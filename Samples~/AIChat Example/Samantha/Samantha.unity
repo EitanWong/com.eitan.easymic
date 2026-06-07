@@ -1774,7 +1774,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0.000015258789}
   m_SizeDelta: {x: 0, y: 36.9637}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!1 &218818376
@@ -10348,7 +10348,7 @@ MonoBehaviour:
   m_HandleRect: {fileID: 474738846}
   m_Direction: 2
   m_Value: 0
-  m_Size: 0.75357544
+  m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:
@@ -10960,7 +10960,6 @@ GameObject:
   - component: {fileID: 1276574530}
   - component: {fileID: 1276574532}
   - component: {fileID: 1276574534}
-  - component: {fileID: 1276574535}
   m_Layer: 0
   m_Name: Samantha
   m_TagString: Untagged
@@ -10999,8 +10998,8 @@ MonoBehaviour:
     recordOnAwake: 0
     autoFallback: 1
   _deviceOptions:
-    DeviceName: "\u7F57\u6280\u9AD8\u6E05\u7F51\u7EDC\u6444\u50CF\u673A C930c"
-    Channel: 2
+    DeviceName: MacBook Pro Microphone
+    Channel: 1
     SampleRate: 48000
   _enableLog: 0
   _audioProcessingOptions:
@@ -11050,7 +11049,7 @@ MonoBehaviour:
     LlmModel: Qwen/Qwen3-Omni-30B-A3B-Instruct
     LlmTemperature: 0.7
     SystemPromptProfile: {fileID: 11400000, guid: 6f96afdd81aaa4ba29b81c9310d5e1cd, type: 2}
-    LogStreamingChunks: 1
+    LogStreamingChunks: 0
     MaxHistoryTurns: 6
     AsrTurnDetectionDelaySeconds: 0.8
     UseLocalTts: 0
@@ -11161,20 +11160,6 @@ MonoBehaviour:
   _enabled: 1
   _useLlmInstructionFromContext: 1
   _instructionModelOverride: 
---- !u!114 &1276574535
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1276574525}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 166b940a1b27b4edd91dbc529612a0a1, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  _toggleKey: 293
-  _maxDisplayRounds: 20
 --- !u!1 &1278424222
 GameObject:
   m_ObjectHideFlags: 0

@@ -423,7 +423,26 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _responseCts = nextCts;
             }
 
-            CancelAndDisposeCts(previous);
+            CancelCts(previous);
+        }
+
+        private static void CancelCts(CancellationTokenSource cts)
+        {
+            if (cts == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!cts.IsCancellationRequested)
+                {
+                    cts.Cancel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         private static void CancelAndDisposeCts(CancellationTokenSource cts)
@@ -451,7 +470,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void CancelActiveResponseForTeardown()
         {
-            CancelAndDisposeCts(TakeResponseCancellationTokenSource());
+            CancelCts(TakeResponseCancellationTokenSource());
             _requestOrchestrator?.ResetCurrentResponse();
 
             _llmInFlight = false;

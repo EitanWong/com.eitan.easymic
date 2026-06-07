@@ -481,9 +481,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return true;
         }
 
-        private void TrySaveTtsWav(TtsJob job, float[] samples, int channels, int sampleRate)
+        private void TrySaveTtsWav(TtsJob job, float[] samples, int channels, int sampleRate, TtsPipelineConfig config)
         {
-            if (!_config.EnableDiagnostics || samples == null || samples.Length == 0)
+            if (!config.EnableDiagnostics || samples == null || samples.Length == 0)
             {
                 return;
             }

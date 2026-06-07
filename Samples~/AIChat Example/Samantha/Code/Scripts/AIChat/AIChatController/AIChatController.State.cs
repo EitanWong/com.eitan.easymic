@@ -130,7 +130,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            PostToUnityThread(UpdateIdleState);
+            PostToUnityThread(() => UpdateIdleState());
         }
 
         private void NotifyChatStateChanged(ChatState state, string message)

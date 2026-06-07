@@ -118,7 +118,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return false;
             }
 
-            SafeFireAndForget(RunChatCompletionAsync(generation, userInput, token, recordUserMessage, isProactive), nameof(RunChatCompletionAsync));
+            SafeFireAndForget(RunChatCompletionAsync(generation, userInput, responseCts, recordUserMessage, isProactive), nameof(RunChatCompletionAsync));
             return true;
         }
 
@@ -138,7 +138,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _drainCompleteGate.Reset();
             SafeFireAndForget(DrainPipelineAfterCancelAsyncInternal(), nameof(DrainPipelineAfterCancelAsyncInternal));
 
-            CancelAndDisposeCts(TakeResponseCancellationTokenSource());
+            CancelCts(TakeResponseCancellationTokenSource());
 
             _requestOrchestrator?.ResetCurrentResponse();
             _llmInFlight = false;
@@ -220,13 +220,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private async Task RunChatCompletionAsync(long generation, string userInput, CancellationToken token, bool recordUserMessage, bool isProactive)
+        private async Task RunChatCompletionAsync(long generation, string userInput, CancellationTokenSource responseCts, bool recordUserMessage, bool isProactive)
         {
-            if (_initializationFailed)
-            {
-                return;
-            }
-
+            CancellationToken token = responseCts.Token;
             var stopwatch = Stopwatch.StartNew();
             bool firstChunkReceived = false;
             bool responseSucceeded = false;
@@ -235,6 +231,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             try
             {
+                if (_initializationFailed)
+                {
+                    return;
+                }
+
+                var client = _openAiClient;
+                if (client == null)
+                {
+                    throw new InvalidOperationException("OpenAI client not available");
+                }
+
                 string model = ResolveLlmModel();
                 var chatRequest = new OpenAIChatRequest
                 {
@@ -245,7 +252,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     Messages = BuildMessages(userInput)
                 };
 
-                await foreach (string chunk in _openAiClient.StreamChatCompletionAsync(chatRequest, token))
+                await foreach (string chunk in client.StreamChatCompletionAsync(chatRequest, token))
                 {
                     token.ThrowIfCancellationRequested();
 
@@ -348,6 +355,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 EndResponseLatencyTracking(generation);
+                TryTakeResponseCancellationTokenSource(responseCts, out _);
+                responseCts.Dispose();
             }
         }
 

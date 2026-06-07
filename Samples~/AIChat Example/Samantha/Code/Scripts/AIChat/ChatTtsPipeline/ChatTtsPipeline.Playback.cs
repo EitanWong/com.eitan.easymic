@@ -210,7 +210,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            SafeInvoke(() => OnSentenceStarted?.Invoke(job.Sentence));
+            SafeInvoke(() =>
+            {
+                if (IsPlaybackSessionActive(sessionId))
+                {
+                    OnSentenceStarted?.Invoke(job.Sentence);
+                }
+            });
 
             int channels = Math.Max(1, job.Channels);
             int sampleRate = Math.Max(1, job.SampleRate);
@@ -227,6 +233,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 int count = Math.Min(chunkSamples, job.AudioSamples.Length - offset);
                 double bufferBudget = GetAdaptiveBufferBudgetSeconds();
                 await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested || !IsPlaybackSessionActive(sessionId))
+                {
+                    break;
+                }
+
                 chunkBuffer = CopyChunk(job.AudioSamples, offset, count, ref chunkBuffer);
 
                 // NOTE: Must synchronize with the main thread when using Behaviour to ensure
@@ -240,12 +251,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     await DispatchToMainThreadAsync(() =>
                     {
+                        if (!IsPlaybackSessionActive(sessionId))
+                        {
+                            return;
+                        }
+
                         EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
                         ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
                     }).ConfigureAwait(false);
                 }
                 else
                 {
+                    if (!IsPlaybackSessionActive(sessionId))
+                    {
+                        break;
+                    }
+
                     EnqueueSinkSamples(sink, chunkBuffer, count, channels, sampleRate, false);
                     ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: false);
                 }
@@ -290,6 +311,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     if (shouldFlushNow)
                     {
                         pendingBatch = await FlushStreamingBatchAsync(
+                            sessionId,
                             sink,
                             pendingBatch,
                             pendingBatchCount,
@@ -312,6 +334,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     (job.StreamingCompleted || job.GetIdleDuration().TotalMilliseconds >= StreamingFlushTimeoutMs))
                 {
                     pendingBatch = await FlushStreamingBatchAsync(
+                        sessionId,
                         sink,
                         pendingBatch,
                         pendingBatchCount,
@@ -366,6 +389,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (pendingBatchCount > 0)
             {
                 pendingBatch = await FlushStreamingBatchAsync(
+                    sessionId,
                     sink,
                     pendingBatch,
                     pendingBatchCount,
@@ -409,7 +433,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     }
                     else
                     {
-                        float volume = _config.PlaybackVolume > 0 ? _config.PlaybackVolume : 1f;
+                        TtsPipelineConfig config = GetConfigSnapshot();
+                        float volume = config.PlaybackVolume > 0 ? config.PlaybackVolume : 1f;
                         var handle = AudioPlayback.CreateStream(volume: volume);
                         _playbackSink = new PlaybackSink
                         {
@@ -508,6 +533,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     break;
                 }
+            }
+        }
+
+        private bool IsPlaybackSessionActive(long sessionId)
+        {
+            lock (_playbackLock)
+            {
+                return _playbackInitialized && _playbackSessionId == sessionId;
             }
         }
 
@@ -618,6 +651,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
 
         private async Task<float[]> FlushStreamingBatchAsync(
+            long sessionId,
             PlaybackSink sink,
             float[] pendingBatch,
             int pendingBatchCount,
@@ -635,10 +669,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             double bufferBudget = GetAdaptiveBufferBudgetSeconds();
             await WaitForBufferBudgetAsync(sink, bufferBudget, token).ConfigureAwait(false);
+            if (token.IsCancellationRequested || !IsPlaybackSessionActive(sessionId))
+            {
+                return pendingBatch;
+            }
 
             if (!sentenceStarted)
             {
-                SafeInvoke(() => OnSentenceStarted?.Invoke(sentence));
+                SafeInvoke(() =>
+                {
+                    if (IsPlaybackSessionActive(sessionId))
+                    {
+                        OnSentenceStarted?.Invoke(sentence);
+                    }
+                });
             }
 
             // NOTE: Must synchronize with the main thread when using Behaviour to ensure
@@ -651,12 +695,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 await DispatchToMainThreadAsync(() =>
                 {
+                    if (!IsPlaybackSessionActive(sessionId))
+                    {
+                        return;
+                    }
+
                     EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
                     ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
                 }).ConfigureAwait(false);
             }
             else
             {
+                if (!IsPlaybackSessionActive(sessionId))
+                {
+                    return pendingBatch;
+                }
+
                 EnqueueSinkSamples(sink, pendingBatch, pendingBatchCount, channels, sampleRate, false);
                 ReportPlaybackBuffer(GetSinkBufferedSeconds(sink), trackAdaptive: true);
             }
@@ -698,7 +752,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             string message = job.Error != null ? job.Error.Message : "unknown error";
             if (job.HasReceivedChunks)
             {
-                if (_config.LogSentences)
+                if (GetConfigSnapshot().LogSentences)
                 {
                     Debug.Log($"[ParallelTtsPipeline] Streaming TTS ended after partial audio: {message}");
                 }
