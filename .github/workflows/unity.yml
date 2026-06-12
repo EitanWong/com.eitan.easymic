@@ -68,29 +68,33 @@ jobs:
             build-target: StandaloneOSX
     steps:
       - uses: actions/checkout@v4
-      - uses: RageAgainstThePixel/unity-setup@v1
+      - uses: RageAgainstThePixel/unity-setup@v2.6.0
         with:
           unity-version: ${{ matrix.unity-version }}
           build-targets: ${{ matrix.build-target }}
-      - uses: RageAgainstThePixel/activate-unity-license@v1
+          auto-update-hub: false
+      - uses: RageAgainstThePixel/activate-unity-license@v2.2.2
         with:
-          license: 'Personal'
+          license: 'personal'
           username: ${{ secrets.UNITY_USERNAME }}
           password: ${{ secrets.UNITY_PASSWORD }}
-      - uses: RageAgainstThePixel/unity-action@v1
+      - uses: RageAgainstThePixel/unity-action@v3.1.0
         name: '${{ matrix.build-target }}-Validate'
         with:
           build-target: ${{ matrix.build-target }}
           log-name: '${{ matrix.build-target }}-Validate'
           args: '-quit -nographics -batchmode -executeMethod Utilities.Editor.BuildPipeline.UnityPlayerBuildTools.ValidateProject -importTMProEssentialsAsset'
-      - uses: RageAgainstThePixel/unity-action@v1
-        name: '${{ matrix.build-target }}-Build'
+      - uses: RageAgainstThePixel/unity-action@v3.1.0
+        name: '${{ matrix.build-target }}-EditModeTests'
+        if: matrix.os != 'macos-latest'
         with:
           build-target: ${{ matrix.build-target }}
-          log-name: '${{ matrix.build-target }}-Build'
-          args: '-quit -nographics -batchmode -executeMethod Utilities.Editor.BuildPipeline.UnityPlayerBuildTools.StartCommandLineBuild'
+          log-name: '${{ matrix.build-target }}-EditModeTests'
+          args: '-quit -nographics -batchmode -runTests -testPlatform EditMode -testResults "${{ github.workspace }}/EasyMic/TestResults-${{ matrix.build-target }}.xml"'
       - uses: actions/upload-artifact@v4
         if: success() || failure()
         with:
           name: '${{ github.run_number }}.${{ github.run_attempt }}-${{ matrix.os }}-${{ matrix.unity-version }}-${{ matrix.build-target }}-Artifacts'
-          path: '${{ github.workspace }}/**/*.log'
+          path: |
+            ${{ github.workspace }}/**/*.log
+            ${{ github.workspace }}/EasyMic/TestResults-${{ matrix.build-target }}.xml

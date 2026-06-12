@@ -26,3 +26,5 @@ jobs:
           git config user.email "${{ github.actor }}@users.noreply.github.com"
 
       - uses: RageAgainstThePixel/upm-subtree-split@v1
+        with:
+          package-root: EasyMic/Packages/com.eitan.easymic
