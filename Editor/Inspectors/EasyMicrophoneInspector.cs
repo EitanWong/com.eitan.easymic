@@ -951,7 +951,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     _source.loop = false;
 
                     // Ensure there is at least one AudioListener so playback is audible
-                    if (UnityEngine.Object.FindObjectsOfType<AudioListener>().Length == 0)
+                    if (!HasAudioListener())
                     {
                         _go.AddComponent<AudioListener>();
                     }
@@ -1046,6 +1046,15 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     _source = null;
                     _lastKnownSamples = 0;
                 }
+            }
+
+            private static bool HasAudioListener()
+            {
+#if UNITY_2023_1_OR_NEWER
+                return UnityEngine.Object.FindObjectsByType<AudioListener>().Length > 0;
+#else
+                return UnityEngine.Object.FindObjectsOfType<AudioListener>().Length > 0;
+#endif
             }
         }
 

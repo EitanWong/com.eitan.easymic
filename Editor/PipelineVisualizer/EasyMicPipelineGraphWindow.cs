@@ -958,7 +958,9 @@ namespace Eitan.EasyMic.Editor
 
             ZoomGraphFromMiniMapWheel(state, mapLocal, evt.delta.y);
             evt.StopPropagation();
+#pragma warning disable 0618
             evt.PreventDefault();
+#pragma warning restore 0618
         }
 
         private static void PanGraphFromMiniMapDelta(EasyMicPipelineMiniMapState state, Vector2 localDelta)
@@ -969,9 +971,9 @@ namespace Eitan.EasyMic.Editor
             }
 
             Vector2 graphDelta = state.Map.GraphDeltaFromMiniMapDelta(localDelta);
-            Vector3 scale = state.GraphView.viewTransform.scale;
+            Vector3 scale = GetGraphViewScale(state.GraphView);
             float zoom = Mathf.Max(0.0001f, scale.x);
-            Vector3 position = state.GraphView.viewTransform.position;
+            Vector3 position = GetGraphViewPosition(state.GraphView);
             position.x -= graphDelta.x * zoom;
             position.y -= graphDelta.y * zoom;
             state.GraphView.UpdateViewTransform(position, scale);
@@ -985,8 +987,8 @@ namespace Eitan.EasyMic.Editor
                 return;
             }
 
-            Vector3 oldScale = state.GraphView.viewTransform.scale;
-            Vector3 oldPosition = state.GraphView.viewTransform.position;
+            Vector3 oldScale = GetGraphViewScale(state.GraphView);
+            Vector3 oldPosition = GetGraphViewPosition(state.GraphView);
             float oldZoom = Mathf.Max(0.0001f, oldScale.x);
             float zoomFactor = Mathf.Pow(1.08f, -wheelDeltaY);
             float newZoom = Mathf.Clamp(oldZoom * zoomFactor, 0.18f, 1.35f);
@@ -1005,6 +1007,20 @@ namespace Eitan.EasyMic.Editor
 
             state.GraphView.UpdateViewTransform(newPosition, new Vector3(newZoom, newZoom, 1f));
             state.Map.SetViewport(state.GraphView);
+        }
+
+        private static Vector3 GetGraphViewPosition(EasyMicPipelineGraphView graphView)
+        {
+#pragma warning disable 0618
+            return graphView.viewTransform.position;
+#pragma warning restore 0618
+        }
+
+        private static Vector3 GetGraphViewScale(EasyMicPipelineGraphView graphView)
+        {
+#pragma warning disable 0618
+            return graphView.viewTransform.scale;
+#pragma warning restore 0618
         }
 
         private void UpdateMiniMapDockPreview(EasyMicPipelineMiniMapState state, Vector2 worldPosition)
@@ -1386,8 +1402,8 @@ namespace Eitan.EasyMic.Editor
                 return _lastHadViewport;
             }
 
-            Vector3 position = graphView.viewTransform.position;
-            Vector3 scale = graphView.viewTransform.scale;
+            Vector3 position = GetGraphViewPosition(graphView);
+            Vector3 scale = GetGraphViewScale(graphView);
             float zoom = Mathf.Max(0.0001f, scale.x);
             _viewportBounds = new Rect(
                 -position.x / zoom,
@@ -1396,6 +1412,20 @@ namespace Eitan.EasyMic.Editor
                 graphView.layout.height / zoom);
             _hasViewport = true;
             return !_lastHadViewport || !Approximately(_viewportBounds, previousViewport);
+        }
+
+        private static Vector3 GetGraphViewPosition(EasyMicPipelineGraphView graphView)
+        {
+#pragma warning disable 0618
+            return graphView.viewTransform.position;
+#pragma warning restore 0618
+        }
+
+        private static Vector3 GetGraphViewScale(EasyMicPipelineGraphView graphView)
+        {
+#pragma warning disable 0618
+            return graphView.viewTransform.scale;
+#pragma warning restore 0618
         }
 
         private static bool Approximately(Rect current, Rect previous)
