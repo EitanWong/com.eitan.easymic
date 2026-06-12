@@ -10,9 +10,6 @@ namespace Eitan.EasyMic.Runtime.Mono
     using Eitan.EasyMic.Runtime.Mono.Recording;
     using Eitan.EasyMic.Runtime.Mono.Utilities;
     using UnityEngine;
-#if EASYMIC_APM_INTEGRATION
-    using Eitan.EasyMic.Apm;
-#endif
 
     [AddComponentMenu("Audio/EasyMic/Input/Easy Microphone")]
     public class EasyMicrophone : MonoBehaviour
@@ -26,9 +23,7 @@ namespace Eitan.EasyMic.Runtime.Mono
 
         [Header("Logging")]
         [SerializeField] private bool _enableLog = false;
-#if EASYMIC_APM_INTEGRATION
         [SerializeField] private AudioProcessingOptions _audioProcessingOptions = AudioProcessingOptions.Default;
-#endif
         #endregion
 
         #region  Internal Fields
@@ -48,9 +43,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         private float _nextRecordingDiagnosticsLogTime;
         private bool _reportedMacEditorSilentCapture;
 
-#if EASYMIC_APM_INTEGRATION
         private static string s_lastApmUnavailableReason = string.Empty;
-#endif
 
         #endregion
 
@@ -106,7 +99,6 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
         }
 
-#if EASYMIC_APM_INTEGRATION
         /// <summary>
         /// APM options snapshot.
         /// - Not recording: reads/writes the serialized staging field.
@@ -166,7 +158,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
         }
 
-        public bool TryGetApmDiagnostics(out EasyMicApmModifier.DiagnosticsSnapshot diagnostics)
+        public bool TryGetApmDiagnostics(out object diagnostics)
         {
             var apmWorker = GetCurrentApmWorker();
             if (apmWorker == null)
@@ -175,10 +167,8 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return false;
             }
 
-            diagnostics = apmWorker.GetDiagnostics();
-            return true;
+            return apmWorker.TryGetDiagnostics(out diagnostics);
         }
-#endif
 
         #endregion
         #region  Event
@@ -832,20 +822,21 @@ namespace Eitan.EasyMic.Runtime.Mono
             {
                 var pipeline = new AudioPipeline();
 
-#if EASYMIC_APM_INTEGRATION
                 if (_audioProcessingOptions.AnyEnabled)
                 {
                     if (CanUseApmProcessing())
                     {
-                        var apm = new EasyMicApmModifier();
-                        apm.SetProcessingOptions(
+                        var apm = EasyMicApmBridgeRegistry.CreateWorker();
+                        if (apm != null)
+                        {
+                            apm.SetProcessingOptions(
                             _audioProcessingOptions.EnableAEC,
                             _audioProcessingOptions.EnableANS,
                             _audioProcessingOptions.EnableAGC);
-                        pipeline.AddWorker(apm);
+                            pipeline.AddWorker(apm);
+                        }
                     }
                 }
-#endif
 
                 var downmixer = new Downmixer();
                 pipeline.AddWorker(downmixer);
@@ -862,38 +853,49 @@ namespace Eitan.EasyMic.Runtime.Mono
             });
         }
 
-#if EASYMIC_APM_INTEGRATION
         private static bool CanUseApmProcessing()
         {
-            if (EasyMicAudioProcessing.IsAuthorized)
+            if (!EasyMicApmBridgeRegistry.IsAvailable)
+            {
+                LogApmIssue("EasyMic APM is enabled in EasyMicrophone, but the EasyMic APM package is not installed or its runtime bridge is unavailable.");
+                return false;
+            }
+
+            if (EasyMicApmBridgeRegistry.IsAuthorized())
             {
                 s_lastApmUnavailableReason = string.Empty;
                 return true;
             }
 
             string error;
-            if (!EasyMicAudioProcessing.HasConfiguredLicenseToken)
+            if (!EasyMicApmBridgeRegistry.HasConfiguredLicenseToken())
             {
                 error =
                     "EasyMic APM is enabled, but no license token was discovered at runtime. " +
-                    "Automatic token registration may have failed, or no license provider script is loaded. " +
-                    EasyMicAudioProcessing.LastProviderScanDetails;
+                    "Activate the token in Project Settings and rebuild so EasyMic can embed it into the player, " +
+                    "or configure an EasyMic APM runtime license token before starting APM.";
             }
-            else if (EasyMicAudioProcessing.Authorize(out error))
+            else
             {
-                s_lastApmUnavailableReason = string.Empty;
-                return true;
-            }
-            else if (string.IsNullOrWhiteSpace(error))
-            {
-                error = EasyMicAudioProcessing.LastError;
+                var result = EasyMicApmBridgeRegistry.Authorize();
+                error = result.Error;
+                if (result.Authorized)
+                {
+                    s_lastApmUnavailableReason = string.Empty;
+                    return true;
+                }
             }
 
-            if (EasyMicAudioProcessing.HasConfiguredLicenseToken)
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                error = EasyMicApmBridgeRegistry.LastError();
+            }
+
+            if (EasyMicApmBridgeRegistry.HasConfiguredLicenseToken())
             {
                 error = (string.IsNullOrWhiteSpace(error) ? "EasyMic APM license authorization failed. No error details were returned." : error) +
                         " Token source: " +
-                        (string.IsNullOrWhiteSpace(EasyMicAudioProcessing.LastTokenSource) ? "<unknown>" : EasyMicAudioProcessing.LastTokenSource);
+                        (string.IsNullOrWhiteSpace(EasyMicApmBridgeRegistry.LastTokenSource()) ? "<unknown>" : EasyMicApmBridgeRegistry.LastTokenSource());
             }
 
             LogApmIssue(error);
@@ -944,7 +946,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             apmWorker.SetProcessingOptions(options.EnableAEC, options.EnableANS, options.EnableAGC);
         }
 
-        private EasyMicApmModifier GetCurrentApmWorker()
+        private IEasyMicApmWorkerBridge GetCurrentApmWorker()
         {
             if (!IsRecording || !_recordingHandle.IsValid || _pipelineBlueprint == null)
             {
@@ -966,10 +968,8 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return null;
             }
 
-            return pipeline.GetWorker<EasyMicApmModifier>();
+            return pipeline.GetWorker<IEasyMicApmWorkerBridge>();
         }
-
-#endif
 
         private void CacheLatestRecording()
         {
