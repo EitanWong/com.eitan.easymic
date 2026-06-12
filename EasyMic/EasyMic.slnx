@@ -1,13 +1,13 @@
 ﻿<Solution>
   <Project Path="Eitan.EasyMic.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Runtime.csproj" />
-  <Project Path="Eitan.EasyMic.Apm.csproj" />
-  <Project Path="Eitan.EasyMic.Mono.csproj" />
-  <Project Path="Eitan.EasyMic.Demo.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Diagnostics.csproj" />
+  <Project Path="Eitan.EasyMic.Mono.csproj" />
+  <Project Path="Eitan.EasyMic.Apm.csproj" />
+  <Project Path="Eitan.EasyMic.Demo.csproj" />
   <Project Path="Eitan.EasyMic.Editor.csproj" />
-  <Project Path="Eitan.EasyMic.Tests.csproj" />
-  <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Editor.csproj" />
+  <Project Path="Eitan.EasyMic.Tests.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Tests.csproj" />
+  <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
 </Solution>

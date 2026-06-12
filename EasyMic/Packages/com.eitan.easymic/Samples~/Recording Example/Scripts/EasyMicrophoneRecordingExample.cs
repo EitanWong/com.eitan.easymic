@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Eitan.EasyMic.Runtime;
 using Eitan.EasyMic.Runtime.Mono;
@@ -84,6 +85,7 @@ namespace Eitan.EasyMic.Samples.Recording
         /// Flag to track the previous playback state for detecting playback completion.
         /// </summary>
         private bool _wasPlaying;
+        private bool? _lastKnownRecordingState;
 
         #endregion
 
@@ -133,6 +135,8 @@ namespace Eitan.EasyMic.Samples.Recording
 
             // Initialize the microphone system
             _easyMic.Init();
+            RefreshDeviceList();
+            SyncRecordingStateWithMicrophone(showResultWhenStopped: false);
         }
 
         /// <summary>
@@ -141,6 +145,13 @@ namespace Eitan.EasyMic.Samples.Recording
         /// </summary>
         private void Update()
         {
+            SyncRecordingStateWithMicrophone(showResultWhenStopped: true);
+
+            if (_audioSource == null)
+            {
+                return;
+            }
+
             // Detect when playback ends and update button text accordingly
             if (_wasPlaying && !_audioSource.IsPlaying)
             {
@@ -157,16 +168,20 @@ namespace Eitan.EasyMic.Samples.Recording
         private void OnDestroy()
         {
             // Unsubscribe from EasyMicrophone events
-            _easyMic.OnRecordingStateChanged -= OnRecordingStateChanged;
-            _easyMic.OnMicrophoneInitialized -= OnMicrophoneInitialized;
+            if (_easyMic != null)
+            {
+                _easyMic.OnRecordingStateChanged -= OnRecordingStateChanged;
+                _easyMic.OnMicrophoneInitialized -= OnMicrophoneInitialized;
+            }
+
             EasyMicAPI.DevicesChanged -= OnDevicesChanged;
 
             // Remove UI event listeners
-            _recordButton.onClick.RemoveAllListeners();
-            _refreshButton.onClick.RemoveAllListeners();
-            _playStopButton.onClick.RemoveAllListeners();
-            _saveButton.onClick.RemoveAllListeners();
-            _deviceDropdown.onValueChanged.RemoveAllListeners();
+            if (_recordButton != null) _recordButton.onClick.RemoveListener(OnRecordButtonClicked);
+            if (_refreshButton != null) _refreshButton.onClick.RemoveListener(OnRefreshButtonClicked);
+            if (_playStopButton != null) _playStopButton.onClick.RemoveListener(OnPlayStopButtonClicked);
+            if (_saveButton != null) _saveButton.onClick.RemoveListener(OnSaveButtonClicked);
+            if (_deviceDropdown != null) _deviceDropdown.onValueChanged.RemoveListener(OnDeviceSelectionChanged);
         }
 
         #endregion
@@ -183,6 +198,8 @@ namespace Eitan.EasyMic.Samples.Recording
             _recordingStateText.text = "Not Recording";
             _recordButton.GetComponentInChildren<Text>().text = "Start Recording";
             _playStopButton.GetComponentInChildren<Text>().text = "Play";
+            _playStopButton.interactable = false;
+            _saveButton.interactable = false;
         }
 
         /// <summary>
@@ -194,6 +211,7 @@ namespace Eitan.EasyMic.Samples.Recording
             if (success)
             {
                 RefreshDeviceList();
+                SyncRecordingStateWithMicrophone(showResultWhenStopped: false);
                 Debug.Log("EasyMicrophone initialized successfully");
             }
             else
@@ -226,8 +244,12 @@ namespace Eitan.EasyMic.Samples.Recording
             if (_devices.Length == 0)
             {
                 _deviceDropdown.AddOptions(new List<string> { "No Device Available" });
-                _deviceDropdown.interactable = false;
-                _recordButton.interactable = false;
+                _sampleRateDropdown.ClearOptions();
+                _channelDropdown.ClearOptions();
+                _sampleRates.Clear();
+                _channels.Clear();
+                SetUIInteractable(false);
+                SyncRecordingStateWithMicrophone(showResultWhenStopped: false);
                 return;
             }
 
@@ -260,6 +282,7 @@ namespace Eitan.EasyMic.Samples.Recording
 
             // Update sample rate and channel options for the selected device
             UpdateDeviceOptions(targetIndex);
+            SyncRecordingStateWithMicrophone(showResultWhenStopped: false);
         }
 
         /// <summary>
@@ -277,7 +300,7 @@ namespace Eitan.EasyMic.Samples.Recording
         /// <param name="deviceIndex">The index of the selected device.</param>
         private void UpdateDeviceOptions(int deviceIndex)
         {
-            if (_devices.Length == 0 || deviceIndex >= _devices.Length)
+            if (_devices.Length == 0 || deviceIndex < 0 || deviceIndex >= _devices.Length)
             {
                 return;
             }
@@ -415,7 +438,7 @@ namespace Eitan.EasyMic.Samples.Recording
             }
 
             // Stop any ongoing playback before recording
-            if (_audioSource.IsPlaying)
+            if (_audioSource != null && _audioSource.IsPlaying)
             {
                 _audioSource.Stop();
             }
@@ -437,6 +460,7 @@ namespace Eitan.EasyMic.Samples.Recording
             if (!success)
             {
                 Debug.LogError("Failed to start recording");
+                SyncRecordingStateWithMicrophone(showResultWhenStopped: false);
             }
         }
 
@@ -455,18 +479,49 @@ namespace Eitan.EasyMic.Samples.Recording
         /// <param name="isRecording">True if recording is active, false otherwise.</param>
         private void OnRecordingStateChanged(bool isRecording)
         {
+            ApplyRecordingState(isRecording, showResultWhenStopped: !isRecording);
+        }
+
+        private void SyncRecordingStateWithMicrophone(bool showResultWhenStopped)
+        {
+            if (_easyMic == null)
+            {
+                return;
+            }
+
+            bool isRecording = _easyMic.IsRecording;
+            bool changed = !_lastKnownRecordingState.HasValue || _lastKnownRecordingState.Value != isRecording;
+            if (changed)
+            {
+                bool stoppedAfterKnownRecording = _lastKnownRecordingState == true && !isRecording;
+                ApplyRecordingState(isRecording, showResultWhenStopped && stoppedAfterKnownRecording);
+                return;
+            }
+
+            SetUIInteractable(!isRecording);
+        }
+
+        private void ApplyRecordingState(bool isRecording, bool showResultWhenStopped)
+        {
+            _lastKnownRecordingState = isRecording;
             UpdateRecordingUI(isRecording);
             SetUIInteractable(!isRecording);
 
-            if (!isRecording)
+            if (isRecording)
             {
-                // Recording ended - display the result panel
-                ShowRecordingResult();
-            }
-            else
-            {
-                // Recording started - hide the result panel
+                if (_audioSource != null && _audioSource.IsPlaying)
+                {
+                    _audioSource.Stop();
+                    _playStopButton.GetComponentInChildren<Text>().text = "Play";
+                }
+
                 _resultPanel.gameObject.SetActive(false);
+                return;
+            }
+
+            if (showResultWhenStopped)
+            {
+                ShowRecordingResult();
             }
         }
 
@@ -497,6 +552,9 @@ namespace Eitan.EasyMic.Samples.Recording
         /// <param name="interactable">True to enable interaction, false to disable.</param>
         private void SetUIInteractable(bool interactable)
         {
+            bool isRecording = _easyMic != null && _easyMic.IsRecording;
+            _recordButton.interactable = isRecording || (interactable && _devices.Length > 0);
+            _refreshButton.interactable = interactable;
             _deviceDropdown.interactable = interactable && _devices.Length > 0;
             _sampleRateDropdown.interactable = interactable && _sampleRates.Count > 0;
             _channelDropdown.interactable = interactable && _channels.Count > 0;
@@ -521,13 +579,13 @@ namespace Eitan.EasyMic.Samples.Recording
                                       $"Sample Rate: {clip.frequency} Hz\n" +
                                       $"Channels: {clip.channels}";
                 _playStopButton.interactable = true;
-                _saveButton.interactable = true;
+                _saveButton.interactable = HasCompleteRecording();
             }
             else
             {
                 _audioInfoText.text = "No audio captured";
                 _playStopButton.interactable = false;
-                _saveButton.interactable = false;
+                _saveButton.interactable = HasCompleteRecording();
             }
         }
 
@@ -537,11 +595,23 @@ namespace Eitan.EasyMic.Samples.Recording
         /// </summary>
         private void OnPlayStopButtonClicked()
         {
+            if (_easyMic != null && _easyMic.IsRecording)
+            {
+                Debug.LogWarning("Stop recording before playing back the result");
+                return;
+            }
+
             var clip = _easyMic.LatestRecordingClip;
 
             if (clip == null)
             {
                 Debug.LogWarning("No recording available for playback");
+                return;
+            }
+
+            if (_audioSource == null)
+            {
+                Debug.LogWarning("No playback audio source assigned");
                 return;
             }
 
@@ -565,7 +635,13 @@ namespace Eitan.EasyMic.Samples.Recording
         /// </summary>
         private void OnSaveButtonClicked()
         {
-            if (!_easyMic.HasRecordedClip)
+            if (_easyMic != null && _easyMic.IsRecording)
+            {
+                Debug.LogWarning("Stop recording before saving the result");
+                return;
+            }
+
+            if (!HasCompleteRecording())
             {
                 Debug.LogWarning("No recording available to save");
                 return;
@@ -602,6 +678,12 @@ namespace Eitan.EasyMic.Samples.Recording
             EasyMicAPI.Refresh();
             RefreshDeviceList();
             Debug.Log("Device list refreshed");
+        }
+
+        private bool HasCompleteRecording()
+        {
+            string tempPath = _easyMic != null ? _easyMic.LatestRecordingTempPath : null;
+            return !string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath);
         }
 
         #endregion
