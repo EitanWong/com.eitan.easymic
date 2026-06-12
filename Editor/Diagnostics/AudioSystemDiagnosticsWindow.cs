@@ -822,7 +822,11 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private void RebuildSceneCache()
         {
+#if UNITY_2023_1_OR_NEWER
+            var list = UnityEngine.Object.FindObjectsByType<PlaybackAudioSourceBehaviour>(FindObjectsInactive.Include);
+#else
             var list = UnityEngine.Object.FindObjectsOfType<PlaybackAudioSourceBehaviour>(true);
+#endif
             if (list == null) { _sceneSources = Array.Empty<PlaybackAudioSourceBehaviour>(); _sceneSourcePaths = Array.Empty<string>(); _sceneDirty = false; return; }
             Array.Sort(list, (a, b) => string.Compare(GetHierarchyPath(a.transform), GetHierarchyPath(b.transform), StringComparison.Ordinal));
             _sceneSources = list;
