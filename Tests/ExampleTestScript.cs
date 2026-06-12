@@ -1,4 +1,4 @@
-﻿// Licensed under the MIT License. See LICENSE in the project root for license information.
+﻿// Licensed under the GNU General Public License v3.0. See LICENSE.md in the package root for license information.
 
 using NUnit.Framework;
 

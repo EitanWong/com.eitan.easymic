@@ -34,9 +34,31 @@
     "crossplatform"
   ],
   "unity": "2021.3",
+  "files": [
+    "package.json",
+    "package.json.meta",
+    "README.md",
+    "README.md.meta",
+    "README_zh-CN.md",
+    "README_zh-CN.md.meta",
+    "CHANGELOG.md",
+    "CHANGELOG.md.meta",
+    "LICENSE.md",
+    "LICENSE.md.meta",
+    "THIRD PARTY NOTICES.md",
+    "THIRD PARTY NOTICES.md.meta",
+    "Runtime",
+    "Runtime.meta",
+    "Editor",
+    "Editor.meta",
+    "Samples~",
+    "!Samples~/AIChat Example/Samantha/Code/Editor/Tests",
+    "!Samples~/AIChat Example/Samantha/Code/Editor/Tests.meta",
+    "Documentation~"
+  ],
   "documentationUrl": "https://github.com/EitanWong/com.eitan.easymic/tree/main/Packages/com.eitan.easymic/README.md",
   "changelogUrl": "https://github.com/EitanWong/com.eitan.easymic/tree/main/Packages/com.eitan.easymic/CHANGELOG.md",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "samples": [
     {
       "displayName": "Recording Example",
