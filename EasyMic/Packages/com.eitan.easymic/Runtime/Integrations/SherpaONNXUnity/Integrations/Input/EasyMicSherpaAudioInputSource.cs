@@ -1,6 +1,7 @@
 #if EITAN_SHERPA_ONNX_UNITY_PRESENT
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Eitan.EasyMic;
 using Eitan.EasyMic.Runtime;
@@ -374,7 +375,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Integrations.Input
         {
             int targetSampleRate = OutputSampleRate;
             int chunkFrames = CalculateChunkFrames(targetSampleRate, chunkDurationSeconds);
-            string key = $"{nameof(EasyMicSherpaAudioInputSource)}:{GetInstanceID()}:{generation}:{targetSampleRate}:{chunkFrames}";
+            string key = $"{nameof(EasyMicSherpaAudioInputSource)}:{RuntimeHelpers.GetHashCode(this)}:{generation}:{targetSampleRate}:{chunkFrames}";
 
             return new[]
             {
