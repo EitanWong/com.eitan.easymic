@@ -1,10 +1,9 @@
-#if EASYMIC_APM_INTEGRATION
 using System;
 
 namespace Eitan.EasyMic.Runtime.Mono
 {
     /// <summary>
-    /// Optional WebRTC audio preprocessing profile applied when the EasyMic APM package is installed.
+    /// Optional audio preprocessing profile applied when the EasyMic APM package is installed.
     /// </summary>
     [Serializable]
     public struct AudioProcessingOptions
@@ -22,11 +21,10 @@ namespace Eitan.EasyMic.Runtime.Mono
             EnableAGC = enableAGC;
         }
 
-        public static AudioProcessingOptions Default => new AudioProcessingOptions(true, true, true);
+        public static AudioProcessingOptions Default => Disable;
         public static AudioProcessingOptions Disable => new AudioProcessingOptions(false, false, false);
         public static AudioProcessingOptions AECOnly => new AudioProcessingOptions(true, false, false);
         public static AudioProcessingOptions ANSOnly => new AudioProcessingOptions(false, true, false);
         public static AudioProcessingOptions AGCOnly => new AudioProcessingOptions(false, false, true);
     }
 }
-#endif

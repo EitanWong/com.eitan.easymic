@@ -222,7 +222,7 @@ EasyMic APM is a separate paid extension for production voice cleanup:
 
 [Bilibili demo video: echo, volume, and noise handling for Unity digital human voice interaction](https://www.bilibili.com/video/BV18hE46rEzw/?share_source=copy_web&vd_source=06d081c8a7b3c877a41f801ce5915855)
 
-This repository does not include EasyMic APM implementation code, binaries, samples, or licenses.
+This repository does not include EasyMic APM package content, binaries, samples, or licenses.
 
 Contact: [unease-equity-5c@icloud.com](mailto:unease-equity-5c@icloud.com)
 

@@ -28,3 +28,7 @@ mono_crash.*.json
 
 # CodeGraph index cache
 /.codegraph/
+
+/UserSettings/EasyMic/Apm/
+/Assets/EasyMic/_/r.g.cs
+/Assets/EasyMic/_/r.g.cs.meta

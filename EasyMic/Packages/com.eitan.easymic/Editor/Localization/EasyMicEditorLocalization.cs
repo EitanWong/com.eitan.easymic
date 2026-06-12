@@ -144,6 +144,8 @@ namespace Eitan.EasyMic.Editor
 
     internal static partial class EasyMicEditorLocalization
     {
+        private const string UnityEditorLocalePrefKey = "Editor.kEditorLocale";
+
         private static readonly IReadOnlyDictionary<EasyMicEditorTextKey, string> English = new Dictionary<EasyMicEditorTextKey, string>
         {
             { EasyMicEditorTextKey.CommonOk, "OK" },
@@ -162,7 +164,7 @@ namespace Eitan.EasyMic.Editor
             { EasyMicEditorTextKey.ApmConfiguredHintAuto, "Activation is already configured. You can update the activation token below without editing scripts manually." },
             { EasyMicEditorTextKey.ApmConfiguredHintCustom, "A custom activation script is managing this setup. Edit that script directly if you need to change how activation is loaded." },
             { EasyMicEditorTextKey.ApmConfiguredDetailAuto, "The current activation setup is managed automatically by EasyMic." },
-            { EasyMicEditorTextKey.ApmConfiguredDetailCustom, "Recommendation: customize token loading logic and apply advanced security protections (for example, encryption or obfuscation) in that script." },
+            { EasyMicEditorTextKey.ApmConfiguredDetailCustom, "Recommendation: customize token loading logic and keep activation material protected in that script." },
             { EasyMicEditorTextKey.ApmUpdateActivationHeader, "Update Activation" },
             { EasyMicEditorTextKey.ApmActivateHeader, "Activate EasyMic APM" },
             { EasyMicEditorTextKey.ApmUpdateActivationButton, "Update Activation" },
@@ -202,7 +204,7 @@ namespace Eitan.EasyMic.Editor
             { EasyMicEditorTextKey.ApmDialogSaveProviderMessage, "Choose where to save the activation script." },
             { EasyMicEditorTextKey.ApmInfoProviderUpdated, "Activation script {0} at: {1}" },
             { EasyMicEditorTextKey.ApmInfoLicenseAssetSaved, "Protected activation asset saved at: {0}" },
-            { EasyMicEditorTextKey.ApmInfoTokenStoredStreamingAssets, "The token is stored as an encrypted StreamingAssets payload for runtime activation." },
+            { EasyMicEditorTextKey.ApmInfoTokenStoredStreamingAssets, "The token is stored as a protected StreamingAssets payload for runtime activation." },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreUpdated, ".gitignore updated with protected activation ignore rules." },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreSkipped, ".gitignore not found; skipped auto-ignore." },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreAlreadyContains, ".gitignore already contains protected activation ignore rules." },
@@ -291,7 +293,7 @@ namespace Eitan.EasyMic.Editor
             { EasyMicEditorTextKey.ApmConfiguredHintAuto, "当前已完成激活配置。你可以直接在下方更新激活 Token，无需手动修改脚本。" },
             { EasyMicEditorTextKey.ApmConfiguredHintCustom, "当前使用自定义激活脚本管理配置。如需修改激活加载方式，请直接编辑该脚本。" },
             { EasyMicEditorTextKey.ApmConfiguredDetailAuto, "当前激活配置由 EasyMic 自动管理。" },
-            { EasyMicEditorTextKey.ApmConfiguredDetailCustom, "建议：在该脚本中自行定制 Token 加载逻辑，并加入更高级的安全保护措施，例如加密、混淆或服务端下发。" },
+            { EasyMicEditorTextKey.ApmConfiguredDetailCustom, "建议：在该脚本中自行定制 Token 加载逻辑，并妥善保护激活材料。" },
             { EasyMicEditorTextKey.ApmUpdateActivationHeader, "更新激活" },
             { EasyMicEditorTextKey.ApmActivateHeader, "激活 EasyMic APM" },
             { EasyMicEditorTextKey.ApmUpdateActivationButton, "更新激活" },
@@ -331,7 +333,7 @@ namespace Eitan.EasyMic.Editor
             { EasyMicEditorTextKey.ApmDialogSaveProviderMessage, "请选择激活脚本的保存位置。" },
             { EasyMicEditorTextKey.ApmInfoProviderUpdated, "激活脚本已{0}：{1}" },
             { EasyMicEditorTextKey.ApmInfoLicenseAssetSaved, "受保护的激活资源已保存到：{0}" },
-            { EasyMicEditorTextKey.ApmInfoTokenStoredStreamingAssets, "Token 已作为加密后的 StreamingAssets 载荷保存，供运行时激活使用。" },
+            { EasyMicEditorTextKey.ApmInfoTokenStoredStreamingAssets, "Token 已作为受保护的 StreamingAssets 载荷保存，供运行时激活使用。" },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreUpdated, ".gitignore 已更新受保护激活文件的忽略规则。" },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreSkipped, "未找到 .gitignore，已跳过自动忽略配置。" },
             { EasyMicEditorTextKey.ApmInfoGitIgnoreAlreadyContains, ".gitignore 已包含受保护激活文件的忽略规则。" },
@@ -434,29 +436,49 @@ namespace Eitan.EasyMic.Editor
 
         private static EasyMicEditorLanguage ResolveCurrentLanguage()
         {
-            try
+            if (TryGetSelectedEditorLanguageName(out string selectedLanguageName))
             {
-                Type localizationDatabaseType = Type.GetType("UnityEditor.LocalizationDatabase, UnityEditor", throwOnError: false);
-                PropertyInfo currentLanguageProperty = localizationDatabaseType?.GetProperty("currentEditorLanguage", BindingFlags.Public | BindingFlags.Static);
-                object languageValue = currentLanguageProperty?.GetValue(null, null);
-                if (languageValue != null && IsChineseLanguageName(languageValue.ToString()))
+                if (IsChineseLanguageName(selectedLanguageName))
                 {
                     return EasyMicEditorLanguage.ChineseSimplified;
                 }
-            }
-            catch
-            {
+
+                if (IsEnglishLanguageName(selectedLanguageName))
+                {
+                    return EasyMicEditorLanguage.English;
+                }
             }
 
+            if (TryGetCurrentEditorLanguageName(out string languageName) &&
+                IsChineseLanguageName(languageName))
+            {
+                return EasyMicEditorLanguage.ChineseSimplified;
+            }
+
+            return EasyMicEditorLanguage.English;
+        }
+
+        private static bool TryGetSelectedEditorLanguageName(out string languageName)
+        {
+            languageName = EditorPrefs.GetString(UnityEditorLocalePrefKey, string.Empty);
+            return !string.IsNullOrWhiteSpace(languageName);
+        }
+
+        private static bool TryGetCurrentEditorLanguageName(out string languageName)
+        {
+            languageName = string.Empty;
             try
             {
-                return IsChineseSystemLanguage(Application.systemLanguage)
-                    ? EasyMicEditorLanguage.ChineseSimplified
-                    : EasyMicEditorLanguage.English;
+                Type localizationDatabaseType = Type.GetType("UnityEditor.LocalizationDatabase, UnityEditor", throwOnError: false)
+                    ?? typeof(EditorApplication).Assembly.GetType("UnityEditor.LocalizationDatabase", throwOnError: false);
+                PropertyInfo currentLanguageProperty = localizationDatabaseType?.GetProperty("currentEditorLanguage", BindingFlags.Public | BindingFlags.Static);
+                object languageValue = currentLanguageProperty?.GetValue(null, null);
+                languageName = languageValue?.ToString() ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(languageName);
             }
             catch
             {
-                return EasyMicEditorLanguage.English;
+                return false;
             }
         }
 
@@ -467,14 +489,21 @@ namespace Eitan.EasyMic.Editor
                 return false;
             }
 
-            return value.IndexOf("Chinese", StringComparison.OrdinalIgnoreCase) >= 0;
+            return value.IndexOf("Chinese", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("zh", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("中文", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("简体", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static bool IsChineseSystemLanguage(SystemLanguage language)
+        private static bool IsEnglishLanguageName(string value)
         {
-            return language == SystemLanguage.Chinese ||
-                   language == SystemLanguage.ChineseSimplified ||
-                   language == SystemLanguage.ChineseTraditional;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            return value.IndexOf("English", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   string.Equals(value, "en", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
