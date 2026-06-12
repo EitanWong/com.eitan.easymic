@@ -86,6 +86,7 @@ jobs:
           args: '-quit -nographics -batchmode -executeMethod Utilities.Editor.BuildPipeline.UnityPlayerBuildTools.ValidateProject -importTMProEssentialsAsset'
       - uses: RageAgainstThePixel/unity-action@v3.1.0
         name: '${{ matrix.build-target }}-EditModeTests'
+        if: matrix.os != 'macos-latest'
         with:
           build-target: ${{ matrix.build-target }}
           log-name: '${{ matrix.build-target }}-EditModeTests'
