@@ -5,6 +5,7 @@ namespace Eitan.EasyMic.Runtime.Mono
     using System.Collections;
     using System.IO;
     using System.Linq;
+    using System.Runtime.CompilerServices;
     using Eitan.EasyMic.Runtime;
     using Eitan.EasyMic.Runtime.Exceptions;
     using Eitan.EasyMic.Runtime.Mono.Recording;
@@ -660,7 +661,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             _streamingWriter?.Dispose();
             _streamingWriter = null;
 
-            _activeTempFilePath = RecordingPathUtility.PrepareActiveTempRecordingPath(GetInstanceID());
+            _activeTempFilePath = RecordingPathUtility.PrepareActiveTempRecordingPath(RuntimeHelpers.GetHashCode(this));
             _latestRecordingTempPath = null;
 
             var deviceName = string.IsNullOrEmpty(_deviceOptions.DeviceName) ? null : _deviceOptions.DeviceName;

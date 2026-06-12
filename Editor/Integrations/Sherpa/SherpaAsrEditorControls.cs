@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Eitan.EasyMic.Editor.Icons;
 using UnityEditor;
 using UnityEngine;
@@ -714,7 +715,7 @@ namespace Eitan.EasyMic.Editor.Integration.SherpaONNXUnity
         private static string GetManualFieldKey(SerializedProperty property)
         {
             int targetId = property.serializedObject.targetObject != null
-                ? property.serializedObject.targetObject.GetInstanceID()
+                ? RuntimeHelpers.GetHashCode(property.serializedObject.targetObject)
                 : 0;
             return targetId.ToString() + ":" + property.propertyPath;
         }
