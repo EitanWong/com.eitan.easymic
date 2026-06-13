@@ -18,7 +18,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private SerializedProperty _microphoneOptionsProp;
         private SerializedProperty _deviceOptionsProp;
         private SerializedProperty _enableLogProp;
+#if EASYMIC_APM_INTEGRATION
         private SerializedProperty _audioProcessingOptionsProp;
+#endif
 
         // === Preview state ===
         private PreviewPlayer _player = new PreviewPlayer();
@@ -52,7 +54,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             _microphoneOptionsProp = serializedObject.FindProperty("_microphoneOptions");
             _deviceOptionsProp = serializedObject.FindProperty("_deviceOptions");
             _enableLogProp = serializedObject.FindProperty("_enableLog");
+#if EASYMIC_APM_INTEGRATION
             _audioProcessingOptionsProp = serializedObject.FindProperty("_audioProcessingOptions");
+#endif
 
             SubscribeToRuntimeEvents();
             EditorApplication.update -= EditorUpdate;
@@ -170,11 +174,13 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                     EditorGUILayout.PropertyField(_enableLogProp, EasyMicEditorLocalization.Content(EasyMicEditorTextKey.CommonEnableLog));
                 }
 
+#if EASYMIC_APM_INTEGRATION
                 EditorGUILayout.Space(Styles.HeaderBodySpacing);
                 if (_audioProcessingOptionsProp != null)
                 {
                     EditorGUILayout.PropertyField(_audioProcessingOptionsProp);
                 }
+#endif
             }
         }
 
@@ -887,6 +893,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         {
             if (!Application.isPlaying)
             {
+#if EASYMIC_APM_INTEGRATION
                 if (_audioProcessingOptionsProp != null)
                 {
                     double now = EditorApplication.timeSinceStartup;
@@ -896,6 +903,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
                         Repaint();
                     }
                 }
+#endif
                 return;
             }
 
