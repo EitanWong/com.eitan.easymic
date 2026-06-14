@@ -297,7 +297,7 @@ namespace Eitan.EasyMic.Runtime
             IEnumerable<AudioWorkerBlueprint> blueprints,
             EasyMicLatencyProfile latencyProfile)
         {
-            const int maxAttempts = 4;
+            const int maxAttempts = 5;
             var activationFailures = new List<string>();
 
             for (int attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex++)

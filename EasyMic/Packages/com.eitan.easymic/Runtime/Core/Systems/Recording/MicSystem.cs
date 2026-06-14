@@ -81,6 +81,12 @@ namespace Eitan.EasyMic.Runtime
                     Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility,
                     false);
 
+            public static AndroidCaptureBackendAttempt AAudioUltraSafe =>
+                new AndroidCaptureBackendAttempt(
+                    "AAudio ultra-safe",
+                    Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe,
+                    false);
+
             public static AndroidCaptureBackendAttempt OpenSlLowLatency =>
                 new AndroidCaptureBackendAttempt(
                     "OpenSL ES low-latency",
@@ -368,12 +374,23 @@ namespace Eitan.EasyMic.Runtime
             if (!_contextIsOpenSlOnly &&
                 _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility)
             {
+                _androidCaptureAttempt = AndroidCaptureBackendAttempt.AAudioUltraSafe;
                 Log(
                     "EasyMic: Android compatible AAudio capture activation failed; " +
+                    "retrying with ultra-safe AAudio capture profile. " +
+                    BuildAndroidFallbackReason(activationFailure),
+                    LogLevel.Warning);
+                return true;
+            }
+
+            if (!_contextIsOpenSlOnly &&
+                _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe)
+            {
+                Log(
+                    "EasyMic: Android ultra-safe AAudio capture activation failed; " +
                     "retrying capture with OpenSL ES low-latency backend. " +
                     BuildAndroidFallbackReason(activationFailure),
                     LogLevel.Warning);
-
                 ReplaceContext(new[] { Native.Backend.OpenSl }, usingAndroidOpenSlFallback: true);
                 _androidCaptureAttempt = AndroidCaptureBackendAttempt.OpenSlLowLatency;
                 RefreshDevicesAfterAndroidBackendSwitch();

@@ -808,7 +808,8 @@ namespace Eitan.EasyMic.Runtime
         {
             Default = 0,
             AAudioCompatibility = 1,
-            OpenSlSafe = 2
+            OpenSlSafe = 2,
+            AAudioUltraSafe = 3
         }
 
 

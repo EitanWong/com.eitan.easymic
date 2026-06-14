@@ -139,8 +139,15 @@ namespace Eitan.EasyMic.Runtime
                 config.AAudio.AllowSetBufferCapacity = 0;
             }
 
+            if (capture && androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe)
+            {
+                config.AAudio.InputPreset = 0;
+                config.AAudio.AllowedCapturePolicy = 0;
+            }
+
             if (capture &&
                 (androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility ||
+                 androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe ||
                  androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe))
             {
                 config.PerformanceProfile = 1;
