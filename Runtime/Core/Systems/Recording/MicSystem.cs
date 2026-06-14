@@ -12,6 +12,9 @@ namespace Eitan.EasyMic.Runtime
     {
         private IntPtr _context;
         private Native.NativeAllocationSource _contextAllocationSource;
+        private Native.Backend[] _contextBackends;
+        private bool _contextIsOpenSlOnly;
+        private bool _usingAndroidOpenSlFallback;
         private bool _disposed;
         private int _nextRecordingId = 1;
 
@@ -31,6 +34,17 @@ namespace Eitan.EasyMic.Runtime
         public int DeviceCount { get; private set; }
 
         public event Action<MicDevicesChangedEventArgs> DevicesChanged;
+
+        private sealed class NativeDeviceActivationException : InvalidOperationException
+        {
+            public NativeDeviceActivationException(Native.Result result, string message)
+                : base(message)
+            {
+                Result = result;
+            }
+
+            public Native.Result Result { get; }
+        }
 
         internal bool IsDisposed
         {
@@ -99,13 +113,7 @@ namespace Eitan.EasyMic.Runtime
                     ex);
             }
 
-            var result = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, _context);
-            if (result != Native.Result.Success)
-            {
-                Native.FreeAllocated(_context, _contextAllocationSource);
-                _context = IntPtr.Zero;
-                throw new InvalidOperationException($"Unable to init context. {result}");
-            }
+            InitializeContextForCurrentPlatform();
 
             UnityEngine.Application.quitting += OnApplicationQuitting;
 
@@ -150,6 +158,70 @@ namespace Eitan.EasyMic.Runtime
             {
                 throw new ObjectDisposedException(nameof(MicSystem));
             }
+        }
+
+        private void InitializeContextForCurrentPlatform()
+        {
+            InitializeContext(GetPreferredBackendsForCurrentPlatform());
+        }
+
+        private void InitializeContext(Native.Backend[] backends)
+        {
+            var result = Native.ContextInitWithBackends(backends, IntPtr.Zero, _context);
+            if (result != Native.Result.Success)
+            {
+                Native.FreeAllocated(_context, _contextAllocationSource);
+                _context = IntPtr.Zero;
+                throw new InvalidOperationException(
+                    $"Unable to init context. {Native.FormatResult(result)} backends={Native.FormatBackendList(backends)}");
+            }
+
+            _contextBackends = backends != null && backends.Length > 0 ? (Native.Backend[])backends.Clone() : null;
+            _contextIsOpenSlOnly = IsOpenSlOnly(_contextBackends);
+            _usingAndroidOpenSlFallback = false;
+        }
+
+        private Native.Backend[] GetPreferredBackendsForCurrentPlatform()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR && UNITY_2021_3_OR_NEWER
+            return EasyMicRuntimeSettings.Current.Android.useAAudio
+                ? new[] { Native.Backend.AAudio, Native.Backend.OpenSl }
+                : new[] { Native.Backend.OpenSl };
+#else
+            return null;
+#endif
+        }
+
+        private bool TrySwitchAndroidContextToOpenSlFallback()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            ThrowIfDisposed();
+            if (_activeRecordings.Count != 0 || _contextIsOpenSlOnly)
+            {
+                return false;
+            }
+
+            Log("EasyMic: Android AAudio capture activation failed; retrying capture with OpenSL ES backend.", LogLevel.Warning);
+
+            if (_context != IntPtr.Zero)
+            {
+                try { Native.ContextUninit(_context); } catch { }
+            }
+
+            InitializeContext(new[] { Native.Backend.OpenSl });
+            _usingAndroidOpenSlFallback = true;
+            RefreshDevicesInternal(true);
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        private static bool IsOpenSlOnly(Native.Backend[] backends)
+        {
+            return backends != null &&
+                   backends.Length == 1 &&
+                   backends[0] == Native.Backend.OpenSl;
         }
     }
 }

@@ -1,4 +1,4 @@
-#if UNITY_ANDROID
+#if UNITY_ANDROID && !UNITY_EDITOR
 using UnityEngine.Android;
 #endif
 
@@ -14,10 +14,14 @@ namespace Eitan.EasyMic.Runtime
         private static bool IsGranted;
         private static bool s_iOSAuthorizationRequested;
         private static bool s_macosAuthorizationRequested;
-        // 安卓权限的字符串常量
 
-#if UNITY_ANDROID
-        private const string PERMISSION_RECORD_AUDIO = "android.permission.RECORD_AUDIO";
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private static bool s_androidPermissionRequestInFlight;
+        private static bool s_androidPermissionDenied;
+        private static bool s_androidPermissionProbeActive;
+        private static int s_androidPermissionProbeReleaseFrame = -1;
+        private static float s_androidPermissionProbeReleaseTime = -1f;
+        private static PermissionCallbacks s_androidPermissionCallbacks;
 #endif
 
         /// <summary>
@@ -31,22 +35,25 @@ namespace Eitan.EasyMic.Runtime
             if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
             {
                 // Android permission APIs must run on Unity main thread.
-                return IsGranted;
+                return IsGranted && IsAndroidPermissionProbeReleased();
             }
 
-            if (!IsGranted)
+            if (Permission.HasUserAuthorizedPermission(Permission.Microphone))
             {
-                if (Permission.HasUserAuthorizedPermission(Permission.Microphone))
-                {
-                    MarkPermissionGranted();
-                }
-                else
-                {
-                    RequestPlatformPermission();
-                }
+                s_androidPermissionDenied = false;
+                MarkPermissionGranted();
+                StopAndroidPermissionProbe();
+                return IsAndroidPermissionProbeReleased();
             }
 
-            return IsGranted;
+            IsGranted = false;
+            StopAndroidPermissionProbe();
+            if (!s_androidPermissionDenied)
+            {
+                RequestPlatformPermission();
+            }
+
+            return false;
 #elif UNITY_IOS && !UNITY_EDITOR
             if (UnityEngine.Application.HasUserAuthorization(UnityEngine.UserAuthorization.Microphone))
             {
@@ -81,14 +88,26 @@ namespace Eitan.EasyMic.Runtime
             return;
         }
 
+        if (Permission.HasUserAuthorizedPermission(Permission.Microphone))
+        {
+            OnPermissionResult(true);
+            return;
+        }
+
+        if (s_androidPermissionRequestInFlight)
+        {
+            return;
+        }
+
         if (!Permission.HasUserAuthorizedPermission(Permission.Microphone))
         {
-            UnityEngine.Microphone.Start(null,true,1,UnityEngine.AudioSettings.outputSampleRate); // use Unity Microphone API force permission request
-            var callbacks = new PermissionCallbacks();
-            callbacks.PermissionGranted += s => OnPermissionResult(true);
-            callbacks.PermissionDenied += s => OnPermissionResult(false);
-            callbacks.PermissionDeniedAndDontAskAgain += s => OnPermissionResult(false);
-            Permission.RequestUserPermission(Permission.Microphone, callbacks); // not working
+            s_androidPermissionRequestInFlight = true;
+            StartAndroidPermissionProbe();
+            s_androidPermissionCallbacks = new PermissionCallbacks();
+            s_androidPermissionCallbacks.PermissionGranted += s => OnPermissionResult(true);
+            s_androidPermissionCallbacks.PermissionDenied += s => OnPermissionResult(false);
+            s_androidPermissionCallbacks.PermissionDeniedAndDontAskAgain += s => OnPermissionResult(false);
+            Permission.RequestUserPermission(Permission.Microphone, s_androidPermissionCallbacks);
         }
 #elif UNITY_IOS && !UNITY_EDITOR
         if (s_iOSAuthorizationRequested)
@@ -113,6 +132,12 @@ namespace Eitan.EasyMic.Runtime
 
         private static void OnPermissionResult(bool granted)
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            s_androidPermissionRequestInFlight = false;
+            s_androidPermissionDenied = !granted;
+            s_androidPermissionCallbacks = null;
+#endif
+
             if (granted)
             {
                 MarkPermissionGranted();
@@ -123,10 +148,7 @@ namespace Eitan.EasyMic.Runtime
             }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (!EasyMicPlatformSupport.RequiresAndroidMainThread || EasyMicUnityThread.IsMainThread)
-            {
-                UnityEngine.Microphone.End(null); // stop Recording for permission request
-            }
+            StopAndroidPermissionProbe();
 #endif
         }
 
@@ -140,6 +162,96 @@ namespace Eitan.EasyMic.Runtime
             IsGranted = true;
             EasyMicAPI.Cleanup();
         }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        internal static string DiagnosticStatus
+        {
+            get
+            {
+                bool platformGranted = false;
+                if (!EasyMicPlatformSupport.RequiresAndroidMainThread || EasyMicUnityThread.IsMainThread)
+                {
+                    platformGranted = Permission.HasUserAuthorizedPermission(Permission.Microphone);
+                }
+
+                return $"androidPermissionCached={IsGranted}, androidPermissionPlatform={platformGranted}, " +
+                       $"androidPermissionRequestInFlight={s_androidPermissionRequestInFlight}, " +
+                       $"androidPermissionDenied={s_androidPermissionDenied}, " +
+                       $"unityMicrophoneProbeActive={s_androidPermissionProbeActive}, " +
+                       $"nativeCaptureReady={IsAndroidPermissionProbeReleased()}";
+            }
+        }
+
+        private static void StartAndroidPermissionProbe()
+        {
+            if (s_androidPermissionProbeActive)
+            {
+                return;
+            }
+
+            try
+            {
+                var sampleRate = UnityEngine.Mathf.Max(8000, UnityEngine.AudioSettings.outputSampleRate);
+                var clip = UnityEngine.Microphone.Start(null, true, 1, sampleRate);
+                s_androidPermissionProbeActive = clip != null;
+            }
+            catch (System.Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("EasyMic: Unity microphone permission probe could not start. " + ex.Message);
+                s_androidPermissionProbeActive = false;
+            }
+        }
+
+        private static void StopAndroidPermissionProbe()
+        {
+            if (!s_androidPermissionProbeActive)
+            {
+                return;
+            }
+
+            if (EasyMicPlatformSupport.RequiresAndroidMainThread && !EasyMicUnityThread.IsMainThread)
+            {
+                return;
+            }
+
+            try
+            {
+                UnityEngine.Microphone.End(null);
+            }
+            catch (System.Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("EasyMic: Unity microphone permission probe could not be stopped. " + ex.Message);
+            }
+            finally
+            {
+                s_androidPermissionProbeActive = false;
+                s_androidPermissionProbeReleaseFrame = UnityEngine.Time.frameCount;
+                s_androidPermissionProbeReleaseTime = UnityEngine.Time.realtimeSinceStartup;
+            }
+        }
+
+        private static bool IsAndroidPermissionProbeReleased()
+        {
+            if (s_androidPermissionProbeActive)
+            {
+                return false;
+            }
+
+            if (s_androidPermissionProbeReleaseFrame < 0)
+            {
+                return true;
+            }
+
+            if (UnityEngine.Time.frameCount <= s_androidPermissionProbeReleaseFrame)
+            {
+                return false;
+            }
+
+            return UnityEngine.Time.realtimeSinceStartup - s_androidPermissionProbeReleaseTime >= 0.05f;
+        }
+#else
+        internal static string DiagnosticStatus => "microphonePermissionNotRequired";
+#endif
 
 
 #if UNITY_ANDROID && !UNITY_EDITOR
