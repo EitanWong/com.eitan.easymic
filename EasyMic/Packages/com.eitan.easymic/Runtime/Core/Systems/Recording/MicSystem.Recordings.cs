@@ -33,13 +33,36 @@ namespace Eitan.EasyMic.Runtime
                     throw new EasyMicDeviceNotFoundException("No valid capture device available.");
                 }
 
+                ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
+
+                var learningScope = AndroidCaptureBackendLearningScope.Invalid;
+                PrepareAndroidCaptureAttemptForDevice(
+                    device,
+                    ref chosen,
+                    ref sampleRate,
+                    ref channel,
+                    ref learningScope);
+
+                if (!chosen.HasValidId)
+                {
+                    throw new EasyMicDeviceNotFoundException("No valid capture device available.");
+                }
+
                 if (IsDeviceRecordingLocked(chosen))
                 {
                     throw new EasyMicDeviceConflictException("A recording session is already in progress for this capture device. Stop it before starting another recording.");
                 }
 
                 var recordingId = _nextRecordingId++;
-                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger, _recordingCallbackDiagnosticsEnabled, latencyProfile);
+                RecordingSession session = CreateRecordingSessionWithAdaptiveFallback(
+                    device,
+                    ref chosen,
+                    ref sampleRate,
+                    ref channel,
+                    blueprints,
+                    latencyProfile,
+                    learningScope);
+
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
             }
@@ -189,13 +212,42 @@ namespace Eitan.EasyMic.Runtime
 
         private MicDevice ResolveDevice(MicDevice preferred)
         {
-            var choice = preferred;
-            if (choice.HasValidId)
+            var devices = Devices ?? Array.Empty<MicDevice>();
+            if (preferred.HasValidId)
             {
-                return choice;
+                for (int i = 0; i < devices.Length; i++)
+                {
+                    if (devices[i].SameIdentityAs(preferred))
+                    {
+                        return devices[i];
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(preferred.Name))
+                {
+                    for (int i = 0; i < devices.Length; i++)
+                    {
+                        if (string.Equals(devices[i].Name, preferred.Name, StringComparison.Ordinal))
+                        {
+                            return devices[i];
+                        }
+                    }
+
+                    for (int i = 0; i < devices.Length; i++)
+                    {
+                        if (string.Equals(devices[i].Name, preferred.Name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return devices[i];
+                        }
+                    }
+                }
+
+                if (devices.Length == 0)
+                {
+                    return _usingAndroidOpenSlFallback ? CreateDefaultDeviceForCurrentBackend(preferred) : preferred;
+                }
             }
 
-            var devices = Devices ?? Array.Empty<MicDevice>();
             for (int i = 0; i < devices.Length; i++)
             {
                 if (devices[i].IsDefault)
@@ -210,6 +262,168 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return default;
+        }
+
+        private static MicDevice CreateDefaultDeviceForCurrentBackend(MicDevice preferred)
+        {
+            return new MicDevice
+            {
+                Name = string.IsNullOrEmpty(preferred.Name) ? "Default Microphone" : preferred.Name,
+                IsDefault = true,
+                DeviceId = new byte[Native.DeviceIdSizeInBytes],
+                NativeFormats = preferred.NativeFormats ?? Array.Empty<Native.NativeDataFormat>()
+            };
+        }
+
+        private static void ResolveFormatForDevice(MicDevice device, ref SampleRate sampleRate, ref Channel channel)
+        {
+            sampleRate = device.ResolveSampleRate(sampleRate);
+            channel = device.SupportsChannel(channel) ? channel : device.GetPreferredChannel(channel);
+        }
+
+        private RecordingSession CreateRecordingSession(
+            MicDevice device,
+            SampleRate sampleRate,
+            Channel channel,
+            IEnumerable<AudioWorkerBlueprint> blueprints,
+            EasyMicLatencyProfile latencyProfile)
+        {
+            return new RecordingSession(
+                _context,
+                device,
+                sampleRate,
+                channel,
+                blueprints,
+                _logger,
+                _recordingCallbackDiagnosticsEnabled,
+                latencyProfile,
+                Native.FormatBackendList(_contextBackends),
+                _usingAndroidOpenSlFallback,
+                _androidCaptureAttempt.Label,
+                _androidCaptureAttempt.ConfigProfile);
+        }
+
+        private RecordingSession CreateRecordingSessionWithAdaptiveFallback(
+            MicDevice requestedDevice,
+            ref MicDevice chosen,
+            ref SampleRate sampleRate,
+            ref Channel channel,
+            IEnumerable<AudioWorkerBlueprint> blueprints,
+            EasyMicLatencyProfile latencyProfile,
+            AndroidCaptureBackendLearningScope learningScope)
+        {
+            const int maxAttempts = 5;
+            var activationFailures = new List<string>();
+            bool hadLearnableAAudioActivationFailure = false;
+
+            for (int attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex++)
+            {
+                var currentAttempt = _androidCaptureAttempt;
+                try
+                {
+                    var session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                    RememberAndroidCaptureSuccess(
+                        learningScope,
+                        chosen,
+                        currentAttempt,
+                        hadLearnableAAudioActivationFailure);
+                    return session;
+                }
+                catch (NativeDeviceActivationException ex)
+                {
+                    activationFailures.Add($"{currentAttempt.Label}: {ex.Message}");
+                    if (!currentAttempt.OpenSlBackend && IsLearnableAndroidCaptureFailure(ex.Result))
+                    {
+                        hadLearnableAAudioActivationFailure = true;
+                    }
+
+                    if (!ShouldRetryWithAndroidCaptureFallback(ex))
+                    {
+                        throw;
+                    }
+
+                    bool advanced;
+                    try
+                    {
+                        advanced = TryAdvanceAndroidCaptureBackendFallback(ex);
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture failed while advancing the adaptive backend fallback chain. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            fallbackEx);
+                    }
+
+                    if (!advanced)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture could not start after trying every adaptive backend fallback profile. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            ex);
+                    }
+
+                    chosen = ResolveDevice(requestedDevice);
+                    if (!chosen.HasValidId)
+                    {
+                        throw new InvalidOperationException(
+                            "No valid capture device available after advancing Android capture backend fallback. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            ex);
+                    }
+
+                    ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
+                }
+            }
+
+            throw new InvalidOperationException(
+                "EasyMic Android capture exceeded the adaptive backend fallback attempt limit. " +
+                BuildActivationFailureSummary(activationFailures));
+        }
+
+        private static bool ShouldRetryWithAndroidCaptureFallback(NativeDeviceActivationException ex)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return ex != null &&
+                   (ex.Result == Native.Result.Error ||
+                    ex.Result == Native.Result.FormatNotSupported ||
+                    ex.Result == Native.Result.DeviceTypeNotSupported ||
+                    ex.Result == Native.Result.NoBackend ||
+                    ex.Result == Native.Result.NoDevice ||
+                    ex.Result == Native.Result.InvalidDeviceConfig ||
+                    ex.Result == Native.Result.BackendNotEnabled ||
+                    ex.Result == Native.Result.FailedToInitBackend ||
+                    ex.Result == Native.Result.FailedToOpenBackendDevice ||
+                    ex.Result == Native.Result.FailedToStartBackendDevice ||
+                    ex.Result == Native.Result.Unavailable ||
+                    ex.Result == Native.Result.Busy ||
+                    ex.Result == Native.Result.AlreadyInUse ||
+                    ex.Result == Native.Result.AccessDenied);
+#else
+            return false;
+#endif
+        }
+
+        private static bool IsLearnableAndroidCaptureFailure(Native.Result result)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return result != Native.Result.Busy &&
+                   result != Native.Result.AlreadyInUse &&
+                   result != Native.Result.AccessDenied;
+#else
+            _ = result;
+            return false;
+#endif
+        }
+
+        private static string BuildActivationFailureSummary(List<string> activationFailures)
+        {
+            if (activationFailures == null || activationFailures.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return "Failures: " + string.Join(" | ", activationFailures);
         }
 
         /// <summary>

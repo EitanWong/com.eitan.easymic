@@ -106,3 +106,7 @@ EasyMic/Recordings/
 EasyMic/TtsDiagnostics/
 EasyMic/Assets/Resources/BillingMode.json
 EasyMic/Assets/Resources/BillingMode.json.meta
+EasyMic/Assets/Plugins
+EasyMic/Assets/Plugins.meta
+EasyMic/Assets/Editor
+EasyMic/Assets/Editor.meta

@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Eitan.EasyMic.Runtime
 {
@@ -109,9 +110,26 @@ namespace Eitan.EasyMic.Runtime
         [DllImport(LibraryName, EntryPoint = "ma_device_stop", CallingConvention = CallingConvention.Cdecl)]
         public static extern Result DeviceStop(IntPtr device);
 
+        [DllImport(LibraryName, EntryPoint = "ma_device_get_state", CallingConvention = CallingConvention.Cdecl)]
+        private static extern DeviceState DeviceGetStateNative(IntPtr device);
+
+        [DllImport(LibraryName, EntryPoint = "ma_device_get_name", CallingConvention = CallingConvention.Cdecl)]
+        private static extern Result DeviceGetNameNative(
+            IntPtr device,
+            DeviceType type,
+            [Out] byte[] name,
+            UIntPtr nameCap,
+            out UIntPtr lengthNotIncludingNullTerminator);
+
         #endregion
 
         #region Allocations
+
+        [DllImport(LibraryName, EntryPoint = "ma_result_description", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr ResultDescriptionNative(Result result);
+
+        [DllImport(LibraryName, EntryPoint = "ma_get_backend_name", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr GetBackendNameNative(Backend backend);
 
         [DllImport(LibraryName, EntryPoint = "ma_decoder_config_init", CallingConvention = CallingConvention.Cdecl)]
         private static extern DecoderConfig DecoderConfigInit(SampleFormat format, uint channels, uint sampleRate);
@@ -122,6 +140,147 @@ namespace Eitan.EasyMic.Runtime
         #endregion
 
         #region Utils
+
+        public static Result ContextInitWithBackends(Backend[] backends, IntPtr config, IntPtr context)
+        {
+            if (backends == null || backends.Length == 0)
+            {
+                return ContextInit(IntPtr.Zero, 0, config, context);
+            }
+
+            int bytes = checked(sizeof(int) * backends.Length);
+            var ptr = Marshal.AllocHGlobal(bytes);
+            try
+            {
+                for (int i = 0; i < backends.Length; i++)
+                {
+                    Marshal.WriteInt32(ptr, i * sizeof(int), (int)backends[i]);
+                }
+
+                return ContextInit(ptr, (uint)backends.Length, config, context);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptr);
+            }
+        }
+
+        public static string DescribeResult(Result result)
+        {
+            try
+            {
+                var ptr = ResultDescriptionNative(result);
+                var text = ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+                return string.IsNullOrEmpty(text) ? result.ToString() : text;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return result.ToString();
+            }
+            catch (DllNotFoundException)
+            {
+                return result.ToString();
+            }
+        }
+
+        public static string FormatResult(Result result)
+        {
+            return $"{result} ({(int)result}: {DescribeResult(result)})";
+        }
+
+        public static string GetBackendName(Backend backend)
+        {
+            try
+            {
+                var ptr = GetBackendNameNative(backend);
+                var text = ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+                return string.IsNullOrEmpty(text) ? backend.ToString() : text;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return backend.ToString();
+            }
+            catch (DllNotFoundException)
+            {
+                return backend.ToString();
+            }
+        }
+
+        public static string FormatBackendList(Backend[] backends)
+        {
+            if (backends == null || backends.Length == 0)
+            {
+                return "default";
+            }
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < backends.Length; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(',');
+                }
+
+                builder.Append(GetBackendName(backends[i]));
+            }
+
+            return builder.ToString();
+        }
+
+        public static DeviceState? TryGetDeviceState(IntPtr device)
+        {
+            if (device == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            try
+            {
+                return DeviceGetStateNative(device);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+            catch (DllNotFoundException)
+            {
+                return null;
+            }
+        }
+
+        public static string TryGetDeviceName(IntPtr device, DeviceType type)
+        {
+            if (device == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            try
+            {
+                var buffer = new byte[DeviceNameBufferLength];
+                var result = DeviceGetNameNative(device, type, buffer, (UIntPtr)buffer.Length, out _);
+                if (result != Result.Success)
+                {
+                    return null;
+                }
+
+                int length = Array.IndexOf(buffer, (byte)0);
+                if (length < 0)
+                {
+                    length = buffer.Length;
+                }
+
+                return length == 0 ? string.Empty : Encoding.UTF8.GetString(buffer, 0, length);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+            catch (DllNotFoundException)
+            {
+                return null;
+            }
+        }
 
         public static IntPtr AllocateEncoder()
         {
@@ -200,6 +359,7 @@ namespace Eitan.EasyMic.Runtime
                 dataCallback,
                 latencyProfile,
                 IntPtr.Zero,
+                AndroidCaptureDeviceConfigProfile.Default,
                 out usesExtendedCallback);
         }
 
@@ -213,6 +373,33 @@ namespace Eitan.EasyMic.Runtime
             AudioCallback dataCallback,
             EasyMicLatencyProfile latencyProfile,
             IntPtr userData,
+            out bool usesExtendedCallback)
+        {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                latencyProfile,
+                userData,
+                AndroidCaptureDeviceConfigProfile.Default,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            IntPtr userData,
+            AndroidCaptureDeviceConfigProfile androidCaptureProfile,
             out bool usesExtendedCallback)
         {
             if (dataCallback == null)
@@ -238,7 +425,12 @@ namespace Eitan.EasyMic.Runtime
                 config.Capture.DeviceId = captureDevice;
             }
 
-            MiniaudioDeviceConfigPolicy.Apply(ref config, sampleRate, capabilityType, latencyProfile);
+            MiniaudioDeviceConfigPolicy.Apply(
+                ref config,
+                sampleRate,
+                capabilityType,
+                latencyProfile,
+                androidCaptureProfile);
             usesExtendedCallback = false;
             return CopyStructToNative(config);
         }
@@ -582,6 +774,42 @@ namespace Eitan.EasyMic.Runtime
             ///     The device is used for loopback recording (capturing the output).
             /// </summary>
             Loopback = 4
+        }
+
+        public enum Backend
+        {
+            Wasapi = 0,
+            DSound = 1,
+            WinMM = 2,
+            CoreAudio = 3,
+            Sndio = 4,
+            Audio4 = 5,
+            Oss = 6,
+            PulseAudio = 7,
+            Alsa = 8,
+            Jack = 9,
+            AAudio = 10,
+            OpenSl = 11,
+            WebAudio = 12,
+            Custom = 13,
+            Null = 14
+        }
+
+        public enum DeviceState
+        {
+            Uninitialized = 0,
+            Stopped = 1,
+            Started = 2,
+            Starting = 3,
+            Stopping = 4
+        }
+
+        public enum AndroidCaptureDeviceConfigProfile
+        {
+            Default = 0,
+            AAudioCompatibility = 1,
+            OpenSlSafe = 2,
+            AAudioUltraSafe = 3
         }
 
 

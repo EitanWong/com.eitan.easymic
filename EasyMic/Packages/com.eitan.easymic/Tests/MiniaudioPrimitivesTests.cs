@@ -62,6 +62,88 @@ namespace Eitan.EasyMic.Tests
         }
 
         [Test]
+        public void AllocateDeviceConfig_AppliesAndroidCompatibilityCaptureProfile()
+        {
+            Native.AudioCallback callback = (_, _, _, _) => { };
+            IntPtr ptr = Native.AllocateDeviceConfig(
+                Native.DeviceType.Record,
+                Native.SampleFormat.F32,
+                channels: 1,
+                sampleRate: 48000,
+                playbackDevice: IntPtr.Zero,
+                captureDevice: IntPtr.Zero,
+                callback,
+                EasyMicLatencyProfile.LowLatency,
+                IntPtr.Zero,
+                Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility,
+                out bool usesExtendedCallback);
+
+            try
+            {
+                var config = Marshal.PtrToStructure<Native.DeviceConfig>(ptr);
+
+                Assert.That(usesExtendedCallback, Is.False);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                Assert.That(config.PerformanceProfile, Is.EqualTo(1));
+                Assert.That(config.PeriodSizeInFrames, Is.EqualTo(1200));
+                Assert.That(config.PeriodSizeInMilliseconds, Is.EqualTo(25));
+                Assert.That(config.Periods, Is.EqualTo(4));
+                Assert.That(config.NoFixedSizedCallback, Is.EqualTo(1));
+                Assert.That(config.AAudio.AllowSetBufferCapacity, Is.EqualTo(0));
+#else
+                Assert.That(config.DeviceType, Is.EqualTo(Native.DeviceType.Record));
+                Assert.That(config.SampleRate, Is.EqualTo(48000));
+#endif
+            }
+            finally
+            {
+                Native.Free(ptr);
+            }
+        }
+
+        [Test]
+        public void AllocateDeviceConfig_AppliesAndroidUltraSafeCaptureProfile()
+        {
+            Native.AudioCallback callback = (_, _, _, _) => { };
+            IntPtr ptr = Native.AllocateDeviceConfig(
+                Native.DeviceType.Record,
+                Native.SampleFormat.F32,
+                channels: 1,
+                sampleRate: 48000,
+                playbackDevice: IntPtr.Zero,
+                captureDevice: IntPtr.Zero,
+                callback,
+                EasyMicLatencyProfile.LowLatency,
+                IntPtr.Zero,
+                Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe,
+                out bool usesExtendedCallback);
+
+            try
+            {
+                var config = Marshal.PtrToStructure<Native.DeviceConfig>(ptr);
+
+                Assert.That(usesExtendedCallback, Is.False);
+#if UNITY_ANDROID && !UNITY_EDITOR
+                Assert.That(config.PerformanceProfile, Is.EqualTo(1));
+                Assert.That(config.PeriodSizeInFrames, Is.EqualTo(1200));
+                Assert.That(config.PeriodSizeInMilliseconds, Is.EqualTo(25));
+                Assert.That(config.Periods, Is.EqualTo(4));
+                Assert.That(config.NoFixedSizedCallback, Is.EqualTo(1));
+                Assert.That(config.AAudio.InputPreset, Is.EqualTo(0));
+                Assert.That(config.AAudio.AllowedCapturePolicy, Is.EqualTo(0));
+                Assert.That(config.AAudio.AllowSetBufferCapacity, Is.EqualTo(0));
+#else
+                Assert.That(config.DeviceType, Is.EqualTo(Native.DeviceType.Record));
+                Assert.That(config.SampleRate, Is.EqualTo(48000));
+#endif
+            }
+            finally
+            {
+                Native.Free(ptr);
+            }
+        }
+
+        [Test]
         public void Gainer_CanApplyGainInPlace()
         {
             try
@@ -298,6 +380,24 @@ namespace Eitan.EasyMic.Tests
         public void StableLatencyProfileKeepsSafeStreamingCompatibility()
         {
             Assert.AreEqual((int)EasyMicLatencyProfile.SafeStreaming, (int)EasyMicLatencyProfile.Stable);
+        }
+
+        [Test]
+        public void NativeResultFormattingIncludesNumericCode()
+        {
+            var formatted = Native.FormatResult(Native.Result.Error);
+
+            Assert.That(formatted, Does.Contain("Error"));
+            Assert.That(formatted, Does.Contain("-1"));
+        }
+
+        [Test]
+        public void NativeBackendListFormattingIncludesAndroidFallbackBackends()
+        {
+            var formatted = Native.FormatBackendList(new[] { Native.Backend.AAudio, Native.Backend.OpenSl });
+
+            Assert.That(formatted, Does.Contain("AAudio"));
+            Assert.That(formatted, Does.Contain("Open"));
         }
 
         [Test]
