@@ -16,6 +16,7 @@ namespace Eitan.EasyMic.Runtime
         private AndroidCaptureBackendAttempt _androidCaptureAttempt;
         private bool _contextIsOpenSlOnly;
         private bool _usingAndroidOpenSlFallback;
+        private bool _androidAAudioContextUnavailable;
         private bool _disposed;
         private int _nextRecordingId = 1;
 
@@ -223,6 +224,7 @@ namespace Eitan.EasyMic.Runtime
                 var aaudioResult = Native.ContextInitWithBackends(aaudioBackends, IntPtr.Zero, _context);
                 if (aaudioResult == Native.Result.Success)
                 {
+                    _androidAAudioContextUnavailable = false;
                     ApplyContextState(aaudioBackends, usingAndroidOpenSlFallback: false);
                     return;
                 }
@@ -232,6 +234,7 @@ namespace Eitan.EasyMic.Runtime
                     "starting with OpenSL ES low-latency backend. " +
                     Native.FormatResult(aaudioResult),
                     LogLevel.Warning);
+                _androidAAudioContextUnavailable = true;
                 ReallocateContextAfterFailedInitialization();
                 InitializeContext(new[] { Native.Backend.OpenSl }, usingAndroidOpenSlFallback: true);
                 return;
@@ -347,112 +350,6 @@ namespace Eitan.EasyMic.Runtime
 #else
             return null;
 #endif
-        }
-
-        private bool TryAdvanceAndroidCaptureBackendFallback(NativeDeviceActivationException activationFailure)
-        {
-#if UNITY_ANDROID && !UNITY_EDITOR
-            ThrowIfDisposed();
-            if (_activeRecordings.Count != 0)
-            {
-                return false;
-            }
-
-            if (!_contextIsOpenSlOnly &&
-                _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.Default &&
-                !_androidCaptureAttempt.OpenSlBackend)
-            {
-                _androidCaptureAttempt = AndroidCaptureBackendAttempt.AAudioCompatibility;
-                Log(
-                    "EasyMic: Android AAudio low-latency capture activation failed; " +
-                    "retrying with compatible AAudio capture profile. " +
-                    BuildAndroidFallbackReason(activationFailure),
-                    LogLevel.Warning);
-                return true;
-            }
-
-            if (!_contextIsOpenSlOnly &&
-                _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility)
-            {
-                _androidCaptureAttempt = AndroidCaptureBackendAttempt.AAudioUltraSafe;
-                Log(
-                    "EasyMic: Android compatible AAudio capture activation failed; " +
-                    "retrying with ultra-safe AAudio capture profile. " +
-                    BuildAndroidFallbackReason(activationFailure),
-                    LogLevel.Warning);
-                return true;
-            }
-
-            if (!_contextIsOpenSlOnly &&
-                _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe)
-            {
-                Log(
-                    "EasyMic: Android ultra-safe AAudio capture activation failed; " +
-                    "retrying capture with OpenSL ES low-latency backend. " +
-                    BuildAndroidFallbackReason(activationFailure),
-                    LogLevel.Warning);
-                ReplaceContext(new[] { Native.Backend.OpenSl }, usingAndroidOpenSlFallback: true);
-                _androidCaptureAttempt = AndroidCaptureBackendAttempt.OpenSlLowLatency;
-                RefreshDevicesAfterAndroidBackendSwitch();
-                return true;
-            }
-
-            if (_androidCaptureAttempt.OpenSlBackend &&
-                _androidCaptureAttempt.ConfigProfile == Native.AndroidCaptureDeviceConfigProfile.Default)
-            {
-                _androidCaptureAttempt = AndroidCaptureBackendAttempt.OpenSlSafe;
-                Log(
-                    "EasyMic: Android OpenSL ES low-latency capture activation failed; " +
-                    "retrying with safe OpenSL ES capture profile. " +
-                    BuildAndroidFallbackReason(activationFailure),
-                    LogLevel.Warning);
-                return true;
-            }
-
-            return false;
-#else
-            _ = activationFailure;
-            return false;
-#endif
-        }
-
-        private void RefreshDevicesAfterAndroidBackendSwitch()
-        {
-            try
-            {
-                RefreshDevicesInternal(true);
-            }
-            catch (Exception ex)
-            {
-                Devices = Array.Empty<MicDevice>();
-                DeviceCount = 0;
-                Log(
-                    "EasyMic: Android backend fallback could not refresh capture devices; " +
-                    "continuing with the platform default capture endpoint. " + ex.Message,
-                    LogLevel.Warning);
-            }
-        }
-
-        private static AndroidCaptureBackendAttempt GetInitialAndroidCaptureAttempt(bool contextIsOpenSlOnly)
-        {
-#if UNITY_ANDROID && !UNITY_EDITOR
-            if (contextIsOpenSlOnly || !EasyMicRuntimeSettings.Current.Android.useAAudio)
-            {
-                return AndroidCaptureBackendAttempt.OpenSlLowLatency;
-            }
-
-            return AndroidCaptureBackendAttempt.AAudioLowLatency;
-#else
-            _ = contextIsOpenSlOnly;
-            return AndroidCaptureBackendAttempt.Default;
-#endif
-        }
-
-        private static string BuildAndroidFallbackReason(NativeDeviceActivationException activationFailure)
-        {
-            return activationFailure == null
-                ? string.Empty
-                : "Previous failure: " + activationFailure.Message;
         }
 
         private static bool IsOpenSlOnly(Native.Backend[] backends)

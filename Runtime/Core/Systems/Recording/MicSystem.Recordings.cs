@@ -35,6 +35,19 @@ namespace Eitan.EasyMic.Runtime
 
                 ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
 
+                var learningScope = AndroidCaptureBackendLearningScope.Invalid;
+                PrepareAndroidCaptureAttemptForDevice(
+                    device,
+                    ref chosen,
+                    ref sampleRate,
+                    ref channel,
+                    ref learningScope);
+
+                if (!chosen.HasValidId)
+                {
+                    throw new EasyMicDeviceNotFoundException("No valid capture device available.");
+                }
+
                 if (IsDeviceRecordingLocked(chosen))
                 {
                     throw new EasyMicDeviceConflictException("A recording session is already in progress for this capture device. Stop it before starting another recording.");
@@ -47,7 +60,8 @@ namespace Eitan.EasyMic.Runtime
                     ref sampleRate,
                     ref channel,
                     blueprints,
-                    latencyProfile);
+                    latencyProfile,
+                    learningScope);
 
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
@@ -295,20 +309,34 @@ namespace Eitan.EasyMic.Runtime
             ref SampleRate sampleRate,
             ref Channel channel,
             IEnumerable<AudioWorkerBlueprint> blueprints,
-            EasyMicLatencyProfile latencyProfile)
+            EasyMicLatencyProfile latencyProfile,
+            AndroidCaptureBackendLearningScope learningScope)
         {
             const int maxAttempts = 5;
             var activationFailures = new List<string>();
+            bool hadLearnableAAudioActivationFailure = false;
 
             for (int attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex++)
             {
+                var currentAttempt = _androidCaptureAttempt;
                 try
                 {
-                    return CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                    var session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                    RememberAndroidCaptureSuccess(
+                        learningScope,
+                        chosen,
+                        currentAttempt,
+                        hadLearnableAAudioActivationFailure);
+                    return session;
                 }
                 catch (NativeDeviceActivationException ex)
                 {
-                    activationFailures.Add($"{_androidCaptureAttempt.Label}: {ex.Message}");
+                    activationFailures.Add($"{currentAttempt.Label}: {ex.Message}");
+                    if (!currentAttempt.OpenSlBackend && IsLearnableAndroidCaptureFailure(ex.Result))
+                    {
+                        hadLearnableAAudioActivationFailure = true;
+                    }
+
                     if (!ShouldRetryWithAndroidCaptureFallback(ex))
                     {
                         throw;
@@ -372,6 +400,18 @@ namespace Eitan.EasyMic.Runtime
                     ex.Result == Native.Result.AlreadyInUse ||
                     ex.Result == Native.Result.AccessDenied);
 #else
+            return false;
+#endif
+        }
+
+        private static bool IsLearnableAndroidCaptureFailure(Native.Result result)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return result != Native.Result.Busy &&
+                   result != Native.Result.AlreadyInUse &&
+                   result != Native.Result.AccessDenied;
+#else
+            _ = result;
             return false;
 #endif
         }
