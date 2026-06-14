@@ -33,13 +33,66 @@ namespace Eitan.EasyMic.Runtime
                     throw new EasyMicDeviceNotFoundException("No valid capture device available.");
                 }
 
+                ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
+
                 if (IsDeviceRecordingLocked(chosen))
                 {
                     throw new EasyMicDeviceConflictException("A recording session is already in progress for this capture device. Stop it before starting another recording.");
                 }
 
                 var recordingId = _nextRecordingId++;
-                var session = new RecordingSession(_context, chosen, sampleRate, channel, blueprints, _logger, _recordingCallbackDiagnosticsEnabled, latencyProfile);
+                RecordingSession session;
+                try
+                {
+                    session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                }
+                catch (NativeDeviceActivationException ex)
+                {
+                    if (!ShouldRetryWithAndroidOpenSlFallback(ex))
+                    {
+                        throw;
+                    }
+
+                    bool switchedToFallback;
+                    try
+                    {
+                        switchedToFallback = TrySwitchAndroidContextToOpenSlFallback();
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture failed on the initial backend, and switching to OpenSL ES fallback also failed. " +
+                            "Initial failure: " + ex.Message,
+                            fallbackEx);
+                    }
+
+                    if (!switchedToFallback)
+                    {
+                        throw;
+                    }
+
+                    chosen = ResolveDevice(device);
+                    if (!chosen.HasValidId)
+                    {
+                        throw new InvalidOperationException(
+                            "No valid capture device available after switching Android capture backend to OpenSL ES.", ex);
+                    }
+
+                    ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
+
+                    try
+                    {
+                        session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                    }
+                    catch (NativeDeviceActivationException retryEx)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture could not start after both the initial backend and OpenSL ES fallback. " +
+                            "Initial failure: " + ex.Message + " OpenSL ES failure: " + retryEx.Message,
+                            retryEx);
+                    }
+                }
+
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
             }
@@ -189,13 +242,42 @@ namespace Eitan.EasyMic.Runtime
 
         private MicDevice ResolveDevice(MicDevice preferred)
         {
-            var choice = preferred;
-            if (choice.HasValidId)
+            var devices = Devices ?? Array.Empty<MicDevice>();
+            if (preferred.HasValidId)
             {
-                return choice;
+                for (int i = 0; i < devices.Length; i++)
+                {
+                    if (devices[i].SameIdentityAs(preferred))
+                    {
+                        return devices[i];
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(preferred.Name))
+                {
+                    for (int i = 0; i < devices.Length; i++)
+                    {
+                        if (string.Equals(devices[i].Name, preferred.Name, StringComparison.Ordinal))
+                        {
+                            return devices[i];
+                        }
+                    }
+
+                    for (int i = 0; i < devices.Length; i++)
+                    {
+                        if (string.Equals(devices[i].Name, preferred.Name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return devices[i];
+                        }
+                    }
+                }
+
+                if (devices.Length == 0)
+                {
+                    return _usingAndroidOpenSlFallback ? CreateDefaultDeviceForCurrentBackend(preferred) : preferred;
+                }
             }
 
-            var devices = Devices ?? Array.Empty<MicDevice>();
             for (int i = 0; i < devices.Length; i++)
             {
                 if (devices[i].IsDefault)
@@ -210,6 +292,66 @@ namespace Eitan.EasyMic.Runtime
             }
 
             return default;
+        }
+
+        private static MicDevice CreateDefaultDeviceForCurrentBackend(MicDevice preferred)
+        {
+            return new MicDevice
+            {
+                Name = string.IsNullOrEmpty(preferred.Name) ? "Default Microphone" : preferred.Name,
+                IsDefault = true,
+                DeviceId = new byte[Native.DeviceIdSizeInBytes],
+                NativeFormats = preferred.NativeFormats ?? Array.Empty<Native.NativeDataFormat>()
+            };
+        }
+
+        private static void ResolveFormatForDevice(MicDevice device, ref SampleRate sampleRate, ref Channel channel)
+        {
+            sampleRate = device.ResolveSampleRate(sampleRate);
+            channel = device.SupportsChannel(channel) ? channel : device.GetPreferredChannel(channel);
+        }
+
+        private RecordingSession CreateRecordingSession(
+            MicDevice device,
+            SampleRate sampleRate,
+            Channel channel,
+            IEnumerable<AudioWorkerBlueprint> blueprints,
+            EasyMicLatencyProfile latencyProfile)
+        {
+            return new RecordingSession(
+                _context,
+                device,
+                sampleRate,
+                channel,
+                blueprints,
+                _logger,
+                _recordingCallbackDiagnosticsEnabled,
+                latencyProfile,
+                Native.FormatBackendList(_contextBackends),
+                _usingAndroidOpenSlFallback);
+        }
+
+        private static bool ShouldRetryWithAndroidOpenSlFallback(NativeDeviceActivationException ex)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return ex != null &&
+                   (ex.Result == Native.Result.Error ||
+                    ex.Result == Native.Result.FormatNotSupported ||
+                    ex.Result == Native.Result.DeviceTypeNotSupported ||
+                    ex.Result == Native.Result.NoBackend ||
+                    ex.Result == Native.Result.NoDevice ||
+                    ex.Result == Native.Result.InvalidDeviceConfig ||
+                    ex.Result == Native.Result.BackendNotEnabled ||
+                    ex.Result == Native.Result.FailedToInitBackend ||
+                    ex.Result == Native.Result.FailedToOpenBackendDevice ||
+                    ex.Result == Native.Result.FailedToStartBackendDevice ||
+                    ex.Result == Native.Result.Unavailable ||
+                    ex.Result == Native.Result.Busy ||
+                    ex.Result == Native.Result.AlreadyInUse ||
+                    ex.Result == Native.Result.AccessDenied);
+#else
+            return false;
+#endif
         }
 
         /// <summary>
