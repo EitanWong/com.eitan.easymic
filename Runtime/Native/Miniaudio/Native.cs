@@ -359,6 +359,7 @@ namespace Eitan.EasyMic.Runtime
                 dataCallback,
                 latencyProfile,
                 IntPtr.Zero,
+                AndroidCaptureDeviceConfigProfile.Default,
                 out usesExtendedCallback);
         }
 
@@ -372,6 +373,33 @@ namespace Eitan.EasyMic.Runtime
             AudioCallback dataCallback,
             EasyMicLatencyProfile latencyProfile,
             IntPtr userData,
+            out bool usesExtendedCallback)
+        {
+            return AllocateDeviceConfig(
+                capabilityType,
+                format,
+                channels,
+                sampleRate,
+                playbackDevice,
+                captureDevice,
+                dataCallback,
+                latencyProfile,
+                userData,
+                AndroidCaptureDeviceConfigProfile.Default,
+                out usesExtendedCallback);
+        }
+
+        public static IntPtr AllocateDeviceConfig(
+            DeviceType capabilityType,
+            SampleFormat format,
+            uint channels,
+            uint sampleRate,
+            IntPtr playbackDevice,
+            IntPtr captureDevice,
+            AudioCallback dataCallback,
+            EasyMicLatencyProfile latencyProfile,
+            IntPtr userData,
+            AndroidCaptureDeviceConfigProfile androidCaptureProfile,
             out bool usesExtendedCallback)
         {
             if (dataCallback == null)
@@ -397,7 +425,12 @@ namespace Eitan.EasyMic.Runtime
                 config.Capture.DeviceId = captureDevice;
             }
 
-            MiniaudioDeviceConfigPolicy.Apply(ref config, sampleRate, capabilityType, latencyProfile);
+            MiniaudioDeviceConfigPolicy.Apply(
+                ref config,
+                sampleRate,
+                capabilityType,
+                latencyProfile,
+                androidCaptureProfile);
             usesExtendedCallback = false;
             return CopyStructToNative(config);
         }
@@ -769,6 +802,13 @@ namespace Eitan.EasyMic.Runtime
             Started = 2,
             Starting = 3,
             Stopping = 4
+        }
+
+        public enum AndroidCaptureDeviceConfigProfile
+        {
+            Default = 0,
+            AAudioCompatibility = 1,
+            OpenSlSafe = 2
         }
 
 

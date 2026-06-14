@@ -41,57 +41,13 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 var recordingId = _nextRecordingId++;
-                RecordingSession session;
-                try
-                {
-                    session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
-                }
-                catch (NativeDeviceActivationException ex)
-                {
-                    if (!ShouldRetryWithAndroidOpenSlFallback(ex))
-                    {
-                        throw;
-                    }
-
-                    bool switchedToFallback;
-                    try
-                    {
-                        switchedToFallback = TrySwitchAndroidContextToOpenSlFallback();
-                    }
-                    catch (Exception fallbackEx)
-                    {
-                        throw new InvalidOperationException(
-                            "EasyMic Android capture failed on the initial backend, and switching to OpenSL ES fallback also failed. " +
-                            "Initial failure: " + ex.Message,
-                            fallbackEx);
-                    }
-
-                    if (!switchedToFallback)
-                    {
-                        throw;
-                    }
-
-                    chosen = ResolveDevice(device);
-                    if (!chosen.HasValidId)
-                    {
-                        throw new InvalidOperationException(
-                            "No valid capture device available after switching Android capture backend to OpenSL ES.", ex);
-                    }
-
-                    ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
-
-                    try
-                    {
-                        session = CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
-                    }
-                    catch (NativeDeviceActivationException retryEx)
-                    {
-                        throw new InvalidOperationException(
-                            "EasyMic Android capture could not start after both the initial backend and OpenSL ES fallback. " +
-                            "Initial failure: " + ex.Message + " OpenSL ES failure: " + retryEx.Message,
-                            retryEx);
-                    }
-                }
+                RecordingSession session = CreateRecordingSessionWithAdaptiveFallback(
+                    device,
+                    ref chosen,
+                    ref sampleRate,
+                    ref channel,
+                    blueprints,
+                    latencyProfile);
 
                 _activeRecordings[recordingId] = session;
                 return new RecordingHandle(recordingId);
@@ -328,10 +284,76 @@ namespace Eitan.EasyMic.Runtime
                 _recordingCallbackDiagnosticsEnabled,
                 latencyProfile,
                 Native.FormatBackendList(_contextBackends),
-                _usingAndroidOpenSlFallback);
+                _usingAndroidOpenSlFallback,
+                _androidCaptureAttempt.Label,
+                _androidCaptureAttempt.ConfigProfile);
         }
 
-        private static bool ShouldRetryWithAndroidOpenSlFallback(NativeDeviceActivationException ex)
+        private RecordingSession CreateRecordingSessionWithAdaptiveFallback(
+            MicDevice requestedDevice,
+            ref MicDevice chosen,
+            ref SampleRate sampleRate,
+            ref Channel channel,
+            IEnumerable<AudioWorkerBlueprint> blueprints,
+            EasyMicLatencyProfile latencyProfile)
+        {
+            const int maxAttempts = 4;
+            var activationFailures = new List<string>();
+
+            for (int attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex++)
+            {
+                try
+                {
+                    return CreateRecordingSession(chosen, sampleRate, channel, blueprints, latencyProfile);
+                }
+                catch (NativeDeviceActivationException ex)
+                {
+                    activationFailures.Add($"{_androidCaptureAttempt.Label}: {ex.Message}");
+                    if (!ShouldRetryWithAndroidCaptureFallback(ex))
+                    {
+                        throw;
+                    }
+
+                    bool advanced;
+                    try
+                    {
+                        advanced = TryAdvanceAndroidCaptureBackendFallback(ex);
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture failed while advancing the adaptive backend fallback chain. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            fallbackEx);
+                    }
+
+                    if (!advanced)
+                    {
+                        throw new InvalidOperationException(
+                            "EasyMic Android capture could not start after trying every adaptive backend fallback profile. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            ex);
+                    }
+
+                    chosen = ResolveDevice(requestedDevice);
+                    if (!chosen.HasValidId)
+                    {
+                        throw new InvalidOperationException(
+                            "No valid capture device available after advancing Android capture backend fallback. " +
+                            BuildActivationFailureSummary(activationFailures),
+                            ex);
+                    }
+
+                    ResolveFormatForDevice(chosen, ref sampleRate, ref channel);
+                }
+            }
+
+            throw new InvalidOperationException(
+                "EasyMic Android capture exceeded the adaptive backend fallback attempt limit. " +
+                BuildActivationFailureSummary(activationFailures));
+        }
+
+        private static bool ShouldRetryWithAndroidCaptureFallback(NativeDeviceActivationException ex)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             return ex != null &&
@@ -352,6 +374,16 @@ namespace Eitan.EasyMic.Runtime
 #else
             return false;
 #endif
+        }
+
+        private static string BuildActivationFailureSummary(List<string> activationFailures)
+        {
+            if (activationFailures == null || activationFailures.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return "Failures: " + string.Join(" | ", activationFailures);
         }
 
         /// <summary>
