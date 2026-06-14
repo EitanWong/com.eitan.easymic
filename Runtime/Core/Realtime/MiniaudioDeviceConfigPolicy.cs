@@ -17,7 +17,8 @@ namespace Eitan.EasyMic.Runtime
             ref Native.DeviceConfig config,
             uint sampleRate,
             Native.DeviceType deviceType,
-            EasyMicLatencyProfile profile)
+            EasyMicLatencyProfile profile,
+            Native.AndroidCaptureDeviceConfigProfile androidCaptureProfile = Native.AndroidCaptureDeviceConfigProfile.Default)
         {
             uint periodFrames = CalculatePeriodFrames(sampleRate, profile);
             config.PeriodSizeInFrames = periodFrames;
@@ -34,7 +35,7 @@ namespace Eitan.EasyMic.Runtime
             ApplyWasapi(ref config, profile);
             ApplyAlsa(ref config, profile);
             ApplyCoreAudio(ref config, profile);
-            ApplyAndroid(ref config, playback, capture, profile);
+            ApplyAndroid(ref config, sampleRate, playback, capture, profile, androidCaptureProfile);
         }
 
         private static uint CalculatePeriodFrames(uint sampleRate, EasyMicLatencyProfile profile)
@@ -113,9 +114,11 @@ namespace Eitan.EasyMic.Runtime
 
         private static void ApplyAndroid(
             ref Native.DeviceConfig config,
+            uint sampleRate,
             bool playback,
             bool capture,
-            EasyMicLatencyProfile profile)
+            EasyMicLatencyProfile profile,
+            Native.AndroidCaptureDeviceConfigProfile androidCaptureProfile)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             config.OpenSl.StreamType = playback ? OpenSlStreamVoice : 0;
@@ -129,6 +132,30 @@ namespace Eitan.EasyMic.Runtime
             config.AAudio.AllowedCapturePolicy = AAudioAllowCaptureByAll;
             config.AAudio.EnableCompatibilityWorkarounds = 1;
             config.AAudio.AllowSetBufferCapacity = 1;
+
+            if (capture && androidCaptureProfile != Native.AndroidCaptureDeviceConfigProfile.Default)
+            {
+                config.AAudio.InputPreset = AAudioInputVoiceCommunication;
+                config.AAudio.AllowSetBufferCapacity = 0;
+            }
+
+            if (capture && androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe)
+            {
+                config.AAudio.InputPreset = 0;
+                config.AAudio.AllowedCapturePolicy = 0;
+            }
+
+            if (capture &&
+                (androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility ||
+                 androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe ||
+                 androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe))
+            {
+                config.PerformanceProfile = 1;
+                config.PeriodSizeInFrames = CalculatePeriodFrames(sampleRate, EasyMicLatencyProfile.SafeStreaming);
+                config.PeriodSizeInMilliseconds = CalculatePeriodMilliseconds(sampleRate, config.PeriodSizeInFrames);
+                config.Periods = CalculatePeriods(EasyMicLatencyProfile.SafeStreaming);
+                config.NoFixedSizedCallback = 1;
+            }
 #endif
         }
     }

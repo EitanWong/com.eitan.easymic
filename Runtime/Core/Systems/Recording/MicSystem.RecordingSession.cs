@@ -28,6 +28,10 @@ namespace Eitan.EasyMic.Runtime
             private readonly SampleRate _requestedSampleRate;
             private readonly Channel _requestedChannel;
             private readonly EasyMicLatencyProfile _latencyProfile;
+            private readonly string _contextBackendLabel;
+            private readonly bool _usingAndroidOpenSlBackendFallback;
+            private readonly string _androidCaptureAttemptLabel;
+            private readonly Native.AndroidCaptureDeviceConfigProfile _androidCaptureConfigProfile;
             private readonly RealtimeAudioTelemetry _telemetry = new RealtimeAudioTelemetry();
             private bool _usingFallback;
 
@@ -37,6 +41,7 @@ namespace Eitan.EasyMic.Runtime
             private IntPtr _deviceIdHandle;
             private CaptureAudioTransport _captureTransport;
             private HotState _hotState;
+            private bool _nativeDeviceInitialized;
             private uint _channelCount;
             private uint _sampleRate;
             private long _nativeCallbackCount;
@@ -84,7 +89,11 @@ namespace Eitan.EasyMic.Runtime
                 IEnumerable<AudioWorkerBlueprint> blueprints,
                 ILogger logger,
                 bool callbackDiagnosticsEnabled,
-                EasyMicLatencyProfile latencyProfile)
+                EasyMicLatencyProfile latencyProfile,
+                string contextBackendLabel,
+                bool usingAndroidOpenSlBackendFallback,
+                string androidCaptureAttemptLabel,
+                Native.AndroidCaptureDeviceConfigProfile androidCaptureConfigProfile)
             {
                 _context = context;
                 _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
@@ -93,6 +102,12 @@ namespace Eitan.EasyMic.Runtime
                 _requestedSampleRate = sampleRate;
                 _requestedChannel = channel;
                 _latencyProfile = latencyProfile;
+                _contextBackendLabel = string.IsNullOrEmpty(contextBackendLabel) ? "default" : contextBackendLabel;
+                _usingAndroidOpenSlBackendFallback = usingAndroidOpenSlBackendFallback;
+                _androidCaptureAttemptLabel = string.IsNullOrEmpty(androidCaptureAttemptLabel)
+                    ? "default"
+                    : androidCaptureAttemptLabel;
+                _androidCaptureConfigProfile = androidCaptureConfigProfile;
                 _usingFallback = false;
                 _logger = logger;
                 _callbackDiagnosticsEnabled = callbackDiagnosticsEnabled ? 1 : 0;
@@ -364,6 +379,7 @@ namespace Eitan.EasyMic.Runtime
                     s_staticAudioCallback,
                     _latencyProfile,
                     new IntPtr(generation),
+                    _androidCaptureConfigProfile,
                     out _);
                 if (_deviceConfig == IntPtr.Zero)
                 {
@@ -379,8 +395,11 @@ namespace Eitan.EasyMic.Runtime
                 var initResult = Native.DeviceInit(_context, _deviceConfig, _devicePtr);
                 if (initResult != Native.Result.Success)
                 {
-                    throw new InvalidOperationException($"Unable to init device. {initResult}");
+                    throw new NativeDeviceActivationException(
+                        initResult,
+                        BuildDeviceActivationFailureMessage("initialize", initResult, false));
                 }
+                _nativeDeviceInitialized = true;
 
                 _audioPipeline.Initialize(_state);
                 _captureTransport = new CaptureAudioTransport(
@@ -402,10 +421,33 @@ namespace Eitan.EasyMic.Runtime
                 var startResult = Native.DeviceStart(_devicePtr);
                 if (startResult != Native.Result.Success)
                 {
-                    throw new InvalidOperationException($"Unable to start device. {startResult}");
+                    throw new NativeDeviceActivationException(
+                        startResult,
+                        BuildDeviceActivationFailureMessage("start", startResult, true));
                 }
 
-                Log($"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch.", LogLevel.Info);
+                Log(
+                    $"Capture started on '{MicDevice.Name}' at {_sampleRate} Hz, {_channelCount} ch. " +
+                    $"backend={_contextBackendLabel}, androidCaptureAttempt='{_androidCaptureAttemptLabel}', " +
+                    $"androidCaptureProfile={_androidCaptureConfigProfile}.",
+                    LogLevel.Info);
+            }
+
+            private string BuildDeviceActivationFailureMessage(string operation, Native.Result result, bool deviceInitialized)
+            {
+                string nativeDeviceName = deviceInitialized ? Native.TryGetDeviceName(_devicePtr, Native.DeviceType.Record) : null;
+                string nativeState = deviceInitialized ? Native.TryGetDeviceState(_devicePtr)?.ToString() ?? "unknown" : "notInitialized";
+                string permissionStatus = PermissionUtils.DiagnosticStatus;
+                bool requestedDefaultDevice = _deviceIdHandle == IntPtr.Zero;
+
+                return $"Unable to {operation} capture device. " +
+                       $"result={Native.FormatResult(result)}, " +
+                       $"device='{MicDevice.Name}', nativeDevice='{nativeDeviceName ?? "unknown"}', " +
+                       $"defaultDevice={MicDevice.IsDefault}, requestedDefaultDevice={requestedDefaultDevice}, " +
+                       $"sampleRate={_sampleRate}, channels={_channelCount}, latencyProfile={_latencyProfile}, " +
+                       $"backend={_contextBackendLabel}, androidOpenSlFallback={_usingAndroidOpenSlBackendFallback}, " +
+                       $"androidCaptureAttempt='{_androidCaptureAttemptLabel}', androidCaptureProfile={_androidCaptureConfigProfile}, " +
+                       $"nativeState={nativeState}, {permissionStatus}";
             }
 
             private void ApplyFormat(MicDevice device, SampleRate sampleRate, Channel channel)
@@ -427,26 +469,34 @@ namespace Eitan.EasyMic.Runtime
                 {
                     var oldDevicePtr = _devicePtr;
                     var hot = Volatile.Read(ref _hotState);
-                    if (hot != null)
+                    if (_nativeDeviceInitialized && hot != null)
                     {
                         Volatile.Write(ref hot.Stopping, 1);
                     }
 
-                    try { Native.DeviceStop(_devicePtr); } catch { }
-                    WaitForCallbacksToDrain(hot, 250);
-                    UnregisterLegacyCallbackSession(oldDevicePtr, hot);
-                    if (hot != null)
+                    if (_nativeDeviceInitialized)
                     {
-                        Volatile.Write(ref hot.Disposed, 1);
-                        hot.Transport = null;
+                        try { Native.DeviceStop(_devicePtr); } catch { }
+                        WaitForCallbacksToDrain(hot, 250);
+                        UnregisterLegacyCallbackSession(oldDevicePtr, hot);
+                        if (hot != null)
+                        {
+                            Volatile.Write(ref hot.Disposed, 1);
+                            hot.Transport = null;
+                        }
                     }
 
                     try { _captureTransport?.Dispose(); } catch { }
                     _captureTransport = null;
                     _hotState = null;
-                    try { Native.DeviceUninit(_devicePtr); } catch { }
+                    if (_nativeDeviceInitialized)
+                    {
+                        try { Native.DeviceUninit(_devicePtr); } catch { }
+                    }
+
                     try { Native.Free(_devicePtr); } catch { }
                     _devicePtr = IntPtr.Zero;
+                    _nativeDeviceInitialized = false;
                 }
                 else
                 {
