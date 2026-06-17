@@ -1058,8 +1058,10 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
 
             private static bool HasAudioListener()
             {
-#if UNITY_2023_1_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
                 return UnityEngine.Object.FindObjectsByType<AudioListener>().Length > 0;
+#elif UNITY_2022_2_OR_NEWER
+                return UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Length > 0;
 #else
                 return UnityEngine.Object.FindObjectsOfType<AudioListener>().Length > 0;
 #endif
