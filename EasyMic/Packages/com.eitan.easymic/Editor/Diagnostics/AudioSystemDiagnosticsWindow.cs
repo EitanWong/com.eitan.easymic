@@ -822,8 +822,10 @@ namespace Eitan.EasyMic.Runtime.Editor
 
         private void RebuildSceneCache()
         {
-#if UNITY_2023_1_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             var list = UnityEngine.Object.FindObjectsByType<PlaybackAudioSourceBehaviour>(FindObjectsInactive.Include);
+#elif UNITY_2022_2_OR_NEWER
+            var list = UnityEngine.Object.FindObjectsByType<PlaybackAudioSourceBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 #else
             var list = UnityEngine.Object.FindObjectsOfType<PlaybackAudioSourceBehaviour>(true);
 #endif
