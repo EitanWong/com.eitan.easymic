@@ -53,8 +53,8 @@ namespace Eitan.EasyMic.Runtime
             _nativeChannels = 0;
             _nativeSourceSampleRate = 0;
 
-            // Publish the post-resample format to downstream workers for correct initialization.
-            // We only support downsampling in-place; keep the input rate if it's below the target.
+            // AudioPipeline provides a dedicated mutable initialization context. Publish the
+            // downstream format here; runtime frame contexts still describe the source input.
             if (sourceSampleRate >= _targetSampleRate)
             {
                 state.SampleRate = _targetSampleRate;

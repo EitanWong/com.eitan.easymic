@@ -12,12 +12,14 @@ namespace Eitan.EasyMic.Runtime
         public int ChannelCount { get; set; }
         public int SampleRate { get; set; }
         public int Length { get; set; }
+        public int EstimatedCaptureDelayMs { get; internal set; }
 
         public AudioContext(int channelCount, int sampleRate, int length)
         {
             ChannelCount = channelCount;
             SampleRate = sampleRate;
             Length = length;
+            EstimatedCaptureDelayMs = -1;
         }
 
         public override string ToString()
@@ -26,4 +28,3 @@ namespace Eitan.EasyMic.Runtime
         }
     }
 }
-

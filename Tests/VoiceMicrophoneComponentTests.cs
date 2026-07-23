@@ -118,6 +118,12 @@ namespace Eitan.EasyMic.Tests
 
     public class KeywordGateTests
     {
+        [TearDown]
+        public void StopNativePlayback()
+        {
+            Eitan.EasyMic.Runtime.AudioSystem.Instance.Stop();
+        }
+
         [Test]
         public void ContinuousConversationTimeoutClosesGate()
         {
