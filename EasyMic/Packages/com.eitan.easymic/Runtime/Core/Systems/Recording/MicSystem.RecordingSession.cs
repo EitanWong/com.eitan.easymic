@@ -407,7 +407,11 @@ namespace Eitan.EasyMic.Runtime
                     (int)_channelCount,
                     (int)_sampleRate,
                     _latencyProfile,
-                    _telemetry);
+                    _telemetry,
+                    MiniaudioDeviceConfigPolicy.EstimateCaptureDeviceDelayMs(
+                        _sampleRate,
+                        _latencyProfile,
+                        _androidCaptureConfigProfile));
                 _hotState = new HotState
                 {
                     Transport = _captureTransport,

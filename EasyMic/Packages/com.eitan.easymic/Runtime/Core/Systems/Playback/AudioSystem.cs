@@ -11,8 +11,14 @@ namespace Eitan.EasyMic.Runtime
     public sealed class AudioSystem : IDisposable
     {
         public delegate void MixedFrameHandler(ReadOnlySpan<float> interleaved, int channels, int sampleRate);
+        public delegate void RenderReferenceHandler(
+            ReadOnlySpan<float> interleaved,
+            int channels,
+            int sampleRate,
+            int estimatedPlayoutDelayMs);
         public event MixedFrameHandler OnMixedFrame;
         internal event MixedFrameHandler OnMixedFrameRaw;
+        internal event RenderReferenceHandler OnRenderReferenceRaw;
 
         private static readonly object s_lock = new object();
         private static AudioSystem s_instance;
@@ -148,7 +154,11 @@ namespace Eitan.EasyMic.Runtime
                     _latencyProfile,
                     _telemetry,
                     DispatchMixedFrameRaw,
-                    DispatchMixedFrameFromTransport);
+                    DispatchMixedFrameFromTransport,
+                    DispatchRenderReferenceRaw,
+                    MiniaudioDeviceConfigPolicy.EstimatePlaybackDeviceDelayMs(
+                        _sampleRate,
+                        _latencyProfile));
                 _hotState = new HotState
                 {
                     Transport = _renderTransport,
@@ -223,10 +233,9 @@ namespace Eitan.EasyMic.Runtime
                     try { UnityEngine.Application.runInBackground = _previousRunInBackground; } catch { }
                     _setRunInBackground = false;
                 }
-                // Clear event handlers to avoid leaks to user delegates
-
+                // Public listeners are scoped to a playback run. Internal transport
+                // listeners survive Stop/Start so a live APM keeps its render reference.
                 OnMixedFrame = null;
-                OnMixedFrameRaw = null;
                 // Dispose mixer and release references to sources/pipelines
                 try { _masterMixer?.Dispose(); } catch { }
                 _masterMixer = null;
@@ -622,6 +631,25 @@ namespace Eitan.EasyMic.Runtime
             }
 
             try { handler(interleaved, channels, sampleRate); } catch { }
+        }
+
+        private void DispatchRenderReferenceRaw(
+            ReadOnlySpan<float> interleaved,
+            int channels,
+            int sampleRate,
+            int estimatedPlayoutDelayMs)
+        {
+            var handler = OnRenderReferenceRaw;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                handler(interleaved, channels, sampleRate, estimatedPlayoutDelayMs);
+            }
+            catch { }
         }
 
         private void DispatchMixedFrameFromTransport(ReadOnlySpan<float> interleaved, int channels, int sampleRate)

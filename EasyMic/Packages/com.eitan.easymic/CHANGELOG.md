@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added per-capture-frame delay telemetry that combines the configured input
+  device buffering with measured callback-to-worker queue time for AEC hosts.
+
+## [0.1.3-exp.4] - 2026-07-18
+
+### Added
+
+- Added the raw render-reference bridge consumed by the EasyMic APM extension.
+
+### Changed
+
+- Updated playback render transport and delay reporting for sample-accurate AEC reference delivery.
+
 ## [0.1.3-exp.3] - 2026-05-12
 
 ### Added

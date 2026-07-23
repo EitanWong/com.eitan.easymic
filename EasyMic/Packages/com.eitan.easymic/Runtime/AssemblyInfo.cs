@@ -9,3 +9,4 @@ using UnityEngine.Scripting;
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Editor.Mono")]
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Integration.SherpaONNXUnity")]
 [assembly: InternalsVisibleTo("Eitan.EasyMic.Tests")]
+[assembly: InternalsVisibleTo("Eitan.EasyMic.Apm.Tests")]

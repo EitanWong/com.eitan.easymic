@@ -312,9 +312,9 @@ namespace Eitan.EasyMic.Tests
                         sampleRate,
                         delayInFrames,
                         decay: 0f,
-                        delayStart: false,
+                        delayStart: true,
                         wet: 1f,
-                        dry: 0f,
+                        dry: 1f,
                         out var delay))
                 {
                     Assert.Ignore("miniaudio delay not present for this test run.");
@@ -380,6 +380,79 @@ namespace Eitan.EasyMic.Tests
         public void StableLatencyProfileKeepsSafeStreamingCompatibility()
         {
             Assert.AreEqual((int)EasyMicLatencyProfile.SafeStreaming, (int)EasyMicLatencyProfile.Stable);
+        }
+
+        [TestCase(EasyMicLatencyProfile.UltraLowLatency, 10)]
+        [TestCase(EasyMicLatencyProfile.LowLatency, 30)]
+        [TestCase(EasyMicLatencyProfile.Balanced, 45)]
+        [TestCase(EasyMicLatencyProfile.SafeStreaming, 100)]
+        public void PlaybackDeviceDelayEstimateMatchesConfiguredPeriods(
+            EasyMicLatencyProfile profile,
+            int expectedDelayMs)
+        {
+            Assert.AreEqual(
+                expectedDelayMs,
+                MiniaudioDeviceConfigPolicy.EstimatePlaybackDeviceDelayMs(48000, profile));
+        }
+
+        [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.Default, 30)]
+        [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility, 100)]
+        [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe, 100)]
+        [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe, 100)]
+        public void CaptureDeviceDelayEstimateMatchesEffectiveAndroidProfile(
+            int androidCaptureProfile,
+            int expectedDelayMs)
+        {
+            Assert.AreEqual(
+                expectedDelayMs,
+                MiniaudioDeviceConfigPolicy.EstimateCaptureDeviceDelayMs(
+                    48000,
+                    EasyMicLatencyProfile.LowLatency,
+                    (Native.AndroidCaptureDeviceConfigProfile)androidCaptureProfile));
+        }
+
+        [TestCase(EasyMicLatencyProfile.UltraLowLatency)]
+        [TestCase(EasyMicLatencyProfile.LowLatency)]
+        [TestCase(EasyMicLatencyProfile.Balanced)]
+        [TestCase(EasyMicLatencyProfile.SafeStreaming)]
+        public void CaptureDeviceDelayEstimateDefaultOverloadPreservesRequestedProfile(
+            EasyMicLatencyProfile profile)
+        {
+            Assert.AreEqual(
+                MiniaudioDeviceConfigPolicy.EstimateCaptureDeviceDelayMs(
+                    48000,
+                    profile,
+                    Native.AndroidCaptureDeviceConfigProfile.Default),
+                MiniaudioDeviceConfigPolicy.EstimateCaptureDeviceDelayMs(48000, profile));
+        }
+
+        [Test]
+        public void AudioContext_DefaultsToUnknownCaptureDelay()
+        {
+            var context = new AudioContext(1, 48000, 480);
+
+            Assert.AreEqual(-1, context.EstimatedCaptureDelayMs);
+        }
+
+        [TestCase(0, 20, 20)]
+        [TestCase(30, 20, 50)]
+        [TestCase(490, 20, 500)]
+        public void CaptureDelayEstimate_AddsDeviceAndMeasuredWorkerQueueTime(
+            int deviceDelayMs,
+            int workerQueueDelayMs,
+            int expectedDelayMs)
+        {
+            const long frequency = 1000;
+            const long captureTimestamp = 10000;
+            long processTimestamp = captureTimestamp + workerQueueDelayMs;
+
+            Assert.AreEqual(
+                expectedDelayMs,
+                CaptureAudioTransport.EstimateCaptureDelayMs(
+                    captureTimestamp,
+                    processTimestamp,
+                    frequency,
+                    deviceDelayMs));
         }
 
         [Test]

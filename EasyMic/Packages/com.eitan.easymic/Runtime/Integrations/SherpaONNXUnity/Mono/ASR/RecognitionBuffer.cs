@@ -330,6 +330,14 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR
                 return true;
             }
 
+            if (_lastSnapshot.StartsWith(text, StringComparison.Ordinal))
+            {
+                // Streaming recognizers may temporarily retract a stable prefix.
+                // Keep the longer snapshot until a genuine divergence arrives.
+                delta = string.Empty;
+                return true;
+            }
+
             _lastSnapshot = text;
             delta = text;
             return false;

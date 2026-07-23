@@ -38,6 +38,33 @@ namespace Eitan.EasyMic.Runtime
             ApplyAndroid(ref config, sampleRate, playback, capture, profile, androidCaptureProfile);
         }
 
+        internal static int EstimatePlaybackDeviceDelayMs(uint sampleRate, EasyMicLatencyProfile profile)
+        {
+            uint rate = Math.Max(8000u, sampleRate);
+            ulong bufferedFrames =
+                (ulong)CalculatePeriodFrames(rate, profile) * CalculatePeriods(profile);
+            return (int)Math.Min(500ul, (bufferedFrames * 1000ul + rate - 1ul) / rate);
+        }
+
+        internal static int EstimateCaptureDeviceDelayMs(uint sampleRate, EasyMicLatencyProfile profile)
+        {
+            return EstimateCaptureDeviceDelayMs(
+                sampleRate,
+                profile,
+                Native.AndroidCaptureDeviceConfigProfile.Default);
+        }
+
+        internal static int EstimateCaptureDeviceDelayMs(
+            uint sampleRate,
+            EasyMicLatencyProfile profile,
+            Native.AndroidCaptureDeviceConfigProfile androidCaptureProfile)
+        {
+            var effectiveProfile = UsesSafeStreamingCapturePeriods(androidCaptureProfile)
+                ? EasyMicLatencyProfile.SafeStreaming
+                : profile;
+            return EstimatePlaybackDeviceDelayMs(sampleRate, effectiveProfile);
+        }
+
         private static uint CalculatePeriodFrames(uint sampleRate, EasyMicLatencyProfile profile)
         {
             uint sr = Math.Max(8000u, sampleRate);
@@ -145,10 +172,7 @@ namespace Eitan.EasyMic.Runtime
                 config.AAudio.AllowedCapturePolicy = 0;
             }
 
-            if (capture &&
-                (androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility ||
-                 androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe ||
-                 androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe))
+            if (capture && UsesSafeStreamingCapturePeriods(androidCaptureProfile))
             {
                 config.PerformanceProfile = 1;
                 config.PeriodSizeInFrames = CalculatePeriodFrames(sampleRate, EasyMicLatencyProfile.SafeStreaming);
@@ -157,6 +181,14 @@ namespace Eitan.EasyMic.Runtime
                 config.NoFixedSizedCallback = 1;
             }
 #endif
+        }
+
+        private static bool UsesSafeStreamingCapturePeriods(
+            Native.AndroidCaptureDeviceConfigProfile androidCaptureProfile)
+        {
+            return androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility ||
+                   androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.AAudioUltraSafe ||
+                   androidCaptureProfile == Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe;
         }
     }
 }
