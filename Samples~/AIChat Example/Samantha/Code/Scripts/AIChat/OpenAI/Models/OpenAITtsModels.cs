@@ -9,9 +9,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     [Serializable]
     internal sealed class OpenAITtsRequest
     {
-        [SerializeField] private string model = "tts-1";
+        [SerializeField] private string model = AIChatProviderPresets.OpenAiTtsModel;
         [SerializeField] private string input;
-        [SerializeField] private string voice = "alloy";
+        [SerializeField] private string voice = AIChatProviderPresets.OpenAiTtsVoice;
         [SerializeField] private string response_format = "mp3";
         [SerializeField] private int sample_rate = 44100;
         [SerializeField] private float speed = 1f;
@@ -21,7 +21,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         /// <summary>
         /// 模型名称
-        /// OpenAI: tts-1, tts-1-hd
+        /// OpenAI: gpt-4o-mini-tts
         /// SiliconFlow: FunAudioLLM/CosyVoice2-0.5B, fnlp/MOSS-TTSD-v0.5
         /// </summary>
         public string Model
@@ -42,7 +42,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         /// <summary>
         /// 音色
-        /// OpenAI: alloy, echo, fable, onyx, nova, shimmer
+        /// OpenAI: marin, cedar, coral, alloy and other current built-in voices
         /// SiliconFlow CosyVoice2: FunAudioLLM/CosyVoice2-0.5B:alex 等
         /// </summary>
         public string Voice

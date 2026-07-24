@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,38 +15,134 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _idleTimeout = idleTimeout;
         }
 
-        public async IAsyncEnumerable<string> ReadDataPayloadLinesAsync(
+        public IAsyncEnumerable<string> ReadDataPayloadLinesAsync(
             StreamReader reader,
-            [EnumeratorCancellation] CancellationToken cancellationToken)
+            CancellationToken cancellationToken)
         {
-            if (reader == null)
+            return new DataPayloadEnumerable(this, reader, cancellationToken);
+        }
+
+        private sealed class DataPayloadEnumerable : IAsyncEnumerable<string>
+        {
+            private readonly OpenAISseReader _owner;
+            private readonly StreamReader _reader;
+            private readonly CancellationToken _requestCancellationToken;
+
+            public DataPayloadEnumerable(
+                OpenAISseReader owner,
+                StreamReader reader,
+                CancellationToken requestCancellationToken)
             {
-                yield break;
+                _owner = owner;
+                _reader = reader;
+                _requestCancellationToken = requestCancellationToken;
             }
 
-            while (!reader.EndOfStream)
+            public IAsyncEnumerator<string> GetAsyncEnumerator(
+                CancellationToken cancellationToken = default)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                return new DataPayloadEnumerator(
+                    _owner,
+                    _reader,
+                    _requestCancellationToken,
+                    cancellationToken);
+            }
+        }
 
-                string line = await ReadLineWithTimeoutAsync(reader, cancellationToken).ConfigureAwait(false);
-                if (line == null)
+        private sealed class DataPayloadEnumerator : IAsyncEnumerator<string>
+        {
+            private readonly OpenAISseReader _owner;
+            private readonly StreamReader _reader;
+            private readonly CancellationToken _cancellationToken;
+            private CancellationTokenSource _linkedCancellation;
+            private bool _disposed;
+
+            public DataPayloadEnumerator(
+                OpenAISseReader owner,
+                StreamReader reader,
+                CancellationToken requestCancellationToken,
+                CancellationToken enumerationCancellationToken)
+            {
+                _owner = owner;
+                _reader = reader;
+
+                if (requestCancellationToken.CanBeCanceled &&
+                    enumerationCancellationToken.CanBeCanceled &&
+                    requestCancellationToken != enumerationCancellationToken)
                 {
-                    yield break;
+                    _linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                        requestCancellationToken,
+                        enumerationCancellationToken);
+                    _cancellationToken = _linkedCancellation.Token;
+                }
+                else
+                {
+                    _cancellationToken = enumerationCancellationToken.CanBeCanceled
+                        ? enumerationCancellationToken
+                        : requestCancellationToken;
+                }
+            }
+
+            public string Current { get; private set; } = string.Empty;
+
+            public ValueTask<bool> MoveNextAsync()
+            {
+                return _disposed
+                    ? new ValueTask<bool>(false)
+                    : new ValueTask<bool>(MoveNextCoreAsync());
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                if (_disposed)
+                {
+                    return default;
                 }
 
-                if (string.IsNullOrWhiteSpace(line) ||
-                    !line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                _disposed = true;
+                _linkedCancellation?.Cancel();
+                _linkedCancellation?.Dispose();
+                _linkedCancellation = null;
+                Current = string.Empty;
+                return default;
+            }
+
+            private async Task<bool> MoveNextCoreAsync()
+            {
+                if (_reader == null)
                 {
-                    continue;
+                    return false;
                 }
 
-                string payloadLine = line.Substring(5).Trim();
-                if (string.IsNullOrWhiteSpace(payloadLine))
+                while (!_disposed)
                 {
-                    continue;
+                    _cancellationToken.ThrowIfCancellationRequested();
+
+                    string line = await _owner
+                        .ReadLineWithTimeoutAsync(_reader, _cancellationToken)
+                        .ConfigureAwait(false);
+                    if (line == null)
+                    {
+                        return false;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(line) ||
+                        !line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string payloadLine = line.Substring(5).Trim();
+                    if (string.IsNullOrWhiteSpace(payloadLine))
+                    {
+                        continue;
+                    }
+
+                    Current = payloadLine;
+                    return true;
                 }
 
-                yield return payloadLine;
+                return false;
             }
         }
 

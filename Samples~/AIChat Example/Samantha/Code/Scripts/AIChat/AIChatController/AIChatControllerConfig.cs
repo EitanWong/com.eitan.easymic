@@ -16,8 +16,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public SpeechSynthesizer SpeechSynthesizer;
 
         [Header("LLM Settings")]
-        public string ApiBaseUrl = "https://api.openai.com/v1/";
-        public string LlmModel = "gpt-5.4";
+        public string ApiBaseUrl = AIChatProviderPresets.OpenAiApiBaseUrl;
+        public string LlmModel = AIChatProviderPresets.OpenAiLlmModel;
         [Range(0f, 1.5f)] public float LlmTemperature = 0.7f;
         public PromptProfile SystemPromptProfile;
         public bool LogStreamingChunks;
@@ -30,8 +30,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         [Header("Speech Output")]
         public bool UseLocalTts = false;
-        public string TtsModel = "tts-1";
-        public string TtsVoice = "alloy";
+        public string TtsModel = AIChatProviderPresets.OpenAiTtsModel;
+        public string TtsVoice = AIChatProviderPresets.OpenAiTtsVoice;
         public bool UseStreamingTts = true;
         public bool EnableTtsDiagnostics = false;
 
@@ -43,7 +43,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [Min(0f)] public float CursorMoveThresholdPixels = 1f;
 
         [Header("Runtime")]
-        public float MicStartupDelay = 1f;
+        public float MicStartupDelay = 0.2f;
         public bool LoadRuntimeConfigOnAwake = true;
         public string RuntimeConfigFileName = "ai_chat_config.json";
 

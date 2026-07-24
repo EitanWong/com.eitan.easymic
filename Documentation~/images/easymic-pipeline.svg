@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">EasyMic capture and playback architecture</title>
+  <desc id="desc">EasyMic keeps device callbacks lightweight, moves audio through realtime transports, and performs extensible processing on worker pipelines.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#344054"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="420" fill="#f7f9fc"/>
+  <g font-family="Inter, Arial, sans-serif">
+    <text x="48" y="44" fill="#101828" font-size="22" font-weight="700">EasyMic runtime architecture</text>
+    <text x="48" y="70" fill="#667085" font-size="15">Device callbacks transport audio; workers own processing and integrations</text>
+
+    <text x="48" y="122" fill="#475467" font-size="14" font-weight="700">CAPTURE</text>
+    <rect x="48" y="140" width="210" height="92" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <rect x="48" y="140" width="7" height="92" rx="3" fill="#1570ef"/>
+    <text x="78" y="180" fill="#101828" font-size="18" font-weight="700">Microphone device</text>
+    <text x="78" y="207" fill="#475467" font-size="14">miniaudio callback</text>
+
+    <rect x="330" y="140" width="220" height="92" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <rect x="330" y="140" width="7" height="92" rx="3" fill="#12b76a"/>
+    <text x="360" y="180" fill="#101828" font-size="18" font-weight="700">Capture transport</text>
+    <text x="360" y="207" fill="#475467" font-size="14">SPSC buffer + timing</text>
+
+    <rect x="622" y="140" width="220" height="92" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <rect x="622" y="140" width="7" height="92" rx="3" fill="#f79009"/>
+    <text x="652" y="180" fill="#101828" font-size="18" font-weight="700">Worker pipeline</text>
+    <text x="652" y="207" fill="#475467" font-size="14">Resample + processors</text>
+
+    <rect x="914" y="140" width="238" height="92" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <rect x="914" y="140" width="7" height="92" rx="3" fill="#7f56d9"/>
+    <text x="944" y="180" fill="#101828" font-size="18" font-weight="700">App / Sherpa</text>
+    <text x="944" y="207" fill="#475467" font-size="14">PCM consumers</text>
+
+    <line x1="258" y1="186" x2="318" y2="186" stroke="#344054" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="550" y1="186" x2="610" y2="186" stroke="#344054" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="842" y1="186" x2="902" y2="186" stroke="#344054" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <text x="48" y="286" fill="#475467" font-size="14" font-weight="700">PLAYBACK</text>
+    <rect x="48" y="304" width="210" height="72" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <text x="153" y="347" text-anchor="middle" fill="#101828" font-size="17" font-weight="700">Clip / stream source</text>
+    <rect x="382" y="304" width="252" height="72" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <text x="508" y="337" text-anchor="middle" fill="#101828" font-size="17" font-weight="700">Mixer + render transport</text>
+    <text x="508" y="360" text-anchor="middle" fill="#475467" font-size="13">Queue and telemetry</text>
+    <rect x="758" y="304" width="210" height="72" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+    <text x="863" y="347" text-anchor="middle" fill="#101828" font-size="17" font-weight="700">Audio device</text>
+    <rect x="1010" y="304" width="142" height="72" rx="8" fill="#eaf2ff" stroke="#84adff"/>
+    <text x="1081" y="337" text-anchor="middle" fill="#175cd3" font-size="15" font-weight="700">APM tap</text>
+    <text x="1081" y="358" text-anchor="middle" fill="#475467" font-size="12">Optional</text>
+
+    <line x1="258" y1="340" x2="370" y2="340" stroke="#344054" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="634" y1="340" x2="746" y2="340" stroke="#344054" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="968" y1="340" x2="998" y2="340" stroke="#1570ef" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+  </g>
+</svg>

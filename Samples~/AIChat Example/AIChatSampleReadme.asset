@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b2c1e60f81fc4ec880861d08a9a2fd17, type: 3}
+  m_Name: AIChatSampleReadme
+  m_EditorClassIdentifier: 
+  _english:
+    _title: EasyMic AI Voice Chat
+    _summary: A current Unity scaffold for microphone capture, local ASR, Provider-backed
+      LLM responses, and local or remote speech synthesis.
+    _sections:
+    - _heading: Quick Start
+      _body: Open Samantha.unity, launch Tools > EasyMic > AI Chat > Setup, complete
+        the dependency check, then configure a Provider and save the device API key.
+      _linkLabel: 
+      _url: 
+    - _heading: Core Modules
+      _body: VoiceMicrophone handles capture and ASR. AIChatController owns turns
+        and orchestration. OpenAI adapters select the Provider contract. ChatTtsPipeline
+        generates and plays speech. Plugins add behavior without changing the core
+        flow.
+      _linkLabel: 
+      _url: 
+    - _heading: Current Providers
+      _body: SiliconFlow uses Qwen/Qwen3.5-9B with CosyVoice2-0.5B. OpenAI uses GPT-5.4
+        through the Responses API and gpt-4o-mini-tts with the marin voice. Custom
+        OpenAI-compatible hosts use Chat Completions.
+      _linkLabel: 
+      _url: 
+    - _heading: Configuration Contract
+      _body: Scene Policy supplies reusable Provider defaults. Schema v4 device JSON
+        then supplies persisted Provider, API key, microphone, ASR, and TTS values.
+        A key injected before Awake remains the final in-memory credential. Runtime-panel
+        Save persists and applies device settings immediately.
+      _linkLabel: 
+      _url: 
+    - _heading: Use as a Scaffold
+      _body: Replace the prompt profile, presentation layer, and plugins while keeping
+        the controller, request orchestrator, Provider adapter, and TTS pipeline
+        boundaries.
+      _linkLabel: 
+      _url: 
+  _chineseSimplified:
+    _title: EasyMic AI 语音对话
+    _summary: 面向 Unity 的当前版本脚手架，覆盖麦克风采集、本地
+      ASR、Provider LLM 回复，以及本地或远程语音合成。
+    _sections:
+    - _heading: 快速开始
+      _body: 打开 Samantha.unity，进入 Tools > EasyMic > AI Chat > Setup，完成依赖检查，然后配置
+        Provider 并保存当前设备的 API Key。
+      _linkLabel: 
+      _url: 
+    - _heading: 核心模块
+      _body: VoiceMicrophone 负责采集与 ASR；AIChatController 管理轮次和编排；OpenAI
+        适配器选择 Provider 契约；ChatTtsPipeline 生成并播放语音；Plugins
+        在不修改核心流程的情况下扩展行为。
+      _linkLabel: 
+      _url: 
+    - _heading: 当前 Provider
+      _body: SiliconFlow 使用 Qwen/Qwen3.5-9B 与 CosyVoice2-0.5B；OpenAI 使用
+        GPT-5.4 Responses API，以及 gpt-4o-mini-tts 的 marin 音色；其他
+        OpenAI 兼容服务使用 Chat Completions。
+      _linkLabel: 
+      _url: 
+    - _heading: 配置契约
+      _body: 场景 Policy 提供可复用的 Provider 默认值；schema v4 设备
+        JSON 随后应用并保存 Provider、API Key、麦克风、ASR 与 TTS 参数；Awake
+        前注入的 Key 是最终内存凭证；运行时面板保存后会立即应用设备设置。
+      _linkLabel: 
+      _url: 
+    - _heading: 作为脚手架
+      _body: 可以替换 Prompt Profile、表现层和插件，同时保留 Controller、请求编排、Provider
+        适配器及 TTS Pipeline 的边界。
+      _linkLabel: 
+      _url: 

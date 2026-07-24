@@ -4,9 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -32,6 +32,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private TMP_InputField _ttsVoiceInput;
         [SerializeField] private Toggle _useLocalTtsToggle;
 
+        [Header("Inputs (Microphone)")]
+        [SerializeField] private TMP_Dropdown _microphoneDeviceDropdown;
+
         [Header("Inputs (ASR)")]
         [SerializeField] private TMP_Dropdown _asrRecognitionModeDropdown;
         [SerializeField] private TMP_InputField _asrStreamingModelInput;
@@ -53,13 +56,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             "Offline (VAD)",
             "Hybrid"
         };
+        private const string SystemDefaultMicrophoneOption = "System Default";
+        private const string UnavailableMicrophoneSuffix = " (Unavailable)";
         private const float OpenButtonFadeDuration = 0.2f;
         private const float OpenButtonVisibleAlpha = 1f;
         private const float OpenButtonHiddenAlpha = 0f;
         private readonly IAIChatRuntimeConfigStore _runtimeConfigStore = new JsonAIChatRuntimeConfigStore();
+        private readonly List<string> _microphoneDeviceNames = new List<string>();
         private CanvasGroup _openButtonCanvasGroup;
         private CanvasGroup _panelRootCanvasGroup;
         private bool _panelRootUsesCanvasGroup;
+        private int _saveGeneration;
 
         private void Awake()
         {
@@ -67,6 +74,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             ConfigureApiKeyInput();
             EnsureRecognitionModeOptions();
+            EnsureMicrophoneDeviceDropdown();
 
             if (_openButton != null)
             {
@@ -82,7 +90,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (_saveButton != null)
             {
-                _saveButton.onClick.AddListener(SaveAndReload);
+                _saveButton.onClick.AddListener(SaveSettings);
             }
 
             if (_resetButton != null)
@@ -101,6 +109,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             ConfigureApiKeyInput();
             EnsureRecognitionModeOptions();
+            EnsureMicrophoneDeviceDropdown();
             InitializeOpenButtonVisibility();
         }
 
@@ -123,7 +132,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (_saveButton != null)
             {
-                _saveButton.onClick.RemoveListener(SaveAndReload);
+                _saveButton.onClick.RemoveListener(SaveSettings);
             }
 
             if (_resetButton != null)
@@ -167,6 +176,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void LoadIntoFields()
         {
             EnsureRecognitionModeOptions();
+            RefreshMicrophoneDeviceOptions();
             var path = ResolveConfigPath();
             if (!_runtimeConfigStore.TryLoad(path, out var config) || config == null)
             {
@@ -179,6 +189,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             SetText(_ttsModelInput, config.TtsModel);
             SetText(_ttsVoiceInput, config.TtsVoice);
             SetToggle(_useLocalTtsToggle, config.UseLocalTts);
+            SetMicrophoneDeviceDropdown(config.MicrophoneDeviceName);
             SetDropdown(_asrRecognitionModeDropdown, config.AsrRecognitionModeIndex);
             SetText(_asrStreamingModelInput, config.AsrStreamingModelId);
             SetText(_asrOfflineModelInput, config.AsrOfflineModelId);
@@ -209,9 +220,53 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void SaveAndReload()
+        private async void SaveSettings()
         {
-            var config = new AIChatRuntimeConfig
+            int saveGeneration = ++_saveGeneration;
+
+            try
+            {
+                AIChatRuntimeConfig config = ReadFields();
+                string path = ResolveConfigPath();
+                AIChatControllerConfig controllerConfig = _controller != null ? _controller.CurrentConfig : null;
+                Func<Task> refreshRuntime = _controller != null
+                    ? _controller.RefreshRuntimeConfigurationAsync
+                    : null;
+
+                AIChatRuntimeConfigurationResult result =
+                    await AIChatRuntimeConfigurationFlow.SaveAndApplyAsync(
+                        _runtimeConfigStore,
+                        path,
+                        config,
+                        controllerConfig,
+                        refreshRuntime);
+
+                if (this == null || saveGeneration != _saveGeneration)
+                {
+                    return;
+                }
+
+                if (!result.Succeeded)
+                {
+                    Debug.LogWarning(
+                        $"[AIChat] Runtime settings were not fully applied: {result.ErrorMessage}");
+                    return;
+                }
+
+                Debug.Log($"[AIChat] Runtime settings saved to {path} and applied.");
+            }
+            catch (Exception ex)
+            {
+                if (this != null && saveGeneration == _saveGeneration)
+                {
+                    Debug.LogWarning($"[AIChat] Runtime settings save failed: {ex.Message}");
+                }
+            }
+        }
+
+        private AIChatRuntimeConfig ReadFields()
+        {
+            return new AIChatRuntimeConfig
             {
                 ApiKey = GetText(_apiKeyInput),
                 ApiBaseUrl = GetText(_apiBaseUrlInput),
@@ -219,6 +274,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 TtsModel = GetText(_ttsModelInput),
                 TtsVoice = GetText(_ttsVoiceInput),
                 UseLocalTts = GetToggle(_useLocalTtsToggle),
+                MicrophoneDeviceName = GetSelectedMicrophoneDeviceName(),
                 AsrRecognitionModeIndex = GetDropdown(_asrRecognitionModeDropdown),
                 AsrStreamingModelId = GetText(_asrStreamingModelInput),
                 AsrOfflineModelId = GetText(_asrOfflineModelInput),
@@ -232,29 +288,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 LocalTtsSampleRate = ParseInt(_localTtsSampleRateInput),
                 LlmTemperature = GetSlider(_llmTemperatureSlider)
             };
-
-            var path = ResolveConfigPath();
-            if (!_runtimeConfigStore.TrySave(path, config, out var saveError))
-            {
-                Debug.LogWarning($"[AIChat] Failed to save runtime config UI: {saveError}");
-                return;
-            }
-
-            try
-            {
-                Eitan.EasyMic.Runtime.AudioSystem.Instance.Stop();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AIChat] Failed to stop EasyMic playback before reload: {ex.Message}");
-            }
-
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
         private void ResetToDefaults()
         {
             EnsureRecognitionModeOptions();
+            RefreshMicrophoneDeviceOptions();
 
             var defaults = _runtimeConfigStore.CreateDefault(new AIChatControllerConfig());
 
@@ -265,6 +304,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             SetText(_ttsVoiceInput, defaults.TtsVoice);
             SetToggle(_useLocalTtsToggle, defaults.UseLocalTts);
             SetSlider(_llmTemperatureSlider, defaults.LlmTemperature);
+            SetMicrophoneDeviceDropdown(defaults.MicrophoneDeviceName);
 
             SetDropdown(_asrRecognitionModeDropdown, defaults.AsrRecognitionModeIndex);
             SetToggle(_asrEnablePunctuationToggle, defaults.AsrEnablePunctuation);
@@ -369,6 +409,119 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _asrRecognitionModeDropdown.AddOptions(AsrRecognitionModeLabels);
             _asrRecognitionModeDropdown.value = 0;
             _asrRecognitionModeDropdown.RefreshShownValue();
+        }
+
+        private void EnsureMicrophoneDeviceDropdown()
+        {
+            if (_microphoneDeviceDropdown != null || _asrRecognitionModeDropdown == null)
+            {
+                return;
+            }
+
+            var templateRow = _asrRecognitionModeDropdown.transform.parent;
+            if (templateRow == null || templateRow.parent == null)
+            {
+                return;
+            }
+
+            var microphoneRow = Instantiate(templateRow.gameObject, templateRow.parent);
+            microphoneRow.name = "Microphone Device Dropdown";
+            microphoneRow.transform.SetSiblingIndex(templateRow.GetSiblingIndex());
+
+            _microphoneDeviceDropdown = microphoneRow.GetComponentInChildren<TMP_Dropdown>(true);
+            if (_microphoneDeviceDropdown == null)
+            {
+                Destroy(microphoneRow);
+                return;
+            }
+
+            var texts = microphoneRow.GetComponentsInChildren<TMP_Text>(true);
+            for (int i = 0; i < texts.Length; i++)
+            {
+                if (!texts[i].transform.IsChildOf(_microphoneDeviceDropdown.transform))
+                {
+                    texts[i].text = "Microphone Device";
+                    break;
+                }
+            }
+        }
+
+        private void RefreshMicrophoneDeviceOptions()
+        {
+            EnsureMicrophoneDeviceDropdown();
+            if (_microphoneDeviceDropdown == null)
+            {
+                return;
+            }
+
+            _microphoneDeviceNames.Clear();
+            _microphoneDeviceNames.Add(string.Empty);
+
+            var labels = new List<string> { SystemDefaultMicrophoneOption };
+            var microphone = _controller != null ? _controller.MicrophoneSource : null;
+            var devices = microphone != null ? microphone.AvailableDevices : null;
+            if (devices != null)
+            {
+                for (int i = 0; i < devices.Length; i++)
+                {
+                    string deviceName = devices[i].Name?.Trim();
+                    if (string.IsNullOrEmpty(deviceName) || _microphoneDeviceNames.Contains(deviceName))
+                    {
+                        continue;
+                    }
+
+                    _microphoneDeviceNames.Add(deviceName);
+                    labels.Add(devices[i].IsDefault ? $"{deviceName} (Default)" : deviceName);
+                }
+            }
+
+            _microphoneDeviceDropdown.ClearOptions();
+            _microphoneDeviceDropdown.AddOptions(labels);
+            _microphoneDeviceDropdown.interactable = microphone != null;
+            SetDropdown(_microphoneDeviceDropdown, 0);
+        }
+
+        private string GetSelectedMicrophoneDeviceName()
+        {
+            if (_microphoneDeviceDropdown == null || _microphoneDeviceNames.Count == 0)
+            {
+                return null;
+            }
+
+            int index = Mathf.Clamp(_microphoneDeviceDropdown.value, 0, _microphoneDeviceNames.Count - 1);
+            return _microphoneDeviceNames[index];
+        }
+
+        private void SetMicrophoneDeviceDropdown(string deviceName)
+        {
+            if (_microphoneDeviceDropdown == null || _microphoneDeviceNames.Count == 0)
+            {
+                return;
+            }
+
+            int index = 0;
+            if (!string.IsNullOrWhiteSpace(deviceName))
+            {
+                string normalizedDeviceName = deviceName.Trim();
+                for (int i = 1; i < _microphoneDeviceNames.Count; i++)
+                {
+                    if (string.Equals(_microphoneDeviceNames[i], normalizedDeviceName, StringComparison.Ordinal))
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+
+                if (index == 0)
+                {
+                    _microphoneDeviceNames.Add(normalizedDeviceName);
+                    _microphoneDeviceDropdown.options.Add(
+                        new TMP_Dropdown.OptionData(normalizedDeviceName + UnavailableMicrophoneSuffix));
+                    index = _microphoneDeviceNames.Count - 1;
+                }
+            }
+
+            SetDropdown(_microphoneDeviceDropdown, index);
         }
 
         private void ConfigureApiKeyInput()
@@ -610,25 +763,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 : null;
 
             return RectTransformUtility.RectangleContainsScreenPoint(target, Input.mousePosition, eventCamera);
-        }
-    }
-}
-#else
-using UnityEngine;
-
-namespace Eitan.EasyMic.Demo.AIChat.Samantha
-{
-    public sealed class AIChatRuntimeConfigPanel : MonoBehaviour
-    {
-        [SerializeField] private AIChatController _controller;
-        [SerializeField] private GameObject _panelRoot;
-
-        private void Awake()
-        {
-            if (_panelRoot != null)
-            {
-                _panelRoot.SetActive(false);
-            }
         }
     }
 }

@@ -17,7 +17,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly Func<string, string> _cleanText;
         private readonly int _maxResponseBufferSize;
 
-        private string _streamedResponseSnapshot = string.Empty;
+        private StreamChunkMode _streamChunkMode;
+        private string _lastStreamChunk = string.Empty;
+        private long _activeResponseId;
+
+        private enum StreamChunkMode
+        {
+            Unknown,
+            Delta,
+            Cumulative
+        }
 
         public AIChatRequestOrchestrator(
             Func<int> historyTurnProvider,
@@ -42,17 +51,22 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        public void ResetCurrentResponse()
+        public bool BeginResponse(long responseId)
         {
             lock (_sync)
             {
-                _responseBuffer.Clear();
-                _streamedResponseSnapshot = string.Empty;
-                _sentenceAssembler.Reset();
+                if (responseId < _activeResponseId)
+                {
+                    return false;
+                }
+
+                _activeResponseId = responseId;
+                ResetCurrentResponseLocked();
+                return true;
             }
         }
 
-        public string AppendStreamingChunk(string chunk)
+        public string AppendStreamingChunk(long responseId, string chunk)
         {
             if (string.IsNullOrEmpty(chunk))
             {
@@ -61,6 +75,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             lock (_sync)
             {
+                if (responseId != _activeResponseId)
+                {
+                    return string.Empty;
+                }
+
                 string normalizedChunk = NormalizeStreamingChunkLocked(chunk);
                 if (!string.IsNullOrEmpty(normalizedChunk) &&
                     _responseBuffer.Length + normalizedChunk.Length <= _maxResponseBufferSize)
@@ -72,33 +91,48 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        public void ProcessStreamingChunk(string chunk, Action<string> onSentenceReady)
+        public void ProcessStreamingChunk(long responseId, string chunk, Action<string> onSentenceReady)
         {
             lock (_sync)
             {
+                if (responseId != _activeResponseId)
+                {
+                    return;
+                }
+
                 DispatchSentencesLocked(chunk, forceFlush: false, onSentenceReady);
             }
         }
 
-        public void FlushPendingSentences(Action<string> onSentenceReady)
+        public void FlushPendingSentences(long responseId, Action<string> onSentenceReady)
         {
             lock (_sync)
             {
+                if (responseId != _activeResponseId)
+                {
+                    return;
+                }
+
                 DispatchSentencesLocked(string.Empty, forceFlush: true, onSentenceReady);
             }
         }
 
-        public string GetRawResponse()
+        public string GetRawResponse(long responseId)
         {
             lock (_sync)
             {
+                if (responseId != _activeResponseId)
+                {
+                    return string.Empty;
+                }
+
                 return _responseBuffer.ToString();
             }
         }
 
-        public string GetCleanedResponse()
+        public string GetCleanedResponse(long responseId)
         {
-            return _cleanText(GetRawResponse());
+            return _cleanText(GetRawResponse(responseId));
         }
 
         public void AppendConversationHistory(string userMessage, string assistantMessage)
@@ -196,14 +230,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void DispatchSentences(string chunk, bool forceFlush, Action<string> onSentenceReady)
-        {
-            lock (_sync)
-            {
-                DispatchSentencesLocked(chunk, forceFlush, onSentenceReady);
-            }
-        }
-
         private void DispatchSentencesLocked(string chunk, bool forceFlush, Action<string> onSentenceReady)
         {
             if (onSentenceReady == null)
@@ -256,26 +282,47 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return string.Empty;
             }
 
-            if (string.IsNullOrEmpty(_streamedResponseSnapshot))
+            if (string.IsNullOrEmpty(_lastStreamChunk))
             {
-                _streamedResponseSnapshot = chunk;
+                _lastStreamChunk = chunk;
                 return chunk;
             }
 
-            if (chunk.StartsWith(_streamedResponseSnapshot, StringComparison.Ordinal))
+            if (_streamChunkMode == StreamChunkMode.Unknown)
             {
-                string delta = chunk.Substring(_streamedResponseSnapshot.Length);
-                _streamedResponseSnapshot = chunk;
-                return delta;
+                _streamChunkMode = chunk.Length > _lastStreamChunk.Length &&
+                                   chunk.StartsWith(_lastStreamChunk, StringComparison.Ordinal)
+                    ? StreamChunkMode.Cumulative
+                    : StreamChunkMode.Delta;
             }
 
-            if (_streamedResponseSnapshot.EndsWith(chunk, StringComparison.Ordinal))
+            if (_streamChunkMode == StreamChunkMode.Cumulative)
+            {
+                if (chunk.StartsWith(_lastStreamChunk, StringComparison.Ordinal))
+                {
+                    string delta = chunk.Substring(_lastStreamChunk.Length);
+                    _lastStreamChunk = chunk;
+                    return delta;
+                }
+
+                _streamChunkMode = StreamChunkMode.Delta;
+            }
+
+            if (string.Equals(_lastStreamChunk, chunk, StringComparison.Ordinal))
             {
                 return string.Empty;
             }
 
-            _streamedResponseSnapshot += chunk;
+            _lastStreamChunk = chunk;
             return chunk;
+        }
+
+        private void ResetCurrentResponseLocked()
+        {
+            _responseBuffer.Clear();
+            _streamChunkMode = StreamChunkMode.Unknown;
+            _lastStreamChunk = string.Empty;
+            _sentenceAssembler.Reset();
         }
 
         private static string NormalizeHistoryContent(string content)

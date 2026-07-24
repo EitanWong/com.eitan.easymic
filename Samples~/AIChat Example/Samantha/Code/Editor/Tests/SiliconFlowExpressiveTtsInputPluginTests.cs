@@ -22,9 +22,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 "I'm so happy, Spring Festival is coming!",
                 profile);
 
-            Assert.That(formatted, Does.StartWith("Please read with happy emotion. <|endofprompt|>"));
+            Assert.That(formatted, Does.StartWith("Please read with happy emotion"));
+            Assert.That(formatted, Does.Contain(SiliconFlowExpressiveTtsInputPlugin.EndOfPromptMarker));
             Assert.That(formatted, Does.Contain("[breath]"));
-            Assert.That(formatted, Does.Contain("[laughter]"));
+            Assert.That(formatted, Does.Not.Contain("[laughter]"));
         }
 
         [Test]
@@ -82,13 +83,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
         }
 
         [Test]
-        public void AutoInsertExpressiveMarkers_ShouldInsertBreathAtPauseAndLaughterForPositiveTone()
+        public void AutoInsertExpressiveMarkers_ShouldReserveLaughterForExplicitCue()
         {
             string result = SiliconFlowExpressiveTtsInputPlugin.AutoInsertExpressiveMarkers(
                 "Today is really happy, Spring Festival is coming!");
+            string laughterResult = SiliconFlowExpressiveTtsInputPlugin.AutoInsertExpressiveMarkers(
+                "Haha, Spring Festival is coming!");
 
             Assert.That(result, Does.Contain("[breath]"));
-            Assert.That(result, Does.Contain("[laughter]"));
+            Assert.That(result, Does.Not.Contain("[laughter]"));
+            Assert.That(laughterResult, Does.Contain("[laughter]"));
         }
 
         private static int CountOccurrences(string value, string token)

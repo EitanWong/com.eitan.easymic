@@ -14,15 +14,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             UpdateServiceLoading(SERVICE_TTS_INIT_KEY, progress);
         }
 
-        private void OnLocalTtsStateChanged(bool isSpeaking)
-        {
-            if (!Config.UseLocalTts)
-            {
-                return;
-            }
-
-            SetAssistantSpeakingState(isSpeaking);
-        }
     }
 }
 #endif
