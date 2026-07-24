@@ -23,8 +23,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private const int RemoteDefaultSampleRate = 24000;
         private const int RemoteDefaultChannels = 1;
         private const int MaxQueuedJobs = 100;
+        private const int MaxParallelTtsRequests = 2;
         private const int PlaybackPollDelayMs = 5;
-        private const double PlaybackDrainEpsilon = 0.08;
+        private const double PlaybackDrainEpsilon = 0.001;
         private const double InitialStreamingPrebufferSeconds = 0.04;
         private const double MinimumStreamingChunkSeconds = 0.03;
         private const double BufferedPlaybackChunkSeconds = 0.06;
@@ -46,8 +47,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly SemaphoreSlim _generationSemaphore;
         private readonly ResourceMonitor _resourceMonitor;
         private readonly TtsPipelineSession _session = new TtsPipelineSession();
+        private readonly object _queueStateLock = new object();
         private readonly object _playbackLock = new object();
         private readonly object _stateLock = new object();
+        private readonly object _speakingStateLock = new object();
         private readonly object _inFlightLock = new object();
         private readonly object _adaptiveBufferLock = new object();
         private readonly HashSet<string> _inFlightSentences = new HashSet<string>(StringComparer.Ordinal);
@@ -67,18 +70,24 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private PlaybackSink _playbackSink;
         private PlaybackAudioSourceBehaviour _playbackSource;
+        private float _playbackVolume = 1f;
         private bool _playbackInitialized;
         private long _playbackSessionId;
+        private long _activeTurnId;
+        private long _highestTurnId;
+        private long _completedInputTurnId;
+        private long _speakingTurnId;
         private int _restartAfterCurrentSessionRequested;
         private int _generationSemaphoreDisposeRequested;
 
         private bool _localSynthCallbacksBound;
         private SpeechSynthesizer _boundLocalSynthesizer;
 
-        public event Action<bool> OnSpeakingStateChanged;
-        public event Action<string> OnSentenceStarted;
-        public event Action<string> OnSentenceCompleted;
-        public event Action<float> OnBufferProgress;
+        public event Action<long, bool> OnSpeakingStateChanged;
+        public event Action<long, string> OnSentenceStarted;
+        public event Action<long, string> OnSentenceCompleted;
+        public event Action<long, float> OnBufferProgress;
+        public event Action<float[], int, int, int> OnPlaybackAudioQueued;
 
         public bool IsSpeaking => _isSpeaking;
 
@@ -96,7 +105,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             _clientAccessor = clientAccessor ?? throw new ArgumentNullException(nameof(clientAccessor));
             _resourceMonitor = new ResourceMonitor();
-            _generationSemaphore = new SemaphoreSlim(1);
+            _generationSemaphore = new SemaphoreSlim(MaxParallelTtsRequests, MaxParallelTtsRequests);
             _config = TtsPipelineConfig.Default;
             ResetAdaptiveBufferState();
         }
@@ -238,42 +247,107 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        public void Enqueue(string sentence)
+        public bool BeginTurn(long turnId)
         {
-            if (_disposed || string.IsNullOrWhiteSpace(sentence))
+            if (_disposed || turnId <= 0)
             {
-                return;
+                return false;
+            }
+
+            lock (_queueStateLock)
+            {
+                if (_disposed || turnId <= _highestTurnId)
+                {
+                    return false;
+                }
+
+                _highestTurnId = turnId;
+                Volatile.Write(ref _activeTurnId, turnId);
+                Volatile.Write(ref _completedInputTurnId, 0);
+                return true;
+            }
+        }
+
+        public bool Enqueue(long turnId, string sentence)
+        {
+            if (_disposed || turnId <= 0 || string.IsNullOrWhiteSpace(sentence))
+            {
+                return false;
             }
 
             string trimmed = sentence.Trim();
             if (trimmed.Length == 0)
             {
-                return;
+                return false;
             }
 
             var config = GetConfigSnapshot();
-            if (config.UseLocalTts && config.LocalSynthesizer != null)
+            bool useLocalTts = config.UseLocalTts && config.LocalSynthesizer != null;
+            lock (_queueStateLock)
             {
-                config.LocalSynthesizer.EnqueueSentence(trimmed);
+                if (_disposed || turnId != Volatile.Read(ref _activeTurnId))
+                {
+                    return false;
+                }
+
+                if (useLocalTts)
+                {
+                    config.LocalSynthesizer.EnqueueSentence(trimmed);
+                }
+                else
+                {
+                    if (_pendingJobs.Count >= MaxQueuedJobs)
+                    {
+                        Debug.LogWarning("[ParallelTtsPipeline] Queue full, dropping sentence.");
+                        return false;
+                    }
+
+                    if (!TryRegisterInFlightSentence(trimmed))
+                    {
+                        return false;
+                    }
+
+                    int seq = Interlocked.Increment(ref _nextSequenceNumber);
+                    var job = new TtsJob(seq, turnId, trimmed);
+                    _pendingJobs.Enqueue(job);
+                }
+            }
+
+            NotifySpeakingState(turnId, true);
+            if (!useLocalTts)
+            {
+                EnsureOrchestratorRunning();
+            }
+
+            return true;
+        }
+
+        public void CompleteTurn(long turnId)
+        {
+            if (_disposed || turnId <= 0)
+            {
                 return;
             }
 
-            if (_pendingJobs.Count >= MaxQueuedJobs)
+            lock (_queueStateLock)
             {
-                Debug.LogWarning("[ParallelTtsPipeline] Queue full, dropping sentence.");
-                return;
+                if (_disposed || turnId != Volatile.Read(ref _activeTurnId))
+                {
+                    return;
+                }
+
+                Volatile.Write(ref _completedInputTurnId, turnId);
             }
 
-            if (!TryRegisterInFlightSentence(trimmed))
+            if (!_pendingJobs.IsEmpty || !_completedJobs.IsEmpty || IsSpeaking)
             {
-                return;
+                EnsureOrchestratorRunning();
             }
+        }
 
-            int seq = Interlocked.Increment(ref _nextSequenceNumber);
-            var job = new TtsJob(seq, trimmed);
-            _pendingJobs.Enqueue(job);
-
-            EnsureOrchestratorRunning();
+        private bool IsTurnInputComplete(long turnId)
+        {
+            return turnId > 0 && Interlocked.Read(ref _completedInputTurnId) == turnId;
         }
 
         public void Stop()
@@ -283,12 +357,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public async Task StopAndWaitAsync()
         {
-            var stopState = _session.CancelAndGetTask();
+            var config = GetConfigSnapshot();
+            (long sessionId, Task task) stopState;
+            long oldTurnId;
+            lock (_queueStateLock)
+            {
+                stopState = _session.CancelAndGetTask();
+                oldTurnId = Volatile.Read(ref _activeTurnId);
+                Volatile.Write(ref _activeTurnId, 0);
+                Volatile.Write(ref _completedInputTurnId, 0);
+                ClearQueuesUnsafe();
+            }
+
             long oldSessionId = stopState.sessionId;
             Task taskToWait = stopState.task;
-            var config = GetConfigSnapshot();
-
-            ClearQueues();
 
             lock (_playbackLock)
             {
@@ -298,7 +380,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            NotifySpeakingState(false);
+            NotifySpeakingState(oldTurnId, false);
 
             if (config.UseLocalTts && config.LocalSynthesizer != null)
             {

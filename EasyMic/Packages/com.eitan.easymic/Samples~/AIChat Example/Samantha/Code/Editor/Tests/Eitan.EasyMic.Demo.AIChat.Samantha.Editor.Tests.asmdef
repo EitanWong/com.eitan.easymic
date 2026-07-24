@@ -2,7 +2,8 @@
     "name": "Eitan.EasyMic.Demo.AIChat.Samantha.Editor.Tests",
     "rootNamespace": "Eitan.EasyMic.Demo.AIChat.Samantha.Tests",
     "references": [
-        "Eitan.EasyMic.Demo.AIChat.Samantha"
+        "Eitan.EasyMic.Demo.AIChat.Samantha",
+        "Eitan.EasyMic.Demo.AIChat.Samantha.Bootstrap.Editor"
     ],
     "includePlatforms": [
         "Editor"

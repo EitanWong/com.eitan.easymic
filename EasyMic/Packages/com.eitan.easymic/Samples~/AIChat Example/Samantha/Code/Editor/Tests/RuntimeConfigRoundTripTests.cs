@@ -1,8 +1,14 @@
 #if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using System;
+using System.Collections;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using NUnit.Framework;
+using UnityEngine.TestTools;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
 {
@@ -22,9 +28,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                     ApiBaseUrl = "https://example.com/v1/",
                     LlmModel = "gpt-4.1-mini",
                     LlmTemperature = 0.3f,
-                    TtsModel = "tts-1",
-                    TtsVoice = "alloy",
+                    TtsModel = "gpt-4o-mini-tts",
+                    TtsVoice = "marin",
                     UseLocalTts = 1,
+                    MicrophoneDeviceName = "USB Microphone",
                     AsrRecognitionModeIndex = 2,
                     AsrStreamingModelId = "stream-model",
                     AsrOfflineModelId = "offline-model",
@@ -50,6 +57,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 Assert.AreEqual(input.TtsModel, output.TtsModel);
                 Assert.AreEqual(input.TtsVoice, output.TtsVoice);
                 Assert.AreEqual(input.UseLocalTts, output.UseLocalTts);
+                Assert.AreEqual(input.MicrophoneDeviceName, output.MicrophoneDeviceName);
                 Assert.AreEqual(input.AsrRecognitionModeIndex, output.AsrRecognitionModeIndex);
                 Assert.AreEqual(input.AsrStreamingModelId, output.AsrStreamingModelId);
                 Assert.AreEqual(input.AsrOfflineModelId, output.AsrOfflineModelId);
@@ -69,6 +77,601 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 }
             }
         }
+
+        [Test]
+        public void Capture_ShouldExcludeTransientControllerApiKey()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            var config = new AIChatControllerConfig();
+            config.SetApiKeyOverride("transient-production-key");
+
+            AIChatRuntimeConfig snapshot = store.Capture(config);
+
+            Assert.IsTrue(string.IsNullOrEmpty(snapshot.ApiKey));
+        }
+
+        [Test]
+        public void Apply_WithEmptyPersistedKey_ShouldClearTransientControllerKey()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            var controllerConfig = new AIChatControllerConfig();
+            controllerConfig.SetApiKeyOverride("transient-key");
+
+            store.Apply(
+                new AIChatRuntimeConfig { ApiKey = string.Empty },
+                controllerConfig);
+
+            Assert.IsTrue(string.IsNullOrEmpty(controllerConfig.ResolveApiKey()));
+        }
+
+        [TestCase(3)]
+        [TestCase(5)]
+        public void TryLoad_ShouldRejectNonCurrentSchema(int schemaVersion)
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_schema_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                var unsupported = new AIChatRuntimeConfig
+                {
+                    SchemaVersion = schemaVersion,
+                    ApiKey = "unsupported-schema-key",
+                    LlmModel = "unsupported-schema-model"
+                };
+                File.WriteAllText(path, UnityEngine.JsonUtility.ToJson(unsupported, true));
+
+                Assert.IsFalse(store.TryLoad(path, out AIChatRuntimeConfig loaded));
+                Assert.IsNull(loaded);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [Test]
+        public void LoadOrCreate_ShouldReplaceNonCurrentSchemaWithCurrentDefaults()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_replace_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                var unsupported = new AIChatRuntimeConfig
+                {
+                    SchemaVersion = AIChatRuntimeConfig.CurrentSchemaVersion - 1,
+                    ApiKey = "unsupported-schema-key",
+                    LlmModel = "unsupported-schema-model"
+                };
+                File.WriteAllText(path, UnityEngine.JsonUtility.ToJson(unsupported, true));
+
+                var controllerConfig = new AIChatControllerConfig
+                {
+                    LlmModel = AIChatProviderPresets.OpenAiLlmModel
+                };
+
+                AIChatRuntimeConfig current = store.LoadOrCreate(
+                    path,
+                    controllerConfig,
+                    out bool createdDefault);
+
+                Assert.IsTrue(createdDefault);
+                Assert.AreEqual(AIChatRuntimeConfig.CurrentSchemaVersion, current.SchemaVersion);
+                Assert.AreEqual(AIChatProviderPresets.OpenAiLlmModel, current.LlmModel);
+                Assert.IsTrue(string.IsNullOrEmpty(current.ApiKey));
+                Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig reloaded));
+                Assert.AreEqual(AIChatRuntimeConfig.CurrentSchemaVersion, reloaded.SchemaVersion);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [Test]
+        public void StartupFlow_ShouldApplyDeviceConfigAfterScenePolicy()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_layers_{Guid.NewGuid():N}.json");
+            var policyObject = new UnityEngine.GameObject("AI Chat Policy Test");
+
+            try
+            {
+                var policy = policyObject.AddComponent<AIChatConfigurationPolicy>();
+                var persisted = new AIChatRuntimeConfig
+                {
+                    ApiBaseUrl = "https://device-provider.example/v1/",
+                    LlmModel = "device-model",
+                    TtsModel = "device-tts",
+                    TtsVoice = "device-voice",
+                    UseLocalTts = 0
+                };
+                Assert.IsTrue(store.TrySave(path, persisted, out string saveError), saveError);
+
+                var controllerConfig = new AIChatControllerConfig();
+                AIChatRuntimeConfigurationFlow.ApplyStartupLayers(
+                    policy,
+                    store,
+                    path,
+                    controllerConfig,
+                    loadRuntimeConfig: true);
+
+                Assert.AreEqual(persisted.ApiBaseUrl, controllerConfig.ApiBaseUrl);
+                Assert.AreEqual(persisted.LlmModel, controllerConfig.LlmModel);
+                Assert.AreEqual(persisted.TtsModel, controllerConfig.TtsModel);
+                Assert.AreEqual(persisted.TtsVoice, controllerConfig.TtsVoice);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(policyObject);
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [Test]
+        public void StartupFlow_ShouldPreserveInjectedApiKeyAsFinalMemoryLayer()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_injected_key_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                Assert.IsTrue(
+                    store.TrySave(
+                        path,
+                        new AIChatRuntimeConfig { ApiKey = "persisted-device-key" },
+                        out string saveError),
+                    saveError);
+
+                var controllerConfig = new AIChatControllerConfig();
+                controllerConfig.SetApiKeyOverride("injected-memory-key");
+
+                AIChatRuntimeConfigurationFlow.ApplyStartupLayers(
+                    null,
+                    store,
+                    path,
+                    controllerConfig,
+                    loadRuntimeConfig: true);
+
+                Assert.AreEqual("injected-memory-key", controllerConfig.ResolveApiKey());
+                Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig persisted));
+                Assert.AreEqual("persisted-device-key", persisted.ApiKey);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [Test]
+        public void SetApiKey_BeforeAwake_ShouldStoreWithoutInitializingClient()
+        {
+            var target = new UnityEngine.GameObject("AI Chat Pre-Awake Key Test");
+            target.SetActive(false);
+
+            try
+            {
+                var controller = target.AddComponent<AIChatController>();
+                controller.SetApiKey("injected-memory-key");
+
+                var clientField = typeof(AIChatController).GetField(
+                    "_openAiClient",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+                Assert.NotNull(clientField);
+                Assert.AreEqual("injected-memory-key", controller.CurrentConfig.ResolveApiKey());
+                Assert.IsNull(clientField.GetValue(controller));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
+        public void InitializeOpenAiClient_WithMissingKey_ShouldRemainRecoverable()
+        {
+            var target = new UnityEngine.GameObject("AI Chat Missing Key Test");
+            target.SetActive(false);
+
+            try
+            {
+                var controller = target.AddComponent<AIChatController>();
+                var initializeMethod = typeof(AIChatController).GetMethod(
+                    "InitializeOpenAiClient",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var failedProperty = typeof(AIChatController).GetProperty(
+                    "_initializationFailed",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+                Assert.NotNull(initializeMethod);
+                Assert.NotNull(failedProperty);
+                initializeMethod.Invoke(controller, null);
+
+                Assert.IsFalse((bool)failedProperty.GetValue(controller));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
+        public void SpeechSynthesizer_ShouldExposeRuntimeConfigurationReload()
+        {
+            Type synthesizerType = GetSpeechSynthesizerType();
+            var reloadMethod = synthesizerType?.GetMethod("ReloadConfigurationAsync", Type.EmptyTypes);
+
+            Assert.NotNull(reloadMethod);
+            Assert.AreEqual(typeof(System.Threading.Tasks.Task), reloadMethod.ReturnType);
+
+            var cancellableReloadMethod = synthesizerType?.GetMethod(
+                "ReloadConfigurationAsync",
+                new[] { typeof(CancellationToken) });
+            Assert.NotNull(cancellableReloadMethod);
+            Assert.AreEqual(typeof(Task), cancellableReloadMethod.ReturnType);
+        }
+
+        [Test]
+        public void SpeechSynthesizer_DestroyHook_ShouldBeSynchronous()
+        {
+            Type synthesizerType = GetSpeechSynthesizerType();
+            MethodInfo onDestroy = synthesizerType?.GetMethod(
+                "OnDestroy",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(onDestroy);
+            Assert.IsFalse(
+                Attribute.IsDefined(onDestroy, typeof(AsyncStateMachineAttribute)),
+                "Unity destruction cleanup must finish synchronously before the native object is released.");
+        }
+
+        [Test]
+        public void SpeechSynthesizer_Disable_ShouldCancelConfigurationReloads()
+        {
+            Type synthesizerType = GetSpeechSynthesizerType();
+            FieldInfo enabledCtsField = synthesizerType?.GetField(
+                "_componentEnabledCts",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo initializingField = synthesizerType?.GetField(
+                "_initializing",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo restartField = synthesizerType?.GetField(
+                "_restartInitializationOnEnable",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo onDisable = synthesizerType?.GetMethod(
+                "OnDisable",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(enabledCtsField);
+            Assert.NotNull(initializingField);
+            Assert.NotNull(restartField);
+            Assert.NotNull(onDisable);
+
+            var target = new UnityEngine.GameObject("Speech Synthesizer Disable Test");
+            target.SetActive(false);
+            try
+            {
+                UnityEngine.Component synthesizer = target.AddComponent(synthesizerType);
+                var enabledCts = (CancellationTokenSource)enabledCtsField.GetValue(synthesizer);
+                initializingField.SetValue(synthesizer, true);
+
+                onDisable.Invoke(synthesizer, null);
+
+                Assert.IsTrue(enabledCts.IsCancellationRequested);
+                Assert.IsTrue((bool)restartField.GetValue(synthesizer));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
+        public void SpeechSynthesizer_ActiveReload_ShouldRenewCanceledEnableToken()
+        {
+            Type synthesizerType = GetSpeechSynthesizerType();
+            FieldInfo enabledCtsField = synthesizerType?.GetField(
+                "_componentEnabledCts",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo ensureEnabledCts = synthesizerType?.GetMethod(
+                "EnsureComponentEnabledCancellationSource",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(enabledCtsField);
+            Assert.NotNull(ensureEnabledCts);
+
+            var target = new UnityEngine.GameObject("Speech Synthesizer Enable Token Test");
+            try
+            {
+                UnityEngine.Component synthesizer = target.AddComponent(synthesizerType);
+                var canceledCts = (CancellationTokenSource)enabledCtsField.GetValue(synthesizer);
+                canceledCts.Cancel();
+
+                ensureEnabledCts.Invoke(synthesizer, null);
+
+                var renewedCts = (CancellationTokenSource)enabledCtsField.GetValue(synthesizer);
+                Assert.AreNotSame(canceledCts, renewedCts);
+                Assert.IsFalse(renewedCts.IsCancellationRequested);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
+        public void SetApiKey_ShouldCancelActiveRuntimeConfigurationRefresh()
+        {
+            FieldInfo refreshCtsField = typeof(AIChatController).GetField(
+                "_runtimeConfigurationRefreshCts",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(refreshCtsField);
+
+            var target = new UnityEngine.GameObject("AI Chat API Key Refresh Test");
+            target.SetActive(false);
+            var refreshCts = new CancellationTokenSource();
+            try
+            {
+                var controller = target.AddComponent<AIChatController>();
+                refreshCtsField.SetValue(controller, refreshCts);
+
+                controller.SetApiKey("replacement-key");
+
+                Assert.IsTrue(refreshCts.IsCancellationRequested);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+                refreshCts.Dispose();
+            }
+        }
+
+        [Test]
+        public void ControllerDisable_ShouldScheduleConfigurationRecovery()
+        {
+            FieldInfo runtimeStoreField = typeof(AIChatController).GetField(
+                "_runtimeConfigStore",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo restartField = typeof(AIChatController).GetField(
+                "_restartConfigurationOnEnable",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo onDisable = typeof(AIChatController).GetMethod(
+                "OnDisable",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(runtimeStoreField);
+            Assert.NotNull(restartField);
+            Assert.NotNull(onDisable);
+
+            var target = new UnityEngine.GameObject("AI Chat Disable Recovery Test");
+            target.SetActive(false);
+            try
+            {
+                var controller = target.AddComponent<AIChatController>();
+                runtimeStoreField.SetValue(controller, new JsonAIChatRuntimeConfigStore());
+
+                onDisable.Invoke(controller, null);
+
+                Assert.IsTrue((bool)restartField.GetValue(controller));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        private static Type GetSpeechSynthesizerType()
+            => typeof(AIChatControllerConfig)
+                .GetField("SpeechSynthesizer")
+                ?.FieldType;
+
+        [Test]
+        public void SaveFlow_ShouldPersistApplyAndRefreshWithoutSceneReload()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_save_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                var input = new AIChatRuntimeConfig
+                {
+                    ApiKey = "device-key",
+                    ApiBaseUrl = "https://saved-provider.example/v1/",
+                    LlmModel = "saved-model",
+                    TtsModel = "saved-tts",
+                    TtsVoice = "saved-voice",
+                    UseLocalTts = 0
+                };
+                var controllerConfig = new AIChatControllerConfig();
+                bool refreshed = false;
+
+                bool saved = AIChatRuntimeConfigurationFlow.TrySaveAndApply(
+                    store,
+                    path,
+                    input,
+                    controllerConfig,
+                    () => refreshed = true,
+                    out string saveError);
+
+                Assert.IsTrue(saved, saveError);
+                Assert.IsTrue(refreshed);
+                Assert.AreEqual(input.ApiBaseUrl, controllerConfig.ApiBaseUrl);
+                Assert.AreEqual(input.LlmModel, controllerConfig.LlmModel);
+                Assert.AreEqual(input.ApiKey, controllerConfig.ResolveApiKey());
+                Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig persisted));
+                Assert.AreEqual(input.LlmModel, persisted.LlmModel);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [Test]
+        public void SaveFlow_WhenPersistenceFails_ShouldNotApplyOrRefresh()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            var input = new AIChatRuntimeConfig
+            {
+                ApiBaseUrl = "https://unsaved-provider.example/v1/",
+                LlmModel = "unsaved-model"
+            };
+            var controllerConfig = new AIChatControllerConfig();
+            string initialModel = controllerConfig.LlmModel;
+            bool refreshed = false;
+
+            bool saved = AIChatRuntimeConfigurationFlow.TrySaveAndApply(
+                store,
+                string.Empty,
+                input,
+                controllerConfig,
+                () => refreshed = true,
+                out string saveError);
+
+            Assert.IsFalse(saved);
+            Assert.IsNotEmpty(saveError);
+            Assert.IsFalse(refreshed);
+            Assert.AreEqual(initialModel, controllerConfig.LlmModel);
+        }
+
+        [Test]
+        public void SaveFlow_WhenRefreshFails_ShouldKeepSavedConfigAndReportApplyError()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_refresh_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                var input = new AIChatRuntimeConfig
+                {
+                    ApiBaseUrl = "https://saved-provider.example/v1/",
+                    LlmModel = "saved-before-refresh-error"
+                };
+
+                bool completed = AIChatRuntimeConfigurationFlow.TrySaveAndApply(
+                    store,
+                    path,
+                    input,
+                    new AIChatControllerConfig(),
+                    () => throw new InvalidOperationException("refresh failed"),
+                    out string errorMessage);
+
+                Assert.IsFalse(completed);
+                StringAssert.Contains("saved", errorMessage.ToLowerInvariant());
+                StringAssert.Contains("refresh failed", errorMessage);
+                Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig persisted));
+                Assert.AreEqual(input.LlmModel, persisted.LlmModel);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator SaveFlow_WithRealControllerAndMissingKey_ShouldReportApplyFailure()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_real_refresh_{Guid.NewGuid():N}.json");
+            var target = new UnityEngine.GameObject("AI Chat Real Refresh Test");
+            target.SetActive(false);
+
+            try
+            {
+                var controller = target.AddComponent<AIChatController>();
+                var input = new AIChatRuntimeConfig
+                {
+                    ApiKey = string.Empty,
+                    ApiBaseUrl = AIChatProviderPresets.OpenAiApiBaseUrl,
+                    LlmModel = AIChatProviderPresets.OpenAiLlmModel
+                };
+
+                Task<AIChatRuntimeConfigurationResult> operation =
+                    AIChatRuntimeConfigurationFlow.SaveAndApplyAsync(
+                    store,
+                    path,
+                    input,
+                    controller.CurrentConfig,
+                    controller.RefreshRuntimeConfigurationAsync);
+                while (!operation.IsCompleted)
+                {
+                    yield return null;
+                }
+
+                AIChatRuntimeConfigurationResult result = operation.GetAwaiter().GetResult();
+
+                Assert.IsFalse(result.Succeeded);
+                StringAssert.Contains("API key is missing", result.ErrorMessage);
+                Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig persisted));
+                Assert.AreEqual(input.LlmModel, persisted.LlmModel);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator SaveFlowAsync_ShouldWaitForRuntimeRefresh()
+        {
+            var store = new JsonAIChatRuntimeConfigStore();
+            string path = Path.Combine(Path.GetTempPath(), $"ai_chat_runtime_async_{Guid.NewGuid():N}.json");
+            var refreshCompletion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            try
+            {
+                Task<AIChatRuntimeConfigurationResult> operation =
+                    AIChatRuntimeConfigurationFlow.SaveAndApplyAsync(
+                        store,
+                        path,
+                        new AIChatRuntimeConfig { LlmModel = "async-model" },
+                        new AIChatControllerConfig(),
+                        () => refreshCompletion.Task);
+
+                Assert.IsFalse(operation.IsCompleted);
+                refreshCompletion.SetResult(true);
+                while (!operation.IsCompleted)
+                {
+                    yield return null;
+                }
+
+                AIChatRuntimeConfigurationResult result = operation.GetAwaiter().GetResult();
+                Assert.IsTrue(result.Succeeded, result.ErrorMessage);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
     }
 }
 #endif

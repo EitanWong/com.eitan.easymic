@@ -16,20 +16,49 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             BufferedComplete
         }
 
-        private async Task RunGenerationWorkerAsync(long sessionId, CancellationToken token)
+        private Task StartGenerationWorkers(long sessionId, long turnId, CancellationToken token)
+        {
+            int configured = GetConfigSnapshot().MaxParallelGenerations;
+            int workerCount = Math.Max(1, Math.Min(MaxParallelTtsRequests, configured > 0 ? configured : MaxParallelTtsRequests));
+            if (workerCount == 1)
+            {
+                return RunGenerationWorkerAsync(sessionId, turnId, token);
+            }
+
+            var workers = new Task[workerCount];
+            for (int i = 0; i < workerCount; i++)
+            {
+                workers[i] = RunGenerationWorkerAsync(sessionId, turnId, token);
+            }
+
+            return Task.WhenAll(workers);
+        }
+
+        private async Task RunGenerationWorkerAsync(long sessionId, long turnId, CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
-                if (!_pendingJobs.TryDequeue(out var job))
+                TtsJob job;
+                lock (_queueStateLock)
                 {
-                    if (_pendingJobs.IsEmpty)
+                    if (!IsGenerationActive(sessionId, turnId, token))
+                    {
+                        break;
+                    }
+
+                    _pendingJobs.TryDequeue(out job);
+                }
+
+                if (job == null)
+                {
+                    if (IsTurnInputComplete(turnId))
                     {
                         break;
                     }
 
                     try
                     {
-                        await Task.Delay(10, token).ConfigureAwait(false);
+                        await Task.Delay(5, token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -38,36 +67,41 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     continue;
                 }
 
+                if (job.TurnId != turnId || !IsGenerationActive(sessionId, turnId, token))
+                {
+                    TryRequeuePendingJob(sessionId, turnId, job, token);
+                    break;
+                }
+
                 try
                 {
                     await _generationSemaphore.WaitAsync(token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
-                    _pendingJobs.Enqueue(job);
+                    TryRequeuePendingJob(sessionId, turnId, job, token);
                     break;
                 }
 
                 try
                 {
-                    bool enqueue = await GenerateTtsForJobAsync(job, token).ConfigureAwait(false);
+                    bool enqueue = await GenerateTtsForJobAsync(sessionId, turnId, job, token).ConfigureAwait(false);
                     _resourceMonitor.RecordGeneration(job.Stopwatch.ElapsedMilliseconds);
 
                     if (enqueue)
                     {
-                        TryAddCompletedJob(job);
+                        TryAddCompletedJob(sessionId, turnId, job, token);
                     }
                 }
                 catch (OperationCanceledException)
                 {
                     job.MarkFailed(new OperationCanceledException());
-                    TryAddCompletedJob(job);
                     break;
                 }
                 catch (Exception ex)
                 {
                     job.MarkFailed(ex);
-                    TryAddCompletedJob(job);
+                    TryAddCompletedJob(sessionId, turnId, job, token);
                     Debug.LogError($"[ParallelTtsPipeline] Generation failed: {ex.Message}");
                 }
                 finally
@@ -77,7 +111,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private async Task<bool> GenerateTtsForJobAsync(TtsJob job, CancellationToken token)
+        private async Task<bool> GenerateTtsForJobAsync(
+            long sessionId,
+            long turnId,
+            TtsJob job,
+            CancellationToken token)
         {
             try
             {
@@ -101,7 +139,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     Model = config.RemoteModel,
                     Voice = config.RemoteVoice,
                     Input = remoteInput,
-                    ResponseFormat = RemoteFormat
+                    ResponseFormat = RemoteFormat,
+                    SampleRate = RemoteDefaultSampleRate
                 };
 
                 if (config.LogSentences)
@@ -111,7 +150,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 if (config.EnableStreamingTts)
                 {
-                    StreamTtsResult streamed = await TryStreamTtsForJobAsync(job, client, request, token).ConfigureAwait(false);
+                    StreamTtsResult streamed = await TryStreamTtsForJobAsync(
+                        sessionId,
+                        turnId,
+                        job,
+                        client,
+                        request,
+                        token).ConfigureAwait(false);
                     if (streamed == StreamTtsResult.Streamed)
                     {
                         return false;
@@ -126,6 +171,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 request.stream = false;
                 byte[] audioBytes = await client.CreateSpeechAsync(request, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
+                if (!IsGenerationActive(sessionId, turnId, token))
+                {
+                    return false;
+                }
 
                 int expectedChannels = RemoteDefaultChannels;
                 int expectedSampleRate = request.SampleRate > 0 ? request.SampleRate : RemoteDefaultSampleRate;
@@ -184,6 +233,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
 
         private async Task<StreamTtsResult> TryStreamTtsForJobAsync(
+            long sessionId,
+            long turnId,
             TtsJob job,
             OpenAICompatibleClient client,
             OpenAITtsRequest request,
@@ -191,7 +242,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             bool started = false;
             var buffered = new System.IO.MemoryStream();
-            byte[] lastChunk = null;
 
             int expectedChannels = RemoteDefaultChannels;
             int expectedSampleRate = request.SampleRate > 0 ? request.SampleRate : RemoteDefaultSampleRate;
@@ -208,32 +258,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         continue;
                     }
 
-                    var currentChunk = chunk;
-
-                    if (lastChunk != null)
+                    if (!IsGenerationActive(sessionId, turnId, token))
                     {
-                        int overlap = FindOverlapLength(lastChunk, currentChunk);
-                        int frameBytes = 2 * Math.Max(1, expectedChannels);
-                        if (frameBytes > 1)
-                        {
-                            overlap = (overlap / frameBytes) * frameBytes;
-                        }
-                        if (overlap == currentChunk.Length)
-                        {
-                            lastChunk = chunk;
-                            continue;
-                        }
-
-                        if (overlap > 0)
-                        {
-                            int deltaLength = currentChunk.Length - overlap;
-                            var delta = new byte[deltaLength];
-                            Buffer.BlockCopy(currentChunk, overlap, delta, 0, deltaLength);
-                            currentChunk = delta;
-                        }
+                        throw new OperationCanceledException(token);
                     }
 
-                    lastChunk = chunk;
+                    byte[] currentChunk = chunk;
 
                     if (!started)
                     {
@@ -258,7 +288,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     if (!started)
                     {
                         job.BeginStreaming(channels, sampleRate);
-                        RegisterStreamingJob(job);
+                        RegisterStreamingJob(sessionId, turnId, job, token);
+                        if (!job.HasStreamingRegistration)
+                        {
+                            throw new OperationCanceledException(token);
+                        }
                         started = true;
                     }
 
@@ -287,7 +321,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             catch (OperationCanceledException)
             {
                 job.MarkFailed(new OperationCanceledException());
-                RegisterStreamingJob(job);
                 job.MarkStreamingCompleted();
                 throw;
             }
@@ -300,7 +333,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 job.MarkFailed(ex);
                 job.MarkStreamingCompleted();
-                RegisterStreamingJob(job);
+                RegisterStreamingJob(sessionId, turnId, job, token);
                 return StreamTtsResult.Streamed;
             }
             finally
@@ -309,55 +342,84 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private static int FindOverlapLength(byte[] previous, byte[] current)
+        private bool IsGenerationActive(long sessionId, long turnId, CancellationToken token)
         {
-            if (previous == null || current == null)
-            {
-                return 0;
-            }
-
-            int max = Math.Min(previous.Length, current.Length);
-            for (int len = max; len > 0; len--)
-            {
-                if (SuffixEquals(previous, current, len))
-                {
-                    return len;
-                }
-            }
-
-            return 0;
+            return !_disposed &&
+                   !token.IsCancellationRequested &&
+                   _session.IsCurrent(sessionId) &&
+                   turnId == Volatile.Read(ref _activeTurnId);
         }
 
-        private static bool SuffixEquals(byte[] previous, byte[] current, int length)
+        private bool TryRequeuePendingJob(
+            long sessionId,
+            long turnId,
+            TtsJob job,
+            CancellationToken token)
         {
-            int start = previous.Length - length;
-            for (int i = 0; i < length; i++)
+            if (job == null)
             {
-                if (previous[start + i] != current[i])
+                return false;
+            }
+
+            lock (_queueStateLock)
+            {
+                if (job.TurnId != turnId || !IsGenerationActive(sessionId, turnId, token))
                 {
                     return false;
                 }
-            }
 
-            return true;
+                _pendingJobs.Enqueue(job);
+                return true;
+            }
         }
 
-        private void RegisterStreamingJob(TtsJob job)
+        private void RegisterStreamingJob(
+            long sessionId,
+            long turnId,
+            TtsJob job,
+            CancellationToken token)
         {
-            if (job.HasStreamingRegistration)
+            if (job == null)
             {
                 return;
             }
 
-            if (_completedJobs.TryAdd(job.SequenceNumber, job))
+            lock (_queueStateLock)
             {
-                job.HasStreamingRegistration = true;
+                if (job.HasStreamingRegistration ||
+                    job.TurnId != turnId ||
+                    !IsGenerationActive(sessionId, turnId, token))
+                {
+                    return;
+                }
+
+                if (_completedJobs.TryAdd(job.SequenceNumber, job))
+                {
+                    job.HasStreamingRegistration = true;
+                }
             }
         }
 
-        private void TryAddCompletedJob(TtsJob job)
+        private void TryAddCompletedJob(
+            long sessionId,
+            long turnId,
+            TtsJob job,
+            CancellationToken token)
         {
-            _completedJobs.TryAdd(job.SequenceNumber, job);
+            if (job == null)
+            {
+                return;
+            }
+
+            lock (_queueStateLock)
+            {
+                if (job.TurnId != turnId || !IsGenerationActive(sessionId, turnId, token))
+                {
+                    return;
+                }
+
+                _completedJobs.TryAdd(job.SequenceNumber, job);
+            }
         }
     }
 }

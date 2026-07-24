@@ -16,7 +16,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (_session.EnsureStarted(RunOrchestratorAsync))
+            bool started;
+            lock (_queueStateLock)
+            {
+                long turnId = Volatile.Read(ref _activeTurnId);
+                if (_disposed || turnId <= 0)
+                {
+                    return;
+                }
+
+                started = _session.EnsureStarted(
+                    (sessionId, token) => RunOrchestratorAsync(sessionId, turnId, token));
+            }
+
+            if (started)
             {
                 Interlocked.Exchange(ref _restartAfterCurrentSessionRequested, 0);
                 return;
@@ -66,28 +79,30 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private async Task RunOrchestratorAsync(long sessionId, CancellationToken token)
+        private async Task RunOrchestratorAsync(long sessionId, long turnId, CancellationToken token)
         {
             Task generationTask = Task.CompletedTask;
             Task playbackTask = null;
 
             try
             {
-                NotifySpeakingState(true);
-                generationTask = RunGenerationWorkerAsync(sessionId, token);
+                NotifySpeakingState(turnId, true);
+                generationTask = StartGenerationWorkers(sessionId, turnId, token);
                 playbackTask = RunPlaybackWorkerAsync(
                     sessionId,
-                    () => !generationTask.IsCompleted || !_pendingJobs.IsEmpty,
+                    turnId,
+                    () => !IsTurnInputComplete(turnId) || !generationTask.IsCompleted || !_pendingJobs.IsEmpty,
                     token);
 
                 while (!token.IsCancellationRequested)
                 {
                     if (generationTask.IsCompleted && !_pendingJobs.IsEmpty)
                     {
-                        generationTask = RunGenerationWorkerAsync(sessionId, token);
+                        generationTask = StartGenerationWorkers(sessionId, turnId, token);
                     }
 
-                    if (_pendingJobs.IsEmpty &&
+                    if (IsTurnInputComplete(turnId) &&
+                        _pendingJobs.IsEmpty &&
                         generationTask.IsCompleted &&
                         _completedJobs.IsEmpty &&
                         (playbackTask == null || playbackTask.IsCompleted))
@@ -144,8 +159,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
             finally
             {
-                CompletePlaybackStream(sessionId);
-                NotifySpeakingState(false);
+                SignalPlaybackStreamComplete(sessionId);
+                await WaitForBufferDrainAsync(sessionId, turnId, token).ConfigureAwait(false);
+                ReleaseCompletedPlaybackStream(sessionId);
+                NotifySpeakingState(turnId, false);
                 _resourceMonitor.Reset();
             }
         }

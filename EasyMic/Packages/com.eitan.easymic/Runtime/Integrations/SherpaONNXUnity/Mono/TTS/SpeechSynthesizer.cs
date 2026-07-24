@@ -51,6 +51,14 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         #region Private Fields
         private Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis _speechSynthesis;
+        private readonly SemaphoreSlim _configurationReloadGate = new SemaphoreSlim(1, 1);
+        private readonly CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
+        private CancellationTokenSource _componentEnabledCts = new CancellationTokenSource();
+        private Coroutine _modelInitializationCoroutine;
+        private int _modelInitializationGeneration;
+        private int _modelInitializationCompletedGeneration;
+        private int _destroyState;
+        private bool _restartInitializationOnEnable;
         private volatile bool _initializing;
         private int _ttsInProgress; // 使用Interlocked操作
 
@@ -129,6 +137,13 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private void OnEnable()
         {
+            if (IsDestroyed)
+            {
+                return;
+            }
+
+            EnsureComponentEnabledCancellationSource();
+
             CaptureUnityThreadContext();
             EnsurePlaybackSource(_sessionId);
             if (_speechSynthesis != null && _ttsPumpCoroutine == null)
@@ -136,10 +151,18 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 _ttsPumpCoroutine = StartCoroutine(TTSPumpLoop());
             }
             StartAdaptiveScheduling();
+
+            if (_restartInitializationOnEnable)
+            {
+                _restartInitializationOnEnable = false;
+                Init();
+            }
         }
 
         private void OnDisable()
         {
+            bool restartInitialization = _initOnAwake && _initializing;
+            CancelCancellationSource(_componentEnabledCts);
             Stop();
             if (_ttsPumpCoroutine != null)
             {
@@ -147,6 +170,12 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 _ttsPumpCoroutine = null;
             }
             StopAdaptiveScheduling();
+            if (_initializing)
+            {
+                ResetModelInitialization();
+            }
+
+            _restartInitializationOnEnable |= restartInitialization;
         }
 
         private System.Collections.IEnumerator Start()
@@ -158,9 +187,20 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
             }
         }
 
-        private async void OnDestroy()
+        private void OnDestroy()
         {
-            await StopAndWaitAsync();
+            if (Interlocked.Exchange(ref _destroyState, 1) != 0)
+            {
+                return;
+            }
+
+            CancelCancellationSource(_lifetimeCts);
+            CancelCancellationSource(_componentEnabledCts);
+
+            CancelCurrentSession(out long oldSessionId);
+            while (_sentenceQueue.TryDequeue(out _)) { }
+            StopAndResetCurrentPlayback(oldSessionId);
+            Interlocked.Exchange(ref _ttsInProgress, 0);
 
             if (_ttsPumpCoroutine != null)
             {
@@ -169,8 +209,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
             }
             StopAdaptiveScheduling();
 
-            _speechSynthesis?.Dispose();
-            _speechSynthesis = null;
+            ResetModelInitialization();
         }
         #endregion
 
@@ -180,36 +219,149 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
             _ttsConfig = configuration ?? SpeechSynthesizerConfiguration.CreateDefault();
             if (Initialized)
             {
-                LogWarning($"{LogPrefix}Configuration updated after initialization; call Stop() and Init() to reload models.");
+                LogWarning($"{LogPrefix}Configuration updated after initialization; call ReloadConfigurationAsync() to reload models.");
+            }
+        }
+
+        /// <summary>
+        /// Stops active synthesis and rebuilds the model from the current configuration.
+        /// </summary>
+        public Task ReloadConfigurationAsync()
+            => ReloadConfigurationAsync(CancellationToken.None);
+
+        public async Task ReloadConfigurationAsync(CancellationToken cancellationToken)
+        {
+            EnsureComponentEnabledCancellationSource();
+            CancellationToken enabledToken = _componentEnabledCts?.Token ?? CancellationToken.None;
+            using var reloadCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _lifetimeCts.Token,
+                enabledToken);
+            CancellationToken reloadToken = reloadCts.Token;
+
+            await _configurationReloadGate.WaitAsync(reloadToken);
+            try
+            {
+                await StopAndWaitAsync();
+                reloadToken.ThrowIfCancellationRequested();
+                if (this == null || !isActiveAndEnabled)
+                {
+                    throw new OperationCanceledException(reloadToken);
+                }
+
+                ResetModelInitialization();
+                reloadToken.ThrowIfCancellationRequested();
+
+                Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis synthesis;
+                int generation;
+                try
+                {
+                    synthesis = BeginModelInitialization(out generation);
+                }
+                catch
+                {
+                    ResetModelInitialization();
+                    throw;
+                }
+
+                try
+                {
+                    await AwaitWithCancellation(
+                        synthesis.InitializationTask,
+                        reloadToken);
+                    reloadToken.ThrowIfCancellationRequested();
+
+                    if (!IsCurrentModelInitialization(synthesis, generation))
+                    {
+                        throw new OperationCanceledException(reloadToken);
+                    }
+
+                    if (!synthesis.Initialized)
+                    {
+                        throw new InvalidOperationException(
+                            "Speech synthesis model initialization failed.",
+                            synthesis.InitializationException);
+                    }
+
+                    StopModelInitializationWatcher();
+                    ReportModelInitialization(synthesis, generation, succeeded: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (IsCurrentModelInitialization(synthesis, generation))
+                    {
+                        ResetModelInitialization();
+                    }
+
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    if (IsCurrentModelInitialization(synthesis, generation))
+                    {
+                        StopModelInitializationWatcher();
+                        LogError($"{LogPrefix}Model initialization failed: {ex.Message}");
+                        ReportModelInitialization(synthesis, generation, succeeded: false);
+                        ResetModelInitialization();
+                    }
+
+                    throw;
+                }
+            }
+            finally
+            {
+                _configurationReloadGate.Release();
             }
         }
 
         public void Init()
         {
-            if (Initialized || _initializing)
+            if (IsDestroyed || !isActiveAndEnabled || Initialized || _initializing)
             {
                 return;
             }
-
-
-            _initializing = true;
+            ResetModelInitialization();
             try
             {
-                var reporter = new SherpaONNXFeedbackReporter(null, _modelLoadProgress);
-                _speechSynthesis = new Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis(_ttsConfig.ModelId, _ttsConfig.SampleRates, reporter);
-                EnsurePlaybackSource(_sessionId);
-
-                if (_ttsPumpCoroutine == null)
-                {
-                    _ttsPumpCoroutine = StartCoroutine(TTSPumpLoop());
-                }
-                StartCoroutine(WaitForModelInitialization());
+                BeginModelInitialization(out _);
             }
             catch (Exception ex)
             {
                 LogError($"{LogPrefix}Init failed: {ex}");
-                _initializing = false;
+                ResetModelInitialization();
+                OnSynthesizerInitialized?.Invoke(false);
             }
+        }
+
+        private Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis BeginModelInitialization(
+            out int generation)
+        {
+            if (IsDestroyed || !isActiveAndEnabled)
+            {
+                throw new InvalidOperationException(
+                    "SpeechSynthesizer must be active before model initialization.");
+            }
+
+            _initializing = true;
+            Initialized = false;
+            generation = ++_modelInitializationGeneration;
+
+            var reporter = new SherpaONNXFeedbackReporter(null, _modelLoadProgress);
+            var synthesis = new Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis(
+                _ttsConfig.ModelId,
+                _ttsConfig.SampleRates,
+                reporter);
+            _speechSynthesis = synthesis;
+            EnsurePlaybackSource(_sessionId);
+
+            if (_ttsPumpCoroutine == null)
+            {
+                _ttsPumpCoroutine = StartCoroutine(TTSPumpLoop());
+            }
+
+            _modelInitializationCoroutine = StartCoroutine(
+                WaitForModelInitialization(synthesis, generation));
+            return synthesis;
         }
 
         /// <summary>
@@ -225,29 +377,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         /// </summary>
         public async Task StopAndWaitAsync()
         {
-            Task taskToWait;
-            long oldSessionId;
-
-            lock (_sessionLock)
-            {
-                oldSessionId = _sessionId;
-
-                // 取消当前会话
-                if (_sessionCts != null)
-                {
-                    try
-                    {
-                        if (!_sessionCts.IsCancellationRequested)
-                        {
-                            _sessionCts.Cancel();
-                        }
-
-                    }
-                    catch (ObjectDisposedException) { }
-                }
-
-                taskToWait = _currentSessionTask;
-            }
+            Task taskToWait = CancelCurrentSession(out long oldSessionId);
 
             // 清空队列
             while (_sentenceQueue.TryDequeue(out _)) { }
@@ -266,11 +396,55 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 }
             }
 
-            // 停止当前playback
-            PostToUnityThread(() => StopAndResetCurrentPlayback(oldSessionId));
+            if (IsDestroyed)
+            {
+                return;
+            }
 
-            // 更新状态
+            PostToUnityThread(() => StopAndResetCurrentPlayback(oldSessionId));
             UpdateTtsState(false);
+        }
+
+        private Task CancelCurrentSession(out long oldSessionId)
+        {
+            lock (_sessionLock)
+            {
+                oldSessionId = _sessionId;
+                CancelCancellationSource(_sessionCts);
+                return _currentSessionTask;
+            }
+        }
+
+        private static void CancelCancellationSource(CancellationTokenSource source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!source.IsCancellationRequested)
+                {
+                    source.Cancel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        private void EnsureComponentEnabledCancellationSource()
+        {
+            if (IsDestroyed || !isActiveAndEnabled)
+            {
+                return;
+            }
+
+            if (_componentEnabledCts == null || _componentEnabledCts.IsCancellationRequested)
+            {
+                _componentEnabledCts = new CancellationTokenSource();
+            }
         }
 
         public void EnqueueSentence(string text)
@@ -455,24 +629,115 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         #endregion
 
         #region TTS Processing
-        private System.Collections.IEnumerator WaitForModelInitialization()
+        private System.Collections.IEnumerator WaitForModelInitialization(
+            Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis synthesis,
+            int generation)
         {
-            while (_speechSynthesis != null && !_speechSynthesis.Initialized)
+            Task initializationTask = synthesis.InitializationTask;
+            while (IsCurrentModelInitialization(synthesis, generation) &&
+                   !initializationTask.IsCompleted)
             {
                 yield return null;
             }
 
-            if (_speechSynthesis != null && _speechSynthesis.Initialized)
+            if (!IsCurrentModelInitialization(synthesis, generation))
             {
-                Initialized = true;
-                OnSynthesizerInitialized?.Invoke(true);
+                yield break;
+            }
+
+            _modelInitializationCoroutine = null;
+            if (synthesis.Initialized)
+            {
+                ReportModelInitialization(synthesis, generation, succeeded: true);
             }
             else
             {
-                LogError($"{LogPrefix}Model initialization failed.");
-                OnSynthesizerInitialized?.Invoke(false);
+                string detail = synthesis.InitializationException?.Message;
+                LogError(string.IsNullOrWhiteSpace(detail)
+                    ? $"{LogPrefix}Model initialization failed."
+                    : $"{LogPrefix}Model initialization failed: {detail}");
+                ReportModelInitialization(synthesis, generation, succeeded: false);
             }
+        }
+
+        private bool IsCurrentModelInitialization(
+            Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis synthesis,
+            int generation)
+            => generation == _modelInitializationGeneration &&
+               ReferenceEquals(synthesis, _speechSynthesis);
+
+        private void ReportModelInitialization(
+            Eitan.SherpaONNXUnity.Runtime.Modules.SpeechSynthesis synthesis,
+            int generation,
+            bool succeeded)
+        {
+            if (!IsCurrentModelInitialization(synthesis, generation))
+            {
+                return;
+            }
+
             _initializing = false;
+            Initialized = succeeded;
+            if (_modelInitializationCompletedGeneration == generation)
+            {
+                return;
+            }
+
+            _modelInitializationCompletedGeneration = generation;
+            OnSynthesizerInitialized?.Invoke(succeeded);
+        }
+
+        private void StopModelInitializationWatcher()
+        {
+            if (_modelInitializationCoroutine == null)
+            {
+                return;
+            }
+
+            StopCoroutine(_modelInitializationCoroutine);
+            _modelInitializationCoroutine = null;
+        }
+
+        private void ResetModelInitialization()
+        {
+            _modelInitializationGeneration++;
+            StopModelInitializationWatcher();
+
+            var synthesis = _speechSynthesis;
+            _speechSynthesis = null;
+            _initializing = false;
+            Initialized = false;
+            synthesis?.Dispose();
+        }
+
+        private static async Task AwaitWithCancellation(
+            Task task,
+            CancellationToken cancellationToken)
+        {
+            if (task == null)
+            {
+                return;
+            }
+
+            if (!cancellationToken.CanBeCanceled)
+            {
+                await task;
+                return;
+            }
+
+            var cancellationCompletion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using (cancellationToken.Register(
+                       () => cancellationCompletion.TrySetResult(true)))
+            {
+                Task completedTask = await Task.WhenAny(task, cancellationCompletion.Task);
+                if (!ReferenceEquals(completedTask, task))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            }
+
+            await task;
         }
 
         private System.Collections.IEnumerator TTSPumpLoop()
@@ -854,6 +1119,11 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private void CompletePlaybackStreamForSession(long sessionId)
         {
+            if (IsDestroyed)
+            {
+                return;
+            }
+
             lock (_playbackLock)
             {
                 if (_playbackSessionId != sessionId)
@@ -936,6 +1206,12 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private void UpdateTtsState(bool isSpeaking)
         {
+            if (IsDestroyed)
+            {
+                Interlocked.Exchange(ref _ttsInProgress, 0);
+                return;
+            }
+
             int oldValue = isSpeaking
                 ? Interlocked.Exchange(ref _ttsInProgress, 1)
                 : Interlocked.Exchange(ref _ttsInProgress, 0);
@@ -976,9 +1252,11 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         private bool IsOnUnityThread =>
             _unityThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _unityThreadId;
 
+        private bool IsDestroyed => Volatile.Read(ref _destroyState) != 0;
+
         private void PostToUnityThread(Action action)
         {
-            if (action == null)
+            if (action == null || IsDestroyed)
             {
                 return;
             }
@@ -1007,6 +1285,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 }
 #else
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using UnityEngine;
@@ -1087,6 +1366,17 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         public void ApplyConfiguration(SpeechSynthesizerConfiguration configuration)
         {
             _ttsConfig = configuration ?? SpeechSynthesizerConfiguration.CreateDefault();
+        }
+
+        public Task ReloadConfigurationAsync()
+            => ReloadConfigurationAsync(CancellationToken.None);
+
+        public Task ReloadConfigurationAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Stop();
+            Init();
+            return Task.CompletedTask;
         }
 
         public void Init()

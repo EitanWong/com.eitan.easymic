@@ -9,15 +9,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     [DisallowMultipleComponent]
     public sealed class AIChatConfigurationPolicy : MonoBehaviour
     {
-        private const string OpenAiApiBaseUrl = "https://api.openai.com/v1/";
-        private const string SiliconFlowApiBaseUrl = "https://api.siliconflow.cn/v1/";
-        private const string OpenAiLlmModel = "gpt-5.4";
-        private const string SiliconFlowLlmModel = "Qwen/Qwen3.5-9B";
-        private const string OpenAiTtsModel = "tts-1";
-        private const string OpenAiTtsVoice = "alloy";
-        private const string SiliconFlowTtsModel = "FunAudioLLM/CosyVoice2-0.5B";
-        private const string SiliconFlowTtsVoice = "FunAudioLLM/CosyVoice2-0.5B:alex";
-
         public enum PolicyPreset
         {
             Custom = 0,
@@ -59,7 +50,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private PolicyPreset _preset = PolicyPreset.OpenAI;
 
         [Header("Optional Overrides")]
-        [SerializeField] private StringOverride _apiKey;
         [SerializeField] private StringOverride _apiBaseUrl;
         [SerializeField] private StringOverride _llmModel;
         [SerializeField] private FloatOverride _llmTemperature;
@@ -122,20 +112,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             switch (_preset)
             {
                 case PolicyPreset.OpenAI:
-                    config.ApiBaseUrl = OpenAiApiBaseUrl;
-                    config.LlmModel = OpenAiLlmModel;
+                    config.ApiBaseUrl = AIChatProviderPresets.OpenAiApiBaseUrl;
+                    config.LlmModel = AIChatProviderPresets.OpenAiLlmModel;
                     config.UseLocalTts = false;
-                    config.TtsModel = OpenAiTtsModel;
-                    config.TtsVoice = OpenAiTtsVoice;
+                    config.TtsModel = AIChatProviderPresets.OpenAiTtsModel;
+                    config.TtsVoice = AIChatProviderPresets.OpenAiTtsVoice;
                     config.UseStreamingTts = true;
                     config.EnableTtsDiagnostics = false;
                     break;
                 case PolicyPreset.SiliconFlow:
-                    config.ApiBaseUrl = SiliconFlowApiBaseUrl;
-                    config.LlmModel = SiliconFlowLlmModel;
+                    config.ApiBaseUrl = AIChatProviderPresets.SiliconFlowApiBaseUrl;
+                    config.LlmModel = AIChatProviderPresets.SiliconFlowLlmModel;
                     config.UseLocalTts = false;
-                    config.TtsModel = SiliconFlowTtsModel;
-                    config.TtsVoice = SiliconFlowTtsVoice;
+                    config.TtsModel = AIChatProviderPresets.SiliconFlowTtsModel;
+                    config.TtsVoice = AIChatProviderPresets.SiliconFlowTtsVoice;
                     config.UseStreamingTts = true;
                     config.EnableTtsDiagnostics = false;
                     break;
@@ -152,20 +142,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             switch (_preset)
             {
                 case PolicyPreset.OpenAI:
-                    resolved.ApiBaseUrl = OpenAiApiBaseUrl;
-                    resolved.LlmModel = OpenAiLlmModel;
+                    resolved.ApiBaseUrl = AIChatProviderPresets.OpenAiApiBaseUrl;
+                    resolved.LlmModel = AIChatProviderPresets.OpenAiLlmModel;
                     resolved.UseLocalTts = false;
-                    resolved.TtsModel = OpenAiTtsModel;
-                    resolved.TtsVoice = OpenAiTtsVoice;
+                    resolved.TtsModel = AIChatProviderPresets.OpenAiTtsModel;
+                    resolved.TtsVoice = AIChatProviderPresets.OpenAiTtsVoice;
                     resolved.UseStreamingTts = true;
                     resolved.EnableTtsDiagnostics = false;
                     break;
                 case PolicyPreset.SiliconFlow:
-                    resolved.ApiBaseUrl = SiliconFlowApiBaseUrl;
-                    resolved.LlmModel = SiliconFlowLlmModel;
+                    resolved.ApiBaseUrl = AIChatProviderPresets.SiliconFlowApiBaseUrl;
+                    resolved.LlmModel = AIChatProviderPresets.SiliconFlowLlmModel;
                     resolved.UseLocalTts = false;
-                    resolved.TtsModel = SiliconFlowTtsModel;
-                    resolved.TtsVoice = SiliconFlowTtsVoice;
+                    resolved.TtsModel = AIChatProviderPresets.SiliconFlowTtsModel;
+                    resolved.TtsVoice = AIChatProviderPresets.SiliconFlowTtsVoice;
                     resolved.UseStreamingTts = true;
                     resolved.EnableTtsDiagnostics = false;
                     break;
@@ -179,7 +169,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void ApplyConfigOverrides(AIChatControllerConfig config)
         {
-            ApplyString(_apiKey, value => config.SetApiKeyOverride(value));
             ApplyString(_apiBaseUrl, value => config.ApiBaseUrl = value);
             ApplyString(_llmModel, value => config.LlmModel = value);
             ApplyFloat(_llmTemperature, value => config.LlmTemperature = Mathf.Clamp(value, 0f, 1.5f));
@@ -196,11 +185,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void ApplyResolvedOverrides(ref AIChatResolvedConfiguration resolved)
         {
-            if (_apiKey.Enabled && !string.IsNullOrWhiteSpace(_apiKey.Value))
-            {
-                resolved.ApiKey = _apiKey.Value.Trim();
-            }
-
             if (_apiBaseUrl.Enabled && !string.IsNullOrWhiteSpace(_apiBaseUrl.Value))
             {
                 resolved.ApiBaseUrl = _apiBaseUrl.Value.Trim();
@@ -335,7 +319,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (_asrTurnDetectionDelaySeconds.Enabled)
             {
                 float delay = Mathf.Max(0.1f, _asrTurnDetectionDelaySeconds.Value);
-                preset.TurnDetectionOptions = new TurnDetectionOptions(delay, delay);
+                float maxDelay = Mathf.Clamp(delay * 2.5f, 0.6f, 1.2f);
+                preset.TurnDetectionOptions = new TurnDetectionOptions(delay, Mathf.Max(delay, maxDelay));
             }
 
             preset.Id = AutomaticSpeechRecognitionConfiguration.ASRPreset.DefaultPresetId;

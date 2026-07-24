@@ -24,6 +24,5 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public string Content { get; set; }
         public string ReasoningContent { get; set; }
         public string ErrorMessage { get; set; }
-        public bool FallbackRequired { get; set; }
     }
 }

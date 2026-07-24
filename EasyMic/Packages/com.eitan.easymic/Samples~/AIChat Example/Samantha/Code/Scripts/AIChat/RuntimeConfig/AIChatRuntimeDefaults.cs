@@ -6,7 +6,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public const string DefaultAsrOfflineModelId = "sherpa-onnx-zipformer-zh-en-2023-11-22";
         public const string DefaultAsrVadModelId = "silero-vad-v5";
         public const string DefaultAsrPunctuationModelId = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
-        public const float DefaultAsrTurnDetectionDelaySeconds = 0.8f;
+        public const float DefaultAsrTurnDetectionDelaySeconds = 0.35f;
 
         public const string DefaultLocalTtsModelId = "vits-melo-tts-zh_en";
         public const int DefaultLocalTtsVoiceId = 1;

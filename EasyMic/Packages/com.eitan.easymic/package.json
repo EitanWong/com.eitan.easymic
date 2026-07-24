@@ -92,7 +92,7 @@
     },
     {
       "displayName": "AIChat Example",
-      "description": "An end-to-end AI voice chat sample (ASR + LLM + TTS) based on EasyMic. Requires installing com.eitan.sherpa-onnx-unity before use.",
+      "description": "An AI voice-chat scaffold (ASR + LLM + TTS) with localized setup for SiliconFlow and OpenAI-compatible providers. Requires com.eitan.sherpa-onnx-unity.",
       "path": "Samples~/AIChat Example"
     }
   ],

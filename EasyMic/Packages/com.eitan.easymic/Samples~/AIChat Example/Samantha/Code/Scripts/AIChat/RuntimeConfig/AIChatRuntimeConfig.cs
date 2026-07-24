@@ -5,6 +5,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     [Serializable]
     internal sealed class AIChatRuntimeConfig
     {
+        public const int CurrentSchemaVersion = 4;
+
+        public int SchemaVersion = CurrentSchemaVersion;
         public string ApiKey;
         public string ApiBaseUrl;
         public string LlmModel;
@@ -12,6 +15,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public string TtsModel;
         public string TtsVoice;
         public int UseLocalTts = -1;
+        public string MicrophoneDeviceName;
 
         public int AsrRecognitionModeIndex = -1;
         public string AsrStreamingModelId;

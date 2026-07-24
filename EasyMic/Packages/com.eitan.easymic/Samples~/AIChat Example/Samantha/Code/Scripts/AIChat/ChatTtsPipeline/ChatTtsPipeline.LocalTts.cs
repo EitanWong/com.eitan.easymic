@@ -1,6 +1,7 @@
 #if EITAN_SHERPA_ONNX_UNITY_PRESENT
 
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
+using System.Threading;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
@@ -42,7 +43,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnLocalTtsStateChanged(bool isSpeaking)
         {
-            NotifySpeakingState(isSpeaking);
+            NotifySpeakingState(Interlocked.Read(ref _activeTurnId), isSpeaking);
         }
     }
 }

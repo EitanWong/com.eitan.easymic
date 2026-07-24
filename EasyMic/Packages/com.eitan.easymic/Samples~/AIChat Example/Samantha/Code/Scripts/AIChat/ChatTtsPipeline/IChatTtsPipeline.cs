@@ -10,16 +10,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     /// </summary>
     internal interface IChatTtsPipeline : IDisposable
     {
-        event Action<bool> OnSpeakingStateChanged;
-        event Action<string> OnSentenceStarted;
-        event Action<string> OnSentenceCompleted;
-        event Action<float> OnBufferProgress;
+        event Action<long, bool> OnSpeakingStateChanged;
+        event Action<long, string> OnSentenceStarted;
+        event Action<long, string> OnSentenceCompleted;
+        event Action<long, float> OnBufferProgress;
+        event Action<float[], int, int, int> OnPlaybackAudioQueued;
 
         bool IsSpeaking { get; }
         int QueuedSentenceCount { get; }
 
         void Configure(TtsPipelineConfig config);
-        void Enqueue(string sentence);
+        bool BeginTurn(long turnId);
+        bool Enqueue(long turnId, string sentence);
+        void CompleteTurn(long turnId);
         void Stop();
         Task StopAndWaitAsync();
         Task WaitForIdleAsync();
