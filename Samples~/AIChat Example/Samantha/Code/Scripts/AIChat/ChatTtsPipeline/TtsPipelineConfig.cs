@@ -29,7 +29,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             UseLocalTts = false,
             EnableStreamingTts = true,
-            MaxParallelGenerations = 0,
+            MaxParallelGenerations = 2,
             PlaybackVolume = 1f,
             MainThreadDispatcher = null
         };

@@ -125,6 +125,26 @@ namespace Eitan.EasyMic.Runtime.Mono
             AudioSystem.Instance.OnMixedFrameRaw -= handler;
         }
 
+        public static void SubscribeRenderReferenceRaw(AudioSystem.RenderReferenceHandler handler)
+        {
+            if (handler == null)
+            {
+                return;
+            }
+
+            AudioSystem.Instance.OnRenderReferenceRaw += handler;
+        }
+
+        public static void UnsubscribeRenderReferenceRaw(AudioSystem.RenderReferenceHandler handler)
+        {
+            if (handler == null)
+            {
+                return;
+            }
+
+            AudioSystem.Instance.OnRenderReferenceRaw -= handler;
+        }
+
         public readonly struct AuthorizationResult
         {
             public AuthorizationResult(bool authorized, string error)

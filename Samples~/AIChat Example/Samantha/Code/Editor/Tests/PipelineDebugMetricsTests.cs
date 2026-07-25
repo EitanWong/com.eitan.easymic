@@ -25,7 +25,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             Assert.AreEqual(430f, round.FirstSentenceMs, 0.1f);
             Assert.AreEqual(230f, round.TtsQueueToFirstAudioMs, 0.1f);
             Assert.AreEqual(680f, round.UserWaitToFirstAudioMs, 0.1f);
-            Assert.AreEqual("TTS", round.BottleneckStage);
+            Assert.AreEqual("Playback", round.BottleneckStage);
         }
     }
 }

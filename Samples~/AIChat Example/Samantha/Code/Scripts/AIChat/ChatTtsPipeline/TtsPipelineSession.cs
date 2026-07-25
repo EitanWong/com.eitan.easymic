@@ -6,13 +6,25 @@ using System.Threading.Tasks;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
+    internal readonly struct TtsPipelineSessionSnapshot
+    {
+        public long SessionId { get; }
+        public Task Task { get; }
+
+        public TtsPipelineSessionSnapshot(long sessionId, Task task)
+        {
+            SessionId = sessionId;
+            Task = task ?? System.Threading.Tasks.Task.CompletedTask;
+        }
+    }
+
     internal sealed class TtsPipelineSession : IDisposable
     {
         private readonly object _sync = new object();
         private long _sessionId;
         private CancellationTokenSource _cts;
         private Task _task = Task.CompletedTask;
-        private bool _disposed;
+        private volatile bool _disposed;
 
         public bool EnsureStarted(Func<long, CancellationToken, Task> startFactory)
         {
@@ -33,18 +45,20 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return false;
                 }
 
-                _sessionId++;
+                long nextSessionId = _sessionId + 1;
+                Volatile.Write(ref _sessionId, nextSessionId);
                 _cts?.Dispose();
                 _cts = new CancellationTokenSource();
-                _task = startFactory(_sessionId, _cts.Token) ?? Task.CompletedTask;
+                _task = startFactory(nextSessionId, _cts.Token) ?? Task.CompletedTask;
                 return true;
             }
         }
 
-        public (long sessionId, Task task) CancelAndGetTask()
+        public TtsPipelineSessionSnapshot CancelAndGetSnapshot()
         {
             CancellationTokenSource ctsToDispose = null;
             Task taskToWait;
+            long sessionId;
 
             lock (_sync)
             {
@@ -66,10 +80,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 taskToWait = _task;
+                sessionId = _sessionId;
             }
 
             DisposeCancellationSourceWhenTaskCompletes(ctsToDispose, taskToWait);
-            return (_sessionId, taskToWait);
+            return new TtsPipelineSessionSnapshot(sessionId, taskToWait);
+        }
+
+        public (long sessionId, Task task) CancelAndGetTask()
+        {
+            TtsPipelineSessionSnapshot snapshot = CancelAndGetSnapshot();
+            return (snapshot.SessionId, snapshot.Task);
         }
 
         public Task GetTask()
@@ -78,6 +99,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 return _task;
             }
+        }
+
+        public bool IsCurrent(long sessionId)
+        {
+            return !_disposed && Volatile.Read(ref _sessionId) == sessionId;
         }
 
         public void Dispose()

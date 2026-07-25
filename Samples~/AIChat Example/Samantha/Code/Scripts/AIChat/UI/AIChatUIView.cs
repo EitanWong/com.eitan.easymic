@@ -1,8 +1,7 @@
 using System;
 using System.Collections;
-using System.Diagnostics;
-using System.Threading;
 using Eitan.EasyMic.Runtime;
+using Eitan.EasyMic.Runtime.Mono;
 using Eitan.EasyMic.Runtime.Mono.Components;
 using Radishmouse;
 using TMPro;
@@ -21,6 +20,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private UIMobiusStripe stripe;
         [SerializeField] private PlaybackAudioSourceBehaviour speakerAudioSource;
         [SerializeField] private AIChatController chatController;
+        [SerializeField] private EasyMicrophone userMicrophone;
         [SerializeField] private TMP_Text errorMessageText;
         [SerializeField] private float Speed = 1;
 
@@ -38,30 +38,24 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private AudioClip loadingCompleteSound;
 
         private const int HALF_DEGRESS = 180;
-        private const float ScaleSmooth = 10f;
-        private const float Epsilon = 0.00001f;
         private const float CompleteThreshold = 0.999f;
         private const float ResetThreshold = 0.8f;
+        private const float ActiveAudioThreshold = 0.002f;
+        private const float UserAudioActivationThreshold = 0.12f;
+        private const float ScaleAttackPerSecond = 18f;
+        private const float ScaleReleasePerSecond = 9f;
 
         private Coroutine _animCor;
         private PlaybackHandle _loadingCompleteHandle;
         private bool _hasError;
         private LoadingState _loadingState;
         private bool _hasSeenLoadingInProgress;
-        private volatile float _audioLevel;
-        private volatile float _vowelLevel;
-        private volatile float _consonantLevel;
-        private volatile float _speechPulse;
-        private volatile float _vowelScale;
-        private volatile float _consonantScale;
-        private volatile float _pulseScale;
-        private volatile float _noiseFloor;
-        private volatile float _signalPeak;
-        private float _prevNorm;
-        private float _lastSample;
+        private readonly SpeechVisualizationLevel _assistantAudioLevel = new SpeechVisualizationLevel();
+        private readonly SpeechVisualizationLevel _userAudioLevel = new SpeechVisualizationLevel();
+        private AudioWorkerBlueprint _userAudioProbeBlueprint;
+        private bool _userAudioProbeAttached;
+        private bool _isUserSpeaking;
         private float _currentScale = 1f;
-        private long _lastAudioReadTicks;
-        private int _hasAudioRead;
 
         #region MonoBehaviour
         private void Awake()
@@ -75,7 +69,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void Start()
         {
             ResetStripeGraphic();
+            ResolveUserMicrophone();
             SubscribeEvents();
+            EnsureUserAudioProbeAttached();
             _currentScale = baseScale;
             InitializeStatus();
         }
@@ -83,6 +79,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnDestroy()
         {
             UnsubscribeEvents();
+            DetachUserAudioProbe();
         }
 
         private void Update()
@@ -93,27 +90,27 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
 
-            bool isPlaying = speakerAudioSource && speakerAudioSource.IsPlaying;
-            bool hasRecentAudio = IsAudioRecent();
+            EnsureUserAudioProbeAttached();
 
-            if (!isPlaying || !hasRecentAudio)
-            {
-                _audioLevel = 0f;
-                _vowelLevel = 0f;
-                _consonantLevel = 0f;
-                _speechPulse = 0f;
-                _noiseFloor = 0f;
-                _signalPeak = 0f;
-                _prevNorm = 0f;
-                _lastSample = 0f;
-            }
+            float assistantLevel = _assistantAudioLevel.GetRecentLevel(noAudioResetDelay);
+            float userLevel = _userAudioLevel.GetRecentLevel(noAudioResetDelay);
+            bool assistantTransportActive =
+                (chatController && chatController.IsAssistantSpeaking) ||
+                (speakerAudioSource && speakerAudioSource.IsPlaying);
+            bool assistantActive = assistantTransportActive && assistantLevel > ActiveAudioThreshold;
+            bool userTransportActive =
+                (userMicrophone && userMicrophone.IsRecording) &&
+                (_isUserSpeaking || (chatController && chatController.IsUserSpeaking) || userLevel > UserAudioActivationThreshold);
+            bool userActive = !assistantActive && userTransportActive && userLevel > ActiveAudioThreshold;
 
-            float vowel = Mathf.Sqrt(Mathf.Max(0f, _vowelLevel));
-            float consonant = Mathf.Sqrt(Mathf.Max(0f, _consonantLevel));
-            float targetScale = (isPlaying && hasRecentAudio)
-                ? Mathf.Clamp(baseScale + (_vowelScale * vowel) + (_consonantScale * consonant) + (_pulseScale * _speechPulse), baseScale, maxScale)
-                : baseScale;
-            _currentScale = Mathf.Lerp(_currentScale, targetScale, ScaleSmooth * Time.deltaTime);
+            float dominantLevel = assistantActive ? assistantLevel : (userActive ? userLevel : 0f);
+            float expressiveness = Mathf.Clamp01(speechExpressiveness);
+            float compressedLevel = Mathf.Pow(dominantLevel, Mathf.Lerp(0.75f, 0.4f, expressiveness));
+            float scaleRange = Mathf.Max(0f, maxScale - baseScale);
+            float targetScale = baseScale + scaleRange * Mathf.Clamp01(compressedLevel * Mathf.Max(0f, speechIntensity));
+            float smoothing = targetScale > _currentScale ? ScaleAttackPerSecond : ScaleReleasePerSecond;
+            float alpha = 1f - Mathf.Exp(-smoothing * Time.deltaTime);
+            _currentScale = Mathf.Lerp(_currentScale, targetScale, alpha);
             SetStripeScale(_currentScale);
         }
         #endregion
@@ -210,6 +207,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 chatController.OnChatStateChanged += OnChatStateChangedHandler;
                 chatController.OnLoadingCallback += OnLoadingProgressHandler;
+                chatController.OnAssistantAudioQueued += AssistantAudioQueuedHandler;
+                chatController.OnUserSpeakingStateChanged += UserSpeakingStateChangedHandler;
+            }
+
+            if (userMicrophone)
+            {
+                userMicrophone.OnRecordingStateChanged += UserRecordingStateChangedHandler;
+                userMicrophone.OnMicrophoneInitialized += UserMicrophoneInitializedHandler;
             }
         }
 
@@ -224,6 +229,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 chatController.OnChatStateChanged -= OnChatStateChangedHandler;
                 chatController.OnLoadingCallback -= OnLoadingProgressHandler;
+                chatController.OnAssistantAudioQueued -= AssistantAudioQueuedHandler;
+                chatController.OnUserSpeakingStateChanged -= UserSpeakingStateChangedHandler;
+            }
+
+            if (userMicrophone)
+            {
+                userMicrophone.OnRecordingStateChanged -= UserRecordingStateChangedHandler;
+                userMicrophone.OnMicrophoneInitialized -= UserMicrophoneInitializedHandler;
             }
         }
 
@@ -312,105 +325,77 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void SpeakerAudioPlaybackHandler(float[] sample, int channels, int sampleRate)
         {
-            if (sample == null || sample.Length == 0 || channels <= 0 || sampleRate <= 0)
+            _assistantAudioLevel.Push(sample, sample != null ? sample.Length : 0, channels, sampleRate);
+        }
+
+        private void AssistantAudioQueuedHandler(float[] sample, int count, int channels, int sampleRate)
+        {
+            _assistantAudioLevel.Push(sample, count, channels, sampleRate);
+        }
+
+        private void UserSpeakingStateChangedHandler(bool isSpeaking)
+        {
+            _isUserSpeaking = isSpeaking;
+        }
+
+        private void UserRecordingStateChangedHandler(bool isRecording)
+        {
+            if (isRecording)
+            {
+                EnsureUserAudioProbeAttached();
+                return;
+            }
+
+            _userAudioProbeAttached = false;
+            _isUserSpeaking = false;
+            _userAudioLevel.Reset();
+        }
+
+        private void UserMicrophoneInitializedHandler(bool initialized)
+        {
+            _userAudioProbeAttached = false;
+            if (initialized)
+            {
+                EnsureUserAudioProbeAttached();
+            }
+        }
+
+        private void ResolveUserMicrophone()
+        {
+            if (!userMicrophone && chatController)
+            {
+                userMicrophone = chatController.MicrophoneSource;
+            }
+        }
+
+        private void EnsureUserAudioProbeAttached()
+        {
+            ResolveUserMicrophone();
+            if (_userAudioProbeAttached || !userMicrophone || !userMicrophone.IsRecording)
             {
                 return;
             }
 
-            Interlocked.Exchange(ref _lastAudioReadTicks, Stopwatch.GetTimestamp());
-            Interlocked.Exchange(ref _hasAudioRead, 1);
-
-            double sumSquares = 0.0;
-            int zeroCross = 0;
-            int count = sample.Length;
-            float prevSample = _lastSample;
-            for (int i = 0; i < count; i++)
-            {
-                float v = sample[i];
-                sumSquares += v * v;
-
-                if (i > 0 && (v > 0f) != (prevSample > 0f))
-                {
-                    zeroCross++;
-                }
-                prevSample = v;
-            }
-
-            float rms = Mathf.Sqrt((float)(sumSquares / count));
-
-            int frames = Mathf.Max(1, count / channels);
-            float dt = (float)frames / sampleRate;
-
-            if (_noiseFloor <= 0f)
-            {
-                _noiseFloor = rms;
-                _signalPeak = rms + Epsilon;
-            }
-
-            float noiseRiseSec = dt * 30f;
-            float noiseFallSec = dt * 6f;
-            float noiseAlpha = 1f - Mathf.Exp(-dt / (rms > _noiseFloor ? noiseRiseSec : noiseFallSec));
-            _noiseFloor += (rms - _noiseFloor) * noiseAlpha;
-
-            float peakDecaySec = dt * 12f;
-            float peakDecay = Mathf.Exp(-dt / peakDecaySec);
-            _signalPeak = Mathf.Max(rms, _signalPeak * peakDecay);
-
-            float denom = Mathf.Max(Epsilon, _signalPeak - _noiseFloor);
-            float norm = Mathf.Clamp01((rms - _noiseFloor) / denom);
-
-            float attackSec = dt * 2f;
-            float releaseSec = dt * 8f;
-            float envAlpha = 1f - Mathf.Exp(-dt / (norm > _audioLevel ? attackSec : releaseSec));
-            _audioLevel += (norm - _audioLevel) * envAlpha;
-
-            float zcr = count > 1 ? (float)zeroCross / (count - 1) : 0f;
-            float expressiveness = Mathf.Clamp01(speechExpressiveness);
-            float intensity = Mathf.Max(0f, speechIntensity);
-            float zcrMax = Mathf.Lerp(0.1f, 0.22f, expressiveness);
-            float zcrNorm = Mathf.Clamp01(zcr / zcrMax);
-
-            float vowelScale = intensity * Mathf.Lerp(0.55f, 0.35f, expressiveness);
-            float consonantScale = intensity * Mathf.Lerp(0.2f, 0.4f, expressiveness);
-            float pulseScale = intensity * Mathf.Lerp(0.12f, 0.22f, expressiveness);
-            _vowelScale = vowelScale;
-            _consonantScale = consonantScale;
-            _pulseScale = pulseScale;
-
-            float consonantBias = Mathf.Clamp01(zcrNorm * 1.2f);
-            float vowelTarget = norm * (1f - consonantBias);
-            float consonantTarget = norm * consonantBias;
-            float pulseTarget = Mathf.Clamp01(Mathf.Max(0f, norm - _prevNorm) * Mathf.Lerp(2f, 4f, expressiveness));
-
-            float vowelAttack = Mathf.Lerp(0.1f, 0.03f, expressiveness);
-            float vowelRelease = Mathf.Lerp(0.24f, 0.08f, expressiveness);
-            float vowelAlpha = 1f - Mathf.Exp(-dt / (vowelTarget > _vowelLevel ? vowelAttack : vowelRelease));
-            _vowelLevel += (vowelTarget - _vowelLevel) * vowelAlpha;
-
-            float consonantAttack = Mathf.Lerp(0.08f, 0.02f, expressiveness);
-            float consonantRelease = Mathf.Lerp(0.16f, 0.05f, expressiveness);
-            float consonantAlpha = 1f - Mathf.Exp(-dt / (consonantTarget > _consonantLevel ? consonantAttack : consonantRelease));
-            _consonantLevel += (consonantTarget - _consonantLevel) * consonantAlpha;
-
-            float pulseDecay = Mathf.Exp(-dt / Mathf.Lerp(0.14f, 0.05f, expressiveness));
-            _speechPulse = Mathf.Max(pulseTarget, _speechPulse * pulseDecay);
-            _speechPulse = Mathf.Min(1f, _speechPulse);
-
-            _prevNorm = norm;
-            _lastSample = prevSample;
+            _userAudioProbeBlueprint ??= new AudioWorkerBlueprint(
+                () => new MicrophoneSpeechVisualizationProbe(_userAudioLevel),
+                "samantha-speech-visualization-level");
+            userMicrophone.AppendProcessor(_userAudioProbeBlueprint);
+            _userAudioProbeAttached = true;
         }
 
-        private bool IsAudioRecent()
+        private void DetachUserAudioProbe()
         {
-            if (Interlocked.CompareExchange(ref _hasAudioRead, 0, 0) == 0)
+            if (!_userAudioProbeAttached || !userMicrophone)
             {
-                return false;
+                return;
             }
 
-            long nowTicks = Stopwatch.GetTimestamp();
-            long lastTicks = Interlocked.Read(ref _lastAudioReadTicks);
-            double elapsedSec = (nowTicks - lastTicks) / (double)Stopwatch.Frequency;
-            return elapsedSec <= Math.Max(0.0, noAudioResetDelay);
+            if (userMicrophone.IsRecording && _userAudioProbeBlueprint != null)
+            {
+                userMicrophone.RemoveProcessor(_userAudioProbeBlueprint);
+            }
+
+            _userAudioProbeAttached = false;
         }
 
         #endregion

@@ -10,10 +10,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     public partial class AIChatController
     {
-        private const string DefaultLlmModel = "gpt-5.4";
-        private const string LegacyDefaultLlmModel = "gpt-5.2";
-        private const string DefaultSiliconFlowLlmModel = "Qwen/Qwen3.5-9B";
-
         private string GetSystemPrompt()
         {
             return _systemPromptCache;
@@ -42,14 +38,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return profile.GetCombinedText("\n");
         }
 
-        private string GetRawResponse()
+        private string GetRawResponse(long turnId)
         {
-            return _requestOrchestrator?.GetRawResponse() ?? string.Empty;
+            return _requestOrchestrator?.GetRawResponse(turnId) ?? string.Empty;
         }
 
-        private string GetCleanedResponse()
+        private string GetCleanedResponse(long turnId)
         {
-            return _requestOrchestrator?.GetCleanedResponse() ?? string.Empty;
+            return _requestOrchestrator?.GetCleanedResponse(turnId) ?? string.Empty;
         }
 
         // Compiled regexes for CleanText hot path — merged into fewer passes to reduce GC pressure
@@ -190,7 +186,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private bool IsCurrentResponseGeneration(long generation)
         {
-            return Interlocked.Read(ref _responseGeneration) == generation;
+            return _turnCoordinator.IsCurrent(generation);
         }
 
         private void DisposeOpenAiClientWhenIdle(OpenAICompatibleClient client)
@@ -214,30 +210,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private string ResolveLlmModel(string requestedModel = null)
         {
             string model = string.IsNullOrWhiteSpace(requestedModel) ? Config.LlmModel : requestedModel;
-            model = string.IsNullOrWhiteSpace(model) ? DefaultLlmModel : model.Trim();
-
-            if (!SiliconFlowExpressiveTtsInputPlugin.IsSiliconFlowApiBaseUrl(Config.ApiBaseUrl))
-            {
-                return model;
-            }
-
-            if (IsOpenAIDefaultModelPlaceholder(model))
-            {
-                return DefaultSiliconFlowLlmModel;
-            }
-
-            return model;
-        }
-
-        private static bool IsOpenAIDefaultModelPlaceholder(string model)
-        {
-            if (string.IsNullOrWhiteSpace(model))
-            {
-                return true;
-            }
-
-            return string.Equals(model, DefaultLlmModel, StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(model, LegacyDefaultLlmModel, StringComparison.OrdinalIgnoreCase);
+            return string.IsNullOrWhiteSpace(model)
+                ? AIChatProviderPresets.OpenAiLlmModel
+                : model.Trim();
         }
 
         private void NotifyPluginHost(Action<AIChatPluginHost> notify)

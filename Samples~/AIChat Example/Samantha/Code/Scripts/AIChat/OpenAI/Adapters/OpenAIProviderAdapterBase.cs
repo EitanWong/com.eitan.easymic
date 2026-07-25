@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -5,7 +6,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     internal abstract class OpenAIProviderAdapterBase : IOpenAIProviderAdapter
     {
         public virtual string Name => "OpenAI-Compatible";
-        public virtual bool SupportsResponsesApi => true;
+        public virtual bool SupportsResponsesApi => false;
 
         public virtual string BuildChatCompletionsPayload(OpenAIChatRequest request)
         {
@@ -19,7 +20,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public virtual string BuildTtsPayload(OpenAITtsRequest request)
         {
-            return request == null ? "{}" : JsonUtility.ToJson(request);
+            return request == null
+                ? "{}"
+                : JsonUtility.ToJson(new StandardTtsPayload(request));
         }
 
         public virtual string NormalizeChatCompletionChunkJson(string json) => json;
@@ -35,6 +38,25 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public virtual string SelectChatCompletionMessageText(OpenAIChatMessageResponse message)
         {
             return message?.content;
+        }
+
+        [Serializable]
+        private sealed class StandardTtsPayload
+        {
+            public string model;
+            public string input;
+            public string voice;
+            public string response_format;
+            public float speed;
+
+            public StandardTtsPayload(OpenAITtsRequest request)
+            {
+                model = request.Model;
+                input = request.Input;
+                voice = request.Voice;
+                response_format = request.ResponseFormat;
+                speed = request.Speed;
+            }
         }
     }
 }

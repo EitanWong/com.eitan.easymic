@@ -9,8 +9,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     /// 
     /// Splitting rules (tiered by priority):
     ///   1. Strong end (. ! ? 。！？) — immediate split
-    ///   2. Soft break (, ，: ：; ；— -) — split when buffer ≥ 100 chars
-    ///   3. Safety backtrack — at 250 chars, scan back for last soft break or space
+    ///   2. Soft break (, ，: ：; ；— -) — use a short threshold for first audio
+    ///   3. Safety backtrack — keep later speech chunks bounded
     ///   4. Absolute max — 500 chars, force split
     /// </summary>
     internal sealed class StreamingSentenceAssembler
@@ -24,8 +24,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private const int MinSentenceLength = 2;
         private const int MaxSentenceLength = 500;
-        private const int SoftBreakMinimumLength = 100;
-        private const int SafetySplitLength = 250;
+        private const int FirstSoftBreakMinimumLength = 18;
+        private const int SoftBreakMinimumLength = 48;
+        private const int FirstSafetySplitLength = 48;
+        private const int SafetySplitLength = 160;
 
         private readonly StringBuilder _buffer = new StringBuilder(256);
         private readonly List<string> _pendingSentences = new List<string>();
@@ -36,6 +38,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private bool _inCodeBlock;
         private int _codeBlockTicks;
         private int _lastSoftBreakIndex = -1;
+        private bool _hasEmittedSentence;
 
         public int BufferLength => _buffer.Length;
 
@@ -70,6 +73,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _inCodeBlock = false;
             _codeBlockTicks = 0;
             _lastSoftBreakIndex = -1;
+            _hasEmittedSentence = false;
         }
 
         private void ProcessCharacter(char c)
@@ -91,6 +95,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (_inCodeBlock)
             {
                 _buffer.Append(c);
+                if (_buffer.Length >= MaxSentenceLength)
+                {
+                    EmitSentenceUpTo(MaxSentenceLength);
+                }
                 return;
             }
 
@@ -111,7 +119,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             // Tier 2: Soft break with sufficient context
-            if (IsSoftBreak(c) && IsBalanced() && _buffer.Length >= SoftBreakMinimumLength)
+            int softBreakMinimum = _hasEmittedSentence
+                ? SoftBreakMinimumLength
+                : FirstSoftBreakMinimumLength;
+            if (IsSoftBreak(c) && IsBalanced() && _buffer.Length >= softBreakMinimum)
             {
                 EmitSentence();
                 return;
@@ -129,9 +140,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             // Tier 4: Safety backtrack at SafetySplitLength
-            if (_buffer.Length >= SafetySplitLength && IsBalanced())
+            int safetySplitLength = _hasEmittedSentence
+                ? SafetySplitLength
+                : FirstSafetySplitLength;
+            if (_buffer.Length >= safetySplitLength && IsBalanced())
             {
-                TrySafetySplit();
+                TrySafetySplit(safetySplitLength);
+            }
+
+            if (_buffer.Length >= MaxSentenceLength)
+            {
+                EmitSentenceUpTo(MaxSentenceLength);
             }
         }
 
@@ -139,7 +158,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         /// When buffer exceeds SafetySplitLength without a sentence-ending punctuation,
         /// scan backwards for the last safe break point (soft break, then space) and split there.
         /// </summary>
-        private void TrySafetySplit()
+        private void TrySafetySplit(int targetLength)
         {
             // Prefer soft break (comma, colon, dash, etc.)
             if (_lastSoftBreakIndex > MinSentenceLength)
@@ -161,8 +180,26 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
             }
 
-            // Fallback 2: no safe point found, let MaxSentenceLength be the ultimate fallback
-            // Do nothing — the buffer will keep growing and hit EmitSentence at MaxSentenceLength
+            if (ContainsCjk(_buffer))
+            {
+                EmitSentenceUpTo(Math.Min(targetLength, _buffer.Length));
+            }
+        }
+
+        private static bool ContainsCjk(StringBuilder value)
+        {
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if ((c >= '\u3400' && c <= '\u4DBF') ||
+                    (c >= '\u4E00' && c <= '\u9FFF') ||
+                    (c >= '\uF900' && c <= '\uFAFF'))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -190,6 +227,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (sentence.Length >= MinSentenceLength)
             {
                 _pendingSentences.Add(sentence);
+                _hasEmittedSentence = true;
             }
 
             RecalculateRemainingState();
@@ -300,6 +338,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (sentence.Length >= MinSentenceLength)
             {
                 _pendingSentences.Add(sentence);
+                _hasEmittedSentence = true;
             }
         }
 
@@ -311,6 +350,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 if (remaining.Length >= MinSentenceLength)
                 {
                     _pendingSentences.Add(remaining);
+                    _hasEmittedSentence = true;
                 }
                 _buffer.Clear();
             }

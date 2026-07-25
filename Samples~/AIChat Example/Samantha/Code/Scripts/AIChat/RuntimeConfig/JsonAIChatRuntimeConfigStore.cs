@@ -13,7 +13,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public AIChatRuntimeConfig CreateDefault(AIChatControllerConfig controllerConfig)
         {
             var config = controllerConfig ?? new AIChatControllerConfig();
-            return new AIChatRuntimeConfig
+            var runtimeConfig = new AIChatRuntimeConfig
             {
                 ApiBaseUrl = config.ApiBaseUrl,
                 LlmModel = config.LlmModel,
@@ -21,8 +21,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 TtsModel = config.TtsModel,
                 TtsVoice = config.TtsVoice,
                 UseLocalTts = config.UseLocalTts ? 1 : 0,
-                AsrRecognitionModeIndex = MapRecognitionModeToIndex(RecognitionMode.OfflineWithVad),
-                AsrEnablePunctuation = 0,
+                MicrophoneDeviceName = config.Microphone != null
+                    ? config.Microphone.DeviceOpts.DeviceName
+                    : null,
+                AsrRecognitionModeIndex = MapRecognitionModeToIndex(RecognitionMode.Streaming),
+                AsrEnablePunctuation = 1,
                 AsrStreamingModelId = AIChatRuntimeDefaults.DefaultAsrStreamingModelId,
                 AsrOfflineModelId = AIChatRuntimeDefaults.DefaultAsrOfflineModelId,
                 AsrVadModelId = AIChatRuntimeDefaults.DefaultAsrVadModelId,
@@ -33,6 +36,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 LocalTtsSpeed = AIChatRuntimeDefaults.DefaultLocalTtsSpeed,
                 LocalTtsSampleRate = AIChatRuntimeDefaults.DefaultLocalTtsSampleRate
             };
+
+            if (config.Microphone != null && config.Microphone.AsrConfig != null)
+            {
+                var preset = config.Microphone.AsrConfig.ActivePresetConfiguration;
+                runtimeConfig.AsrRecognitionModeIndex = MapRecognitionModeToIndex(preset.RecognitionMode);
+                runtimeConfig.AsrStreamingModelId = preset.StreamingModelId;
+                runtimeConfig.AsrOfflineModelId = preset.OfflineModelId;
+                runtimeConfig.AsrVadModelId = preset.VadModelId;
+                runtimeConfig.AsrEnablePunctuation = preset.EnablePunctuation ? 1 : 0;
+                runtimeConfig.AsrPunctuationModelId = preset.PunctuationModelId;
+            }
+
+            return runtimeConfig;
         }
 
         public AIChatRuntimeConfig Capture(AIChatControllerConfig controllerConfig)
@@ -43,13 +59,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return snapshot;
             }
 
-            snapshot.ApiKey = controllerConfig.ResolveApiKey();
             snapshot.ApiBaseUrl = controllerConfig.ApiBaseUrl;
             snapshot.LlmModel = controllerConfig.LlmModel;
             snapshot.LlmTemperature = controllerConfig.LlmTemperature;
             snapshot.TtsModel = controllerConfig.TtsModel;
             snapshot.TtsVoice = controllerConfig.TtsVoice;
             snapshot.UseLocalTts = controllerConfig.UseLocalTts ? 1 : 0;
+            snapshot.MicrophoneDeviceName = controllerConfig.Microphone != null
+                ? controllerConfig.Microphone.DeviceOpts.DeviceName
+                : null;
             snapshot.AsrTurnDetectionDelaySeconds = Mathf.Max(0.1f, controllerConfig.AsrTurnDetectionDelaySeconds);
 
             var mic = controllerConfig.Microphone;
@@ -59,7 +77,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 snapshot.AsrRecognitionModeIndex = MapRecognitionModeToIndex(preset.RecognitionMode);
                 snapshot.AsrStreamingModelId = preset.StreamingModelId;
                 snapshot.AsrOfflineModelId = preset.OfflineModelId;
-                snapshot.AsrVadModelId = NormalizeVadModelId(preset.VadModelId);
+                snapshot.AsrVadModelId = preset.VadModelId;
                 snapshot.AsrTurnDetectionDelaySeconds = Mathf.Max(0.1f, preset.TurnDetectionOptions.MinDelaySeconds);
                 snapshot.AsrEnablePunctuation = preset.EnablePunctuation ? 1 : 0;
                 snapshot.AsrPunctuationModelId = preset.PunctuationModelId;
@@ -95,7 +113,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 runtimeConfig = JsonUtility.FromJson<AIChatRuntimeConfig>(json);
-                return runtimeConfig != null;
+                if (runtimeConfig == null ||
+                    runtimeConfig.SchemaVersion != AIChatRuntimeConfig.CurrentSchemaVersion)
+                {
+                    runtimeConfig = null;
+                    return false;
+                }
+
+                return true;
             }
             catch
             {
@@ -127,6 +152,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return false;
             }
 
+            if (runtimeConfig == null ||
+                runtimeConfig.SchemaVersion != AIChatRuntimeConfig.CurrentSchemaVersion)
+            {
+                errorMessage = $"Runtime config schema must be {AIChatRuntimeConfig.CurrentSchemaVersion}.";
+                return false;
+            }
+
             try
             {
                 string parent = Path.GetDirectoryName(path);
@@ -135,7 +167,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     Directory.CreateDirectory(parent);
                 }
 
-                string json = JsonUtility.ToJson(runtimeConfig ?? new AIChatRuntimeConfig(), true);
+                string json = JsonUtility.ToJson(runtimeConfig, true);
                 File.WriteAllText(path, json);
                 return true;
             }
@@ -153,10 +185,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(runtimeConfig.ApiKey))
-            {
-                controllerConfig.SetApiKeyOverride(runtimeConfig.ApiKey);
-            }
+            controllerConfig.SetApiKeyOverride(runtimeConfig.ApiKey);
 
             if (!string.IsNullOrWhiteSpace(runtimeConfig.ApiBaseUrl))
             {
@@ -188,6 +217,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 controllerConfig.UseLocalTts = runtimeConfig.UseLocalTts > 0;
             }
 
+            ApplyMicrophoneDevice(runtimeConfig, controllerConfig.Microphone);
+
             if (runtimeConfig.AsrTurnDetectionDelaySeconds > 0f)
             {
                 controllerConfig.AsrTurnDetectionDelaySeconds = runtimeConfig.AsrTurnDetectionDelaySeconds;
@@ -195,6 +226,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             ApplyAsrConfig(runtimeConfig, controllerConfig.Microphone);
             ApplyLocalTtsConfig(runtimeConfig, controllerConfig.SpeechSynthesizer);
+        }
+
+        private static void ApplyMicrophoneDevice(AIChatRuntimeConfig runtimeConfig, VoiceMicrophone microphone)
+        {
+            if (runtimeConfig == null || microphone == null || runtimeConfig.MicrophoneDeviceName == null)
+            {
+                return;
+            }
+
+            var options = microphone.DeviceOpts;
+            options.DeviceName = runtimeConfig.MicrophoneDeviceName.Trim();
+            microphone.ApplyDeviceOptions(options, restartRecording: false);
         }
 
         private static void ApplyAsrConfig(AIChatRuntimeConfig runtimeConfig, VoiceMicrophone microphone)
@@ -228,7 +271,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (!string.IsNullOrWhiteSpace(runtimeConfig.AsrVadModelId))
             {
-                preset.VadModelId = NormalizeVadModelId(runtimeConfig.AsrVadModelId);
+                preset.VadModelId = runtimeConfig.AsrVadModelId.Trim();
             }
 
             if (runtimeConfig.AsrEnablePunctuation >= 0)
@@ -244,7 +287,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (runtimeConfig.AsrTurnDetectionDelaySeconds > 0f)
             {
                 float delay = Mathf.Max(0.1f, runtimeConfig.AsrTurnDetectionDelaySeconds);
-                preset.TurnDetectionOptions = new TurnDetectionOptions(delay, delay);
+                float maxDelay = Mathf.Clamp(delay * 2.5f, 0.6f, 1.2f);
+                preset.TurnDetectionOptions = new TurnDetectionOptions(delay, Mathf.Max(delay, maxDelay));
             }
 
             preset.Id = AutomaticSpeechRecognitionConfiguration.ASRPreset.DefaultPresetId;
@@ -293,22 +337,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             ttsConfig.AddPreset(preset, true);
             ttsConfig.SetActivePreset(SpeechSynthesizerConfiguration.TTSPreset.DefaultPresetId);
             synthesizer.ApplyConfiguration(ttsConfig);
-        }
-
-        private static string NormalizeVadModelId(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            if (value.Equals("silero_vad_v5", StringComparison.OrdinalIgnoreCase) ||
-                value.Equals("silero-vad-v5", StringComparison.OrdinalIgnoreCase))
-            {
-                return AIChatRuntimeDefaults.DefaultAsrVadModelId;
-            }
-
-            return value;
         }
 
         private static bool TryMapRecognitionMode(int index, out RecognitionMode mode)

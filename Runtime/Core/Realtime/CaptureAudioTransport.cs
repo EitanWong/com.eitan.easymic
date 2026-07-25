@@ -9,15 +9,17 @@ namespace Eitan.EasyMic.Runtime
     /// </summary>
     internal sealed class CaptureAudioTransport : IDisposable
     {
+        private const int HeaderSamples = 3;
         private readonly UnsafeAudioRingBuffer _queue;
         private readonly AudioPipeline _pipeline;
         private readonly AudioContext _workerState;
         private readonly RealtimeAudioTelemetry _telemetry;
         private readonly int _channels;
         private readonly int _sampleRate;
+        private readonly int _deviceBufferDelayMs;
         private readonly AutoResetEvent _signal;
         private readonly Thread _worker;
-        private readonly float[] _header = new float[1];
+        private readonly float[] _header = new float[HeaderSamples];
         private float[] _workerBuffer;
         private int _running;
         private int _disposed;
@@ -27,12 +29,14 @@ namespace Eitan.EasyMic.Runtime
             int channels,
             int sampleRate,
             EasyMicLatencyProfile profile,
-            RealtimeAudioTelemetry telemetry)
+            RealtimeAudioTelemetry telemetry,
+            int deviceBufferDelayMs = 0)
         {
             _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             _channels = Math.Max(1, channels);
             _sampleRate = Math.Max(8000, sampleRate);
             _telemetry = telemetry ?? new RealtimeAudioTelemetry();
+            _deviceBufferDelayMs = Math.Min(500, Math.Max(0, deviceBufferDelayMs));
 
             int queueSamples = CalculateQueueSamples(_channels, _sampleRate, profile);
             _queue = new UnsafeAudioRingBuffer(queueSamples, 1);
@@ -62,7 +66,7 @@ namespace Eitan.EasyMic.Runtime
                 return false;
             }
 
-            int required = 1 + samples;
+            int required = HeaderSamples + samples;
             if (_queue.WritableCount < required)
             {
                 _telemetry.IncrementTransportOverrun();
@@ -70,8 +74,11 @@ namespace Eitan.EasyMic.Runtime
                 return false;
             }
 
-            Span<float> header = stackalloc float[1];
+            long captureTimestampMs = GetMonotonicMilliseconds();
+            Span<float> header = stackalloc float[HeaderSamples];
             header[0] = samples;
+            header[1] = captureTimestampMs & 0xffffL;
+            header[2] = captureTimestampMs >> 16;
             if (!_queue.TryWriteExact(header))
             {
                 _telemetry.IncrementTransportOverrun();
@@ -88,6 +95,7 @@ namespace Eitan.EasyMic.Runtime
 
             _telemetry.AddFramesReceived(samples / _channels);
             _telemetry.ObserveQueueDepth(_queue.ReadableCount);
+            try { _signal.Set(); } catch { }
             return true;
         }
 
@@ -135,7 +143,8 @@ namespace Eitan.EasyMic.Runtime
         private bool TryDrainOne(bool discardIncomplete)
         {
             using var _ = EasyMicThreading.EnterTransportThread();
-            if (_queue.ReadableCount < 1 || _queue.Peek(_header) < 1)
+            if (_queue.ReadableCount < HeaderSamples ||
+                _queue.Peek(_header) < HeaderSamples)
             {
                 return false;
             }
@@ -143,12 +152,12 @@ namespace Eitan.EasyMic.Runtime
             int samples = (int)_header[0];
             if (samples <= 0 || (samples % _channels) != 0)
             {
-                _queue.Skip(1);
+                _queue.Skip(HeaderSamples);
                 _telemetry.IncrementTransportUnderrun();
                 return true;
             }
 
-            int required = 1 + samples;
+            int required = HeaderSamples + samples;
             if (_queue.ReadableCount < required)
             {
                 if (discardIncomplete)
@@ -161,7 +170,9 @@ namespace Eitan.EasyMic.Runtime
             }
 
             EnsureWorkerBuffer(samples);
-            _queue.Skip(1);
+            long captureTimestampMs =
+                ((long)_header[2] << 16) | ((long)_header[1] & 0xffffL);
+            _queue.Skip(HeaderSamples);
             if (!_queue.TryReadExact(_workerBuffer, samples))
             {
                 _telemetry.IncrementTransportUnderrun();
@@ -171,6 +182,11 @@ namespace Eitan.EasyMic.Runtime
             _workerState.ChannelCount = _channels;
             _workerState.SampleRate = _sampleRate;
             _workerState.Length = samples;
+            _workerState.EstimatedCaptureDelayMs = EstimateCaptureDelayMs(
+                captureTimestampMs,
+                GetMonotonicMilliseconds(),
+                1000,
+                _deviceBufferDelayMs);
 
             try
             {
@@ -185,6 +201,29 @@ namespace Eitan.EasyMic.Runtime
 
             _telemetry.ObserveQueueDepth(_queue.ReadableCount);
             return true;
+        }
+
+        internal static int EstimateCaptureDelayMs(
+            long captureTimestamp,
+            long processTimestamp,
+            long timestampFrequency,
+            int deviceBufferDelayMs)
+        {
+            if (captureTimestamp < 0 || processTimestamp < captureTimestamp || timestampFrequency <= 0)
+            {
+                return -1;
+            }
+
+            long elapsedTicks = processTimestamp - captureTimestamp;
+            long queueDelayMs = (long)Math.Ceiling(elapsedTicks * 1000.0 / timestampFrequency);
+            long totalDelayMs = Math.Max(0, deviceBufferDelayMs) + queueDelayMs;
+            return (int)Math.Min(500L, totalDelayMs);
+        }
+
+        private static long GetMonotonicMilliseconds()
+        {
+            return (long)(System.Diagnostics.Stopwatch.GetTimestamp() *
+                          (1000.0 / System.Diagnostics.Stopwatch.Frequency));
         }
 
         private void EnsureWorkerBuffer(int samples)

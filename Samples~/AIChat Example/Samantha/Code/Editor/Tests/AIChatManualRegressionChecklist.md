@@ -5,11 +5,11 @@
    - Launch scene and confirm file is recreated automatically.
    - Confirm controller initializes and no fatal errors are logged.
 
-2. Runtime config panel save and reload:
+2. Runtime config panel save and apply:
    - Open runtime config panel.
    - Change API base URL / model / TTS / ASR fields.
-   - Save and let scene reload.
-   - Reopen panel and verify values persisted.
+   - Save and verify the scene keeps running without a reload.
+   - Reopen the panel and verify values persisted and remain effective after restarting Play Mode.
 
 3. Remote TTS flow:
    - Disable local TTS.

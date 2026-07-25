@@ -25,9 +25,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return true;
             }
 
-            long generation = Interlocked.Increment(ref _responseGeneration);
-            lock (_stateLock) _lastResponseStartRealtime = Time.realtimeSinceStartup;
-
             if (_openAiClient == null)
             {
                 InitializeOpenAiClient();
@@ -41,53 +38,34 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             SignalCancelActiveResponse(advanceGeneration: false, dispatchBufferedInputOnIdle: false);
-
-            // Wait for TTS pipeline drain from SignalCancelActiveResponse to complete
-            // before creating the new tracker round. Without this, a stale TTS drain
-            // event from the previous response can fire OnPipelineSpeakingStateChanged(false)
-            // after RecordLlmRequestSent creates the new round, causing RecordPlaybackDrained
-            // to finalize the new round prematurely (= corrupted timing data).
-            // NOTE: BeginAssistantResponse runs on the Unity main thread (ASR callback via
-            // UnitySynchronizationContext). A blocking Wait() would freeze the UI for its
-            // duration, so we use Wait(0) — just check without blocking. The stale drain
-            // guard in PipelineDebugTracker (RecordPlaybackDrained's IsComplete check +
-            // _drainGenerationAtCancel) provides defense-in-depth protection.
-            try
+            FullDuplexTurn responseTurn = _turnCoordinator.BeginTurn();
+            long generation = responseTurn.TurnId;
+            CancellationTokenSource responseCts = responseTurn.CancellationSource;
+            CancellationToken token = responseTurn.Token;
+            bool requestTurnPublished = _requestOrchestrator == null || _requestOrchestrator.BeginResponse(generation);
+            bool ttsTurnPublished = _ttsPipeline == null || _ttsPipeline.BeginTurn(generation);
+            if (!requestTurnPublished || !ttsTurnPublished)
             {
-                if (!_drainCompleteGate.Wait(0))
+                _turnCoordinator.TryCompleteLlm(generation, responseCts);
+                try
                 {
-                    // Drain not yet complete; the stale-event guard in the tracker
-                    // will protect the new round from any late-arriving drain events.
+                    responseCts.Cancel();
                 }
-            }
-            catch (ObjectDisposedException)
-            {
-            }
+                catch (ObjectDisposedException)
+                {
+                }
 
-            if (!IsCurrentResponseGeneration(generation))
-            {
+                responseCts.Dispose();
                 return false;
+            }
+            lock (_stateLock)
+            {
+                _lastAssistantAudioStartRealtime = 0f;
             }
 
             ResetResponseLatencyTracking();
-
-            var responseCts = new CancellationTokenSource();
-            ReplaceResponseCancellationTokenSource(responseCts);
-
-            if (!IsCurrentResponseGeneration(generation))
-            {
-                if (TryTakeResponseCancellationTokenSource(responseCts, out var staleCts))
-                {
-                    CancelAndDisposeCts(staleCts);
-                }
-
-                return false;
-            }
-
-            var token = responseCts.Token;
             _latencyTracker?.RecordLlmRequestSent();
 
-            _llmInFlight = true;
             Interlocked.Increment(ref _totalRequestCount);
             UpdateIdleState();
 
@@ -108,13 +86,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (!IsCurrentResponseGeneration(generation) || token.IsCancellationRequested)
             {
-                if (TryTakeResponseCancellationTokenSource(responseCts, out var staleCts))
+                if (_turnCoordinator.TryCompleteLlm(generation, responseCts))
                 {
-                    CancelAndDisposeCts(staleCts);
-                    _llmInFlight = false;
                     UpdateIdleState(dispatchBufferedInput: false);
                 }
 
+                responseCts.Dispose();
                 return false;
             }
 
@@ -124,69 +101,76 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void SignalCancelActiveResponse(bool advanceGeneration = true, bool dispatchBufferedInputOnIdle = true)
         {
-            // Capture state before clearing flags — used to decide whether to cancel
-            bool hadActiveResponse = _llmInFlight || _isAssistantSpeaking;
-
-            if (advanceGeneration)
-            {
-                Interlocked.Increment(ref _responseGeneration);
-            }
-
-            // STOP TTS AUDIO FIRST: Begin draining the TTS pipeline before cancelling the LLM.
-            // Industry best practice: stop audio output immediately, then cancel generation.
-            // This ensures the user hears silence as fast as possible during barge-in.
-            _drainCompleteGate.Reset();
-            SafeFireAndForget(DrainPipelineAfterCancelAsyncInternal(), nameof(DrainPipelineAfterCancelAsyncInternal));
-
-            CancelCts(TakeResponseCancellationTokenSource());
-
-            _requestOrchestrator?.ResetCurrentResponse();
-            _llmInFlight = false;
-            _isAssistantSpeaking = false;
-            UpdateIdleState(dispatchBufferedInputOnIdle);
-
-            NotifyChatStateChanged(ChatState.Idle, null);
-            // Only cancel tracker round if there was an active response (avoids destroying
-            // the ASR round when BeginAssistantResponse calls cancel during normal flow)
-            if (hadActiveResponse)
-                _latencyTracker?.CancelCurrentRound();
-        }
-
-        private async Task DrainPipelineAfterCancelAsync()
-        {
-            if (_ttsPipeline != null)
-            {
-                try
-                {
-                    await _ttsPipeline.StopAndWaitAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[AIChat] Error stopping TTS pipeline: {ex.Message}");
-                }
-            }
-            else if (Config.UseLocalTts && SpeechSynthesizer != null)
-            {
-                try
-                {
-                    await SpeechSynthesizer.StopAndWaitAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[AIChat] Error stopping synthesizer: {ex.Message}");
-                }
-            }
-        }
-
-        private async Task DrainPipelineAfterCancelAsyncInternal()
-        {
-            await DrainPipelineAfterCancelAsync().ConfigureAwait(false);
             try
             {
-                _drainCompleteGate.Set();
+                _drainCompleteGate.Reset();
             }
             catch (ObjectDisposedException)
             {
+            }
+
+            // Calling an async stop method executes its synchronous stop prefix immediately.
+            // Capture that task before cancelling the network turn so audible output is cut first.
+            Task drainTask = BeginPipelineDrain();
+            SafeFireAndForget(
+                CompletePipelineDrainAsync(drainTask),
+                nameof(CompletePipelineDrainAsync));
+
+            FullDuplexInterruption interruption = _turnCoordinator.Interrupt(advanceGeneration);
+            _requestOrchestrator?.BeginResponse(interruption.CurrentTurnId);
+            UpdateIdleState(dispatchBufferedInputOnIdle);
+
+            NotifyChatStateChanged(ChatState.Idle, null);
+            if (interruption.HadActiveTurn)
+            {
+                _latencyTracker?.CancelCurrentRound();
+            }
+        }
+
+        private Task BeginPipelineDrain()
+        {
+            try
+            {
+                if (_ttsPipeline != null)
+                {
+                    return _ttsPipeline.StopAndWaitAsync();
+                }
+
+                if (Config.UseLocalTts && SpeechSynthesizer != null)
+                {
+                    return SpeechSynthesizer.StopAndWaitAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                return Task.FromException(ex);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private async Task CompletePipelineDrainAsync(Task drainTask)
+        {
+            try
+            {
+                if (drainTask != null)
+                {
+                    await drainTask.ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AIChat] Error stopping TTS pipeline: {ex.Message}");
+            }
+            finally
+            {
+                try
+                {
+                    _drainCompleteGate.Set();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
             }
         }
 
@@ -255,6 +239,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 await foreach (string chunk in client.StreamChatCompletionAsync(chatRequest, token))
                 {
                     token.ThrowIfCancellationRequested();
+                    if (!IsCurrentResponseGeneration(generation))
+                    {
+                        break;
+                    }
 
                     if (!firstChunkReceived)
                     {
@@ -278,16 +266,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             Debug.Log($"[AIChat][LLM] {chunk}");
                         }
 
-                        string normalizedChunk = _requestOrchestrator?.AppendStreamingChunk(chunk) ?? string.Empty;
+                        string normalizedChunk = _requestOrchestrator?.AppendStreamingChunk(generation, chunk) ?? string.Empty;
 
                         if (!string.IsNullOrEmpty(normalizedChunk))
                         {
-                            if (!IsCurrentResponseGeneration(generation))
-                            {
-                                break;
-                            }
-
-                            ProcessStreamingChunk(normalizedChunk);
+                            ProcessStreamingChunk(generation, normalizedChunk);
                             NotifyChatStateChanged(ChatState.AssistantResponseStreaming, normalizedChunk);
                         }
                     }
@@ -298,11 +281,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return;
                 }
 
-                FlushPendingSentences();
+                FlushPendingSentences(generation);
                 _latencyTracker?.RecordLlmLastToken();
 
-                finalResponse = GetCleanedResponse();
-                string rawResponse = GetRawResponse();
+                finalResponse = GetCleanedResponse(generation);
+                string rawResponse = GetRawResponse(generation);
                 AppendConversationHistory(recordUserMessage ? userInput : null, rawResponse);
 
                 MarkAssistantResponse();
@@ -333,7 +316,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             finally
             {
                 stopwatch.Stop();
-                bool isCurrentGeneration = IsCurrentResponseGeneration(generation);
+                bool isCurrentGeneration = _turnCoordinator.TryCompleteLlm(generation, responseCts);
                 if (isCurrentGeneration)
                 {
                     if (!responseSucceeded && !string.IsNullOrEmpty(errorMessage) && recordUserMessage)
@@ -341,7 +324,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         AppendConversationHistory(userInput, null);
                     }
 
-                    _llmInFlight = false;
+                    _ttsPipeline?.CompleteTurn(generation);
                     UpdateIdleState();
                     NotifyPluginHost(host => host.NotifyAssistantResponseFinished(
                         responseSucceeded ? finalResponse : null,
@@ -355,7 +338,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 }
 
                 EndResponseLatencyTracking(generation);
-                TryTakeResponseCancellationTokenSource(responseCts, out _);
                 responseCts.Dispose();
             }
         }
@@ -388,24 +370,29 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _requestOrchestrator?.AppendConversationHistory(userMessage, assistantMessage);
         }
 
-        private void ProcessStreamingChunk(string chunk)
+        private void ProcessStreamingChunk(long generation, string chunk)
         {
             if (string.IsNullOrEmpty(chunk))
             {
                 return;
             }
 
-            _requestOrchestrator?.ProcessStreamingChunk(chunk, DispatchAssistantSentence);
+            _requestOrchestrator?.ProcessStreamingChunk(
+                generation,
+                chunk,
+                sentence => DispatchAssistantSentence(generation, sentence));
         }
 
-        private void FlushPendingSentences()
+        private void FlushPendingSentences(long generation)
         {
-            _requestOrchestrator?.FlushPendingSentences(DispatchAssistantSentence);
+            _requestOrchestrator?.FlushPendingSentences(
+                generation,
+                sentence => DispatchAssistantSentence(generation, sentence));
         }
 
-        private void DispatchAssistantSentence(string sentence)
+        private void DispatchAssistantSentence(long generation, string sentence)
         {
-            if (string.IsNullOrWhiteSpace(sentence))
+            if (!IsCurrentResponseGeneration(generation) || string.IsNullOrWhiteSpace(sentence))
             {
                 return;
             }
@@ -421,9 +408,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 Debug.Log($"[AIChat][Sentence] {cleaned}");
             }
 
-            TryCaptureLatencyMilestone(ref _lastFirstSentenceLatencyMs, Interlocked.Read(ref _responseGeneration));
-            _latencyTracker?.RecordTtsSentenceDispatched();
-            _ttsPipeline?.Enqueue(cleaned);
+            if (_ttsPipeline != null)
+            {
+                if (_ttsPipeline.Enqueue(generation, cleaned))
+                {
+                    TryCaptureLatencyMilestone(ref _lastFirstSentenceLatencyMs, generation);
+                    _latencyTracker?.RecordTtsSentenceDispatched();
+                    _turnCoordinator.TrySetAssistantSpeaking(generation, true);
+                    UpdateIdleState();
+                }
+            }
         }
 
         private void ExtractAndNotifyWebLinks(string content)

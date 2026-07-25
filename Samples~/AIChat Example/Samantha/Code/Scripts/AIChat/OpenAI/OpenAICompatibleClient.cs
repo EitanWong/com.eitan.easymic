@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
@@ -13,8 +12,7 @@ using UnityEngine;
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     /// <summary>
-    /// OpenAI 兼容客户端，支持 Responses API 和 Chat Completions API
-    /// 优先使用 Responses API，不支持时自动回退到 Chat Completions API
+    /// OpenAI-compatible client. Provider adapters select Responses API or Chat Completions.
     /// </summary>
     internal sealed class OpenAICompatibleClient : IDisposable
     {
@@ -27,19 +25,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private static readonly TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(30);
 
         private readonly HttpClient _httpClient;
-        private readonly bool _baseIncludesVersion;
         private readonly string _chatEndpoint;
         private readonly string _responsesEndpoint;
         private readonly string _ttsEndpoint;
         private readonly IOpenAIProviderAdapter _providerAdapter;
-        private readonly OpenAIFallbackPolicy _fallbackPolicy = new OpenAIFallbackPolicy();
         private readonly OpenAISseReader _sseReader = new OpenAISseReader(StreamIdleTimeout);
         private readonly ApiRetryPolicy _retryPolicy = new ApiRetryPolicy();
-
-        /// <summary>
-        /// 是否强制使用 Chat Completions API（跳过 Responses API）
-        /// </summary>
-        public bool ForceChatCompletions { get; set; } = false;
 
         /// <summary>
         /// 是否保存 TTS 请求 payload 调试文件
@@ -48,23 +39,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public OpenAICompatibleClient(string baseUrl, string apiKey, TimeSpan? timeout = null)
         {
-            if (string.IsNullOrWhiteSpace(baseUrl))
+            if (!TryNormalizeBaseUrl(baseUrl, out string normalized, out string validationError))
             {
-                throw new ArgumentException("API base URL is required.", nameof(baseUrl));
+                throw new ArgumentException(validationError, nameof(baseUrl));
             }
 
-            string normalized = baseUrl.Trim();
-            if (!normalized.EndsWith("/", StringComparison.Ordinal))
-            {
-                normalized += "/";
-            }
-
-            string trimmed = normalized.TrimEnd('/');
-            _baseIncludesVersion = trimmed.EndsWith("/v1", StringComparison.OrdinalIgnoreCase);
-
-            _chatEndpoint = _baseIncludesVersion ? "chat/completions" : "v1/chat/completions";
-            _responsesEndpoint = _baseIncludesVersion ? "responses" : "v1/responses";
-            _ttsEndpoint = _baseIncludesVersion ? "audio/speech" : "v1/audio/speech";
+            _chatEndpoint = ResolveEndpointPath(normalized, "chat/completions");
+            _responsesEndpoint = ResolveEndpointPath(normalized, "responses");
+            _ttsEndpoint = ResolveEndpointPath(normalized, "audio/speech");
 
             _httpClient = new HttpClient
             {
@@ -97,17 +79,58 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     normalizedKey = normalizedKey.Substring(bearerPrefix.Length).Trim();
                 }
 
+                if (normalizedKey.IndexOf('\r') >= 0 || normalizedKey.IndexOf('\n') >= 0)
+                {
+                    throw new ArgumentException("API key must not contain newline characters.", nameof(apiKey));
+                }
+
                 _httpClient.DefaultRequestHeaders.Authorization =
                     new AuthenticationHeaderValue("Bearer", normalizedKey);
             }
         }
 
-        /// <summary>
-        /// 重置 API 支持检测状态
-        /// </summary>
-        public void ResetApiDetection()
+        internal static bool TryNormalizeBaseUrl(string value, out string normalized, out string errorMessage)
         {
-            _fallbackPolicy.Reset();
+            normalized = string.Empty;
+            errorMessage = string.Empty;
+            string candidate = (value ?? string.Empty).Trim();
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out Uri uri))
+            {
+                errorMessage = "API base URL must be an absolute URL.";
+                return false;
+            }
+
+            bool isHttps = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+            bool isLoopbackHttp = string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                                  uri.IsLoopback;
+            if (!isHttps && !isLoopbackHttp)
+            {
+                errorMessage = "API base URL must use HTTPS. HTTP is allowed only for loopback development hosts.";
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(uri.UserInfo) ||
+                !string.IsNullOrEmpty(uri.Query) ||
+                !string.IsNullOrEmpty(uri.Fragment))
+            {
+                errorMessage = "API base URL must not contain credentials, query parameters, or fragments.";
+                return false;
+            }
+
+            normalized = candidate.EndsWith("/", StringComparison.Ordinal) ? candidate : candidate + "/";
+            return true;
+        }
+
+        internal static string ResolveEndpointPath(string normalizedBaseUrl, string endpoint)
+        {
+            string relativeEndpoint = (endpoint ?? string.Empty).TrimStart('/');
+            if (!Uri.TryCreate(normalizedBaseUrl, UriKind.Absolute, out Uri uri))
+            {
+                return relativeEndpoint;
+            }
+
+            bool hasExplicitApiPrefix = !string.IsNullOrWhiteSpace(uri.AbsolutePath.Trim('/'));
+            return hasExplicitApiPrefix ? relativeEndpoint : "v1/" + relativeEndpoint;
         }
 
         #region Chat Completion - 统一入口
@@ -124,9 +147,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 yield break;
             }
 
-            // 如果强制使用 Chat Completions 或已知不支持 Responses API，直接使用 Chat Completions
-
-            if (_fallbackPolicy.ShouldUseChatCompletions(ForceChatCompletions, _providerAdapter.SupportsResponsesApi))
+            if (!_providerAdapter.SupportsResponsesApi)
             {
                 await foreach (string chunk in StreamChatCompletionsApiAsync(request, cancellationToken))
                 {
@@ -135,25 +156,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 yield break;
             }
 
-            // 尝试 Responses API
-            bool fallbackRequired = false;
-
-            await foreach (string chunk in StreamResponsesApiAsync(request, cancellationToken, () => fallbackRequired = true))
-            {
-                yield return chunk;
-            }
-
-            if (!fallbackRequired)
-            {
-                yield break;
-            }
-
-            // 记住不支持 Responses API
-
-            _fallbackPolicy.MarkResponsesApiUnsupported();
-
-            // 回退到 Chat Completions API
-            await foreach (string chunk in StreamChatCompletionsApiAsync(request, cancellationToken))
+            await foreach (string chunk in StreamResponsesApiAsync(request, cancellationToken))
             {
                 yield return chunk;
             }
@@ -172,23 +175,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return new OpenAIChatResult { Success = false, ErrorMessage = "Request is null" };
             }
 
-            // 如果强制使用 Chat Completions 或已知不支持 Responses API
-
-            if (_fallbackPolicy.ShouldUseChatCompletions(ForceChatCompletions, _providerAdapter.SupportsResponsesApi))
+            if (!_providerAdapter.SupportsResponsesApi)
             {
                 return await ChatCompletionsApiAsync(request, cancellationToken);
             }
 
-            // 尝试 Responses API
-            var result = await ResponsesApiAsync(request, cancellationToken);
-
-            if (result.FallbackRequired)
-            {
-                _fallbackPolicy.MarkResponsesApiUnsupported();
-                return await ChatCompletionsApiAsync(request, cancellationToken);
-            }
-
-            return result;
+            return await ResponsesApiAsync(request, cancellationToken);
         }
 
         #endregion
@@ -197,8 +189,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private async IAsyncEnumerable<string> StreamResponsesApiAsync(
             OpenAIChatRequest chatRequest,
-            [EnumeratorCancellation] CancellationToken cancellationToken,
-            Action onNotSupported = null)
+            [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var responseRequest = OpenAIResponseRequest.FromChatRequest(chatRequest);
 
@@ -209,32 +200,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             string payload = _providerAdapter.BuildResponsesPayload(responseRequest);
             httpRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient
-                    .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (HttpRequestException)
-            {
-                onNotSupported?.Invoke();
-                yield break;
-            }
+            HttpResponseMessage response = await _httpClient
+                .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
 
             using (response)
             {
-                // 检查是否不支持 Responses API
-                if (response.StatusCode == HttpStatusCode.NotFound ||
-                    response.StatusCode == HttpStatusCode.MethodNotAllowed ||
-                    response.StatusCode == HttpStatusCode.NotImplemented ||
-                    response.StatusCode == HttpStatusCode.Forbidden ||
-                    (int)response.StatusCode == 421) // Misdirected Request
-                {
-                    onNotSupported?.Invoke();
-                    yield break;
-                }
-
                 response.EnsureSuccessStatusCode();
 
                 string mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
@@ -288,21 +259,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return new OpenAIChatResult
                 {
                     Success = false,
-                    FallbackRequired = true,
                     ErrorMessage = ex.Message
                 };
             }
 
             using (response)
             {
-                if (response.StatusCode == HttpStatusCode.NotFound ||
-                    response.StatusCode == HttpStatusCode.MethodNotAllowed ||
-                    response.StatusCode == HttpStatusCode.NotImplemented ||
-                    response.StatusCode == HttpStatusCode.Forbidden)
-                {
-                    return new OpenAIChatResult { FallbackRequired = true };
-                }
-
                 response.EnsureSuccessStatusCode();
 
                 string json = await ReadContentAsStringAsync(response.Content, cancellationToken).ConfigureAwait(false);

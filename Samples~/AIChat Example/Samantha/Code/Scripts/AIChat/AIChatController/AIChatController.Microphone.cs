@@ -39,15 +39,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             ScheduleMicStartupAfterInitialization();
-            _isChatActive = true;
-            if (IsOnUnityThread)
-            {
-                _pluginHost?.NotifyChatActivated();
-            }
-            else
-            {
-                PostToUnityThread(() => _pluginHost?.NotifyChatActivated());
-            }
         }
 
         private void OnMicrophoneLoadingProgressFeedbackHandler(string message, float progress)
@@ -126,43 +117,101 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _latencyTracker?.RecordAsrStart();
                 MarkUserActivity();
             }
+            else
+            {
+                StopPendingBargeInConfirmation();
+            }
 
             if (isSpeaking &&
                 Config.InterruptAssistantOnUserSpeech)
             {
-                // CRITICAL: Use atomic snapshot of state flags. Reading _llmInFlight
-                // and _isAssistantSpeaking via their property accessors is non-atomic
-                // (each acquires _controllerState._sync independently). Between the
-                // two separate lock acquisitions, the state can change, causing a
-                // stale read of either flag. GetSnapshot() reads both under a single lock.
-                var stateSnapshot = _controllerState.GetSnapshot();
-                if (!stateSnapshot.LlmInFlight && !stateSnapshot.IsAssistantSpeaking)
+                FullDuplexTurnSnapshot stateSnapshot = _turnCoordinator.GetSnapshot();
+                if (!stateSnapshot.IsBusy)
                 {
                     return;
                 }
 
-                // BARGE-IN ECHO GUARD: Prevent false barge-in from imperfect AEC
-                // (microphone picking up AI's own voice). If the response just started
-                // within the last [BargeInEchoGuardSeconds], suppress the cancellation
-                // to avoid the AI interrupting itself via echo feedback.
-                float lastResponseStartRealtime;
-                lock (_stateLock) lastResponseStartRealtime = _lastResponseStartRealtime;
-                float elapsedSinceResponseStart = Time.realtimeSinceStartup - lastResponseStartRealtime;
-                if (elapsedSinceResponseStart < Config.BargeInEchoGuardSeconds)
+                float lastAudioStartRealtime;
+                lock (_stateLock) lastAudioStartRealtime = _lastAssistantAudioStartRealtime;
+                float elapsedSinceAudioStart = lastAudioStartRealtime > 0f
+                    ? Time.realtimeSinceStartup - lastAudioStartRealtime
+                    : float.MaxValue;
+                float guardSeconds = Mathf.Max(0f, Config.BargeInEchoGuardSeconds);
+                if (stateSnapshot.AssistantSpeaking && elapsedSinceAudioStart < guardSeconds)
                 {
-                    Debug.Log($"[AIChat] Suppressed barge-in: only {elapsedSinceResponseStart*1000:F0}ms since response start (<{Config.BargeInEchoGuardSeconds*1000:F0}ms echo guard).");
+                    ScheduleBargeInConfirmation(
+                        stateSnapshot.TurnId,
+                        Mathf.Max(0f, guardSeconds - elapsedSinceAudioStart));
                     return;
                 }
 
-                Interlocked.Increment(ref _interruptionCount);
-
-                // RACE FIX: Call SignalCancelActiveResponse synchronously instead of
-                // fire-and-forgetting CancelActiveResponseAsync. The async CancelActiveResponseAsync
-                // has a race window where SignalCancelActiveResponse can take the NEW response's
-                // CancellationTokenSource that was set by a concurrent BeginAssistantResponse
-                // (triggered by ASR submit from this same VAD event).
-                SignalCancelActiveResponse(advanceGeneration: true);
+                TryInterruptAssistantForUserSpeech(stateSnapshot.TurnId);
             }
+        }
+
+        private void ScheduleBargeInConfirmation(long turnId, float delaySeconds)
+        {
+            if (!IsOnUnityThread)
+            {
+                PostToUnityThread(() => ScheduleBargeInConfirmation(turnId, delaySeconds));
+                return;
+            }
+
+            StopPendingBargeInConfirmation();
+            if (!IsUnityObjectOperational())
+            {
+                return;
+            }
+
+            _pendingBargeInConfirmationCoroutine = StartCoroutine(
+                ConfirmBargeInAfterEchoGuard(turnId, delaySeconds));
+        }
+
+        private IEnumerator ConfirmBargeInAfterEchoGuard(long turnId, float delaySeconds)
+        {
+            if (delaySeconds > 0f)
+            {
+                yield return new WaitForSecondsRealtime(delaySeconds);
+            }
+
+            _pendingBargeInConfirmationCoroutine = null;
+            if (Microphone != null && Microphone.IsSpeaking)
+            {
+                TryInterruptAssistantForUserSpeech(turnId);
+            }
+        }
+
+        private void TryInterruptAssistantForUserSpeech(long turnId)
+        {
+            FullDuplexTurnSnapshot snapshot = _turnCoordinator.GetSnapshot();
+            if (snapshot.TurnId != turnId || !snapshot.IsBusy)
+            {
+                return;
+            }
+
+            Interlocked.Increment(ref _interruptionCount);
+            SignalCancelActiveResponse(advanceGeneration: true);
+        }
+
+        private void StopPendingBargeInConfirmation()
+        {
+            if (_pendingBargeInConfirmationCoroutine == null)
+            {
+                return;
+            }
+
+            if (IsUnityObjectOperational())
+            {
+                try
+                {
+                    StopCoroutine(_pendingBargeInConfirmationCoroutine);
+                }
+                catch (MissingReferenceException)
+                {
+                }
+            }
+
+            _pendingBargeInConfirmationCoroutine = null;
         }
 
         private void ScheduleMicStartupAfterInitialization()
@@ -185,6 +234,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void StopPendingMicStartup()
         {
+            StopPendingBargeInConfirmation();
             if (_pendingMicStartupCoroutine == null)
             {
                 return;
@@ -223,7 +273,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             float delay = Mathf.Max(0f, Config.MicStartupDelay);
             if (delay > 0f)
             {
-                yield return new WaitForSeconds(delay);
+                yield return new WaitForSecondsRealtime(delay);
             }
 
             if (_initializationFailed)
@@ -243,6 +293,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     Debug.LogError($"[AIChat] Failed to start microphone recording: {ex.Message}");
                 }
+            }
+
+            if (mic != null && mic.IsRecording)
+            {
+                _isChatActive = true;
+                _pluginHost?.NotifyChatActivated();
             }
 
             _pendingMicStartupCoroutine = null;
