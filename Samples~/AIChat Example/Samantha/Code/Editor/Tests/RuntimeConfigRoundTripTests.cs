@@ -14,6 +14,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
 {
     public class RuntimeConfigRoundTripTests
     {
+        private const string FixtureApiKey = "fixture";
+        private const string PersistedFixtureApiKey = "persisted";
+        private const string InjectedFixtureApiKey = "injected";
+
         [Test]
         public void SaveAndLoad_ShouldRoundTripAllFields()
         {
@@ -24,7 +28,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             {
                 var input = new AIChatRuntimeConfig
                 {
-                    ApiKey = "test-key",
+                    ApiKey = FixtureApiKey,
                     ApiBaseUrl = "https://example.com/v1/",
                     LlmModel = "gpt-4.1-mini",
                     LlmTemperature = 0.3f,
@@ -83,7 +87,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
         {
             var store = new JsonAIChatRuntimeConfigStore();
             var config = new AIChatControllerConfig();
-            config.SetApiKeyOverride("transient-production-key");
+            config.SetApiKeyOverride(FixtureApiKey);
 
             AIChatRuntimeConfig snapshot = store.Capture(config);
 
@@ -95,7 +99,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
         {
             var store = new JsonAIChatRuntimeConfigStore();
             var controllerConfig = new AIChatControllerConfig();
-            controllerConfig.SetApiKeyOverride("transient-key");
+            controllerConfig.SetApiKeyOverride(FixtureApiKey);
 
             store.Apply(
                 new AIChatRuntimeConfig { ApiKey = string.Empty },
@@ -116,7 +120,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 var unsupported = new AIChatRuntimeConfig
                 {
                     SchemaVersion = schemaVersion,
-                    ApiKey = "unsupported-schema-key",
+                    ApiKey = string.Empty,
                     LlmModel = "unsupported-schema-model"
                 };
                 File.WriteAllText(path, UnityEngine.JsonUtility.ToJson(unsupported, true));
@@ -144,7 +148,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 var unsupported = new AIChatRuntimeConfig
                 {
                     SchemaVersion = AIChatRuntimeConfig.CurrentSchemaVersion - 1,
-                    ApiKey = "unsupported-schema-key",
+                    ApiKey = string.Empty,
                     LlmModel = "unsupported-schema-model"
                 };
                 File.WriteAllText(path, UnityEngine.JsonUtility.ToJson(unsupported, true));
@@ -229,12 +233,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 Assert.IsTrue(
                     store.TrySave(
                         path,
-                        new AIChatRuntimeConfig { ApiKey = "persisted-device-key" },
+                        new AIChatRuntimeConfig { ApiKey = PersistedFixtureApiKey },
                         out string saveError),
                     saveError);
 
                 var controllerConfig = new AIChatControllerConfig();
-                controllerConfig.SetApiKeyOverride("injected-memory-key");
+                controllerConfig.SetApiKeyOverride(InjectedFixtureApiKey);
 
                 AIChatRuntimeConfigurationFlow.ApplyStartupLayers(
                     null,
@@ -243,9 +247,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                     controllerConfig,
                     loadRuntimeConfig: true);
 
-                Assert.AreEqual("injected-memory-key", controllerConfig.ResolveApiKey());
+                Assert.AreEqual(InjectedFixtureApiKey, controllerConfig.ResolveApiKey());
                 Assert.IsTrue(store.TryLoad(path, out AIChatRuntimeConfig persisted));
-                Assert.AreEqual("persisted-device-key", persisted.ApiKey);
+                Assert.AreEqual(PersistedFixtureApiKey, persisted.ApiKey);
             }
             finally
             {
@@ -265,14 +269,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             try
             {
                 var controller = target.AddComponent<AIChatController>();
-                controller.SetApiKey("injected-memory-key");
+                controller.SetApiKey(InjectedFixtureApiKey);
 
                 var clientField = typeof(AIChatController).GetField(
                     "_openAiClient",
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
                 Assert.NotNull(clientField);
-                Assert.AreEqual("injected-memory-key", controller.CurrentConfig.ResolveApiKey());
+                Assert.AreEqual(InjectedFixtureApiKey, controller.CurrentConfig.ResolveApiKey());
                 Assert.IsNull(clientField.GetValue(controller));
             }
             finally
@@ -429,7 +433,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 var controller = target.AddComponent<AIChatController>();
                 refreshCtsField.SetValue(controller, refreshCts);
 
-                controller.SetApiKey("replacement-key");
+                controller.SetApiKey(FixtureApiKey);
 
                 Assert.IsTrue(refreshCts.IsCancellationRequested);
             }
@@ -489,7 +493,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             {
                 var input = new AIChatRuntimeConfig
                 {
-                    ApiKey = "device-key",
+                    ApiKey = FixtureApiKey,
                     ApiBaseUrl = "https://saved-provider.example/v1/",
                     LlmModel = "saved-model",
                     TtsModel = "saved-tts",
