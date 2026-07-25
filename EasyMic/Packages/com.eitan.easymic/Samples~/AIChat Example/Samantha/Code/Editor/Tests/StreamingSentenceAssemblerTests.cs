@@ -28,5 +28,42 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             Assert.AreEqual(1, flushed.Count);
             Assert.AreEqual("Trailing sentence without end", flushed[0]);
         }
+
+        [Test]
+        public void Append_ShouldEmitFirstSpeechPhraseAtLowLatencyBoundary()
+        {
+            var assembler = new StreamingSentenceAssembler();
+
+            var first = assembler.Append("我明白你的意思，我们现在就开始处理，", forceFlush: false).ToList();
+
+            Assert.AreEqual(1, first.Count);
+            Assert.AreEqual("我明白你的意思，我们现在就开始处理，", first[0]);
+        }
+
+        [Test]
+        public void Reset_ShouldDiscardInterruptedPartialPhrase()
+        {
+            var assembler = new StreamingSentenceAssembler();
+            _ = assembler.Append("This response belongs to the interrupted turn", forceFlush: false).ToList();
+
+            assembler.Reset();
+            var current = assembler.Append("Current turn.", forceFlush: false).ToList();
+
+            Assert.AreEqual(1, current.Count);
+            Assert.AreEqual("Current turn.", current[0]);
+        }
+
+        [Test]
+        public void Append_ShouldBoundUnpunctuatedCjkSpeech()
+        {
+            var assembler = new StreamingSentenceAssembler();
+            string content = new string('语', 52);
+
+            var emitted = assembler.Append(content, forceFlush: false).ToList();
+
+            Assert.AreEqual(1, emitted.Count);
+            Assert.AreEqual(48, emitted[0].Length);
+            Assert.AreEqual(4, assembler.BufferLength);
+        }
     }
 }

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 namespace Radishmouse
@@ -24,7 +23,6 @@ namespace Radishmouse
 
         [Header("Input Space")]
         [Tooltip("If true, points are already in RectTransform LOCAL space (pivot is origin). If false, points are in rect space with origin at bottom-left and will be converted.")]
-        [FormerlySerializedAs("alignToPivot")]
         public bool pointsInPivotSpace = true;
 
         [Header("Topology")]

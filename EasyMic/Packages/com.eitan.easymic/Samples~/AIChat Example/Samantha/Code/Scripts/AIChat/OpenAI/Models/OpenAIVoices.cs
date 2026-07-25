@@ -8,8 +8,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     /// </summary>
     internal static partial class OpenAIVoices
     {
+        /// <summary>OpenAI Marin, recommended for best quality.</summary>
+        public const string Marin = AIChatProviderPresets.OpenAiTtsVoice;
+        /// <summary>OpenAI Cedar, recommended for best quality.</summary>
+        public const string Cedar = "cedar";
         /// <summary>OpenAI Alloy</summary>
         public const string Alloy = "alloy";
+        /// <summary>OpenAI Ash</summary>
+        public const string Ash = "ash";
+        /// <summary>OpenAI Ballad</summary>
+        public const string Ballad = "ballad";
+        /// <summary>OpenAI Coral</summary>
+        public const string Coral = "coral";
         /// <summary>OpenAI Echo</summary>
         public const string Echo = "echo";
         /// <summary>OpenAI Fable</summary>
@@ -20,5 +30,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public const string Nova = "nova";
         /// <summary>OpenAI Shimmer</summary>
         public const string Shimmer = "shimmer";
+        /// <summary>OpenAI Sage</summary>
+        public const string Sage = "sage";
+        /// <summary>OpenAI Verse</summary>
+        public const string Verse = "verse";
     }
 }

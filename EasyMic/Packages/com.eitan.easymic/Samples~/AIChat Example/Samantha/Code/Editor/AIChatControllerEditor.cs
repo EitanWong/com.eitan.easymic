@@ -121,7 +121,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     var fixedOverride = controller.GetComponent<AIChatConfigurationPolicy>();
                     if (fixedOverride != null && fixedOverride.EnabledOverride)
                     {
-                        EditorGUILayout.HelpBox($"Configuration policy is active. Preset: {fixedOverride.Preset}. Matching runtime config values will be overridden at startup.", MessageType.Info);
+                        EditorGUILayout.HelpBox($"Configuration policy is active. Preset: {fixedOverride.Preset}. It supplies scene defaults; current-schema device settings are applied afterward at startup.", MessageType.Info);
                     }
                 }
 

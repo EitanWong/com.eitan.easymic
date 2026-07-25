@@ -99,7 +99,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            bool newIdle = !_llmInFlight && !_isAssistantSpeaking;
+            bool newIdle = !_turnCoordinator.GetSnapshot().IsBusy;
 
             if (_lastIdleState == newIdle)
             {
@@ -116,14 +116,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void SetAssistantSpeakingState(bool isSpeaking)
+        private void SetAssistantSpeakingState(long turnId, bool isSpeaking)
         {
-            if (_isAssistantSpeaking == isSpeaking)
+            FullDuplexTurnSnapshot before = _turnCoordinator.GetSnapshot();
+            if (before.TurnId != turnId || before.AssistantSpeaking == isSpeaking)
             {
                 return;
             }
 
-            _isAssistantSpeaking = isSpeaking;
+            if (!_turnCoordinator.TrySetAssistantSpeaking(turnId, isSpeaking))
+            {
+                return;
+            }
+
             if (IsOnUnityThread)
             {
                 UpdateIdleState();

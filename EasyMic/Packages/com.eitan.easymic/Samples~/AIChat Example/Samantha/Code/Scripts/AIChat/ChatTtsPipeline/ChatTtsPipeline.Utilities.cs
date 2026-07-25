@@ -42,7 +42,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void DispatchToMainThread(Action action, bool waitForCompletion)
+        private void DispatchToMainThread(Action action)
         {
             if (action == null)
             {
@@ -55,37 +55,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (!waitForCompletion || IsMainThread)
-            {
-                _mainThreadDispatcher(action);
-                return;
-            }
-
-            // CRITICAL: ManualResetEventSlim.Wait() BLOCKS the calling thread.
-            // From a thread pool thread this causes thread pool starvation.
-            // Use async dispatch instead (DispatchToMainThreadAsync) from async code.
-            // This sync-only fallback now has a shorter timeout to avoid hanging.
-            using (var completed = new ManualResetEventSlim(false))
-            {
-                _mainThreadDispatcher(() =>
-                {
-                    try
-                    {
-                        action();
-                    }
-                    finally
-                    {
-                        completed.Set();
-                    }
-                });
-
-                if (!completed.Wait(1000))
-                {
-                    UnityEngine.Debug.LogWarning(
-                        "[ParallelTtsPipeline] DispatchToMainThread (sync) timed out after 1s — " +
-                        "main thread may be blocked. Action was not executed.");
-                }
-            }
+            _mainThreadDispatcher(action);
         }
 
         /// <summary>
@@ -140,10 +110,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void ClearQueues()
         {
+            lock (_queueStateLock)
+            {
+                ClearQueuesUnsafe();
+            }
+        }
+
+        private void ClearQueuesUnsafe()
+        {
             while (_pendingJobs.TryDequeue(out _)) { }
             _completedJobs.Clear();
-            System.Threading.Interlocked.Exchange(ref _nextSequenceNumber, 0);
-            System.Threading.Interlocked.Exchange(ref _nextPlaybackSequence, 0);
+            int lastIssuedSequence = Volatile.Read(ref _nextSequenceNumber);
+            int currentPlaybackSequence = Volatile.Read(ref _nextPlaybackSequence);
+            Volatile.Write(ref _nextPlaybackSequence, Math.Max(currentPlaybackSequence, lastIssuedSequence));
             ClearInFlightSentences();
         }
 
@@ -177,15 +156,43 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void NotifySpeakingState(bool speaking)
+        private void NotifySpeakingState(long turnId, bool speaking)
         {
-            if (_isSpeaking == speaking)
+            if (turnId <= 0)
             {
                 return;
             }
 
-            _isSpeaking = speaking;
-            SafeInvoke(() => OnSpeakingStateChanged?.Invoke(speaking));
+            lock (_speakingStateLock)
+            {
+                if (speaking)
+                {
+                    if (_isSpeaking && _speakingTurnId == turnId)
+                    {
+                        return;
+                    }
+
+                    if (_speakingTurnId > turnId)
+                    {
+                        return;
+                    }
+
+                    _speakingTurnId = turnId;
+                    _isSpeaking = true;
+                }
+                else
+                {
+                    if (_speakingTurnId != turnId)
+                    {
+                        return;
+                    }
+
+                    _isSpeaking = false;
+                    _speakingTurnId = 0;
+                }
+            }
+
+            SafeInvoke(() => OnSpeakingStateChanged?.Invoke(turnId, speaking));
         }
 
         private void SafeInvoke(Action action)

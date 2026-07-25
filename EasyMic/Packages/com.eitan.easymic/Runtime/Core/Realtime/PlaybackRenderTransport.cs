@@ -10,18 +10,25 @@ namespace Eitan.EasyMic.Runtime
     internal sealed class PlaybackRenderTransport : IDisposable
     {
         internal delegate void MixedFrameSink(ReadOnlySpan<float> interleaved, int channels, int sampleRate);
+        internal delegate void RenderReferenceSink(
+            ReadOnlySpan<float> interleaved,
+            int channels,
+            int sampleRate,
+            int estimatedPlayoutDelayMs);
 
         private readonly UnsafeAudioRingBuffer _queue;
         private readonly AudioMixer _mixer;
         private readonly RealtimeAudioTelemetry _telemetry;
         private readonly MixedFrameSink _mixedFrameRaw;
         private readonly MixedFrameSink _mixedFrameDeferred;
+        private readonly RenderReferenceSink _renderReference;
         private readonly int _channels;
         private readonly int _sampleRate;
         private readonly int _blockSamples;
         private readonly int _targetBufferedSamples;
         private readonly int _lowWatermarkSamples;
         private readonly int _highWatermarkSamples;
+        private readonly int _deviceBufferDelayMs;
         private readonly AutoResetEvent _wakeEvent;
         private readonly Thread _worker;
         private float[] _scratch;
@@ -35,7 +42,9 @@ namespace Eitan.EasyMic.Runtime
             EasyMicLatencyProfile profile,
             RealtimeAudioTelemetry telemetry,
             MixedFrameSink mixedFrameRaw,
-            MixedFrameSink mixedFrameDeferred)
+            MixedFrameSink mixedFrameDeferred,
+            RenderReferenceSink renderReference,
+            int deviceBufferDelayMs)
         {
             _mixer = mixer ?? throw new ArgumentNullException(nameof(mixer));
             _channels = Math.Max(1, channels);
@@ -43,6 +52,8 @@ namespace Eitan.EasyMic.Runtime
             _telemetry = telemetry ?? new RealtimeAudioTelemetry();
             _mixedFrameRaw = mixedFrameRaw;
             _mixedFrameDeferred = mixedFrameDeferred;
+            _renderReference = renderReference;
+            _deviceBufferDelayMs = Math.Min(500, Math.Max(0, deviceBufferDelayMs));
 
             int blockFrames = CalculateBlockFrames(_sampleRate, profile);
             _blockSamples = Math.Max(_channels * 64, blockFrames * _channels);
@@ -178,6 +189,7 @@ namespace Eitan.EasyMic.Runtime
                 _telemetry.ObserveWorkerTicks(System.Diagnostics.Stopwatch.GetTimestamp() - start);
             }
 
+            int queuedSamplesBeforeBlock = _queue.ReadableCount;
             int written = _queue.Write(span);
             if (written < span.Length)
             {
@@ -189,6 +201,22 @@ namespace Eitan.EasyMic.Runtime
             if (written > 0)
             {
                 var mixed = new ReadOnlySpan<float>(scratch, 0, written);
+                int queuedFramesBeforeBlock = queuedSamplesBeforeBlock / _channels;
+                int queueDelayMs = (int)Math.Min(
+                    500L,
+                    (queuedFramesBeforeBlock * 1000L + _sampleRate - 1L) / _sampleRate);
+                int estimatedPlayoutDelayMs = Math.Min(
+                    500,
+                    queueDelayMs + _deviceBufferDelayMs);
+                try
+                {
+                    _renderReference?.Invoke(
+                        mixed,
+                        _channels,
+                        _sampleRate,
+                        estimatedPlayoutDelayMs);
+                }
+                catch { }
                 try { _mixedFrameRaw?.Invoke(mixed, _channels, _sampleRate); } catch { }
                 try { _mixedFrameDeferred?.Invoke(mixed, _channels, _sampleRate); } catch { }
             }

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
+using Eitan.EasyMic.Runtime.Mono;
 using UnityEngine;
 
 namespace Eitan.EasyMic.Demo.AIChat.Samantha
@@ -47,6 +48,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public event Action<bool> OnIdleStateChanged;
         public event Action<bool> OnUserSpeakingStateChanged;
         public event Action<NetworkQualityInfo> OnNetworkQualityChanged;
+        /// <summary>
+        /// Remote TTS PCM chunks as they enter the active playback stream.
+        /// Observers may run off the Unity main thread and must not touch Unity objects directly.
+        /// </summary>
+        public event Action<float[], int, int, int> OnAssistantAudioQueued;
         #endregion
 
         #region Public Properties
@@ -54,24 +60,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             get
             {
-                // Use live state (!_llmInFlight && !_isAssistantSpeaking) instead of
-                // the cached _lastIdleState to avoid a race condition during barge-in:
-                //
-                // After SignalCancelActiveResponse sets _llmInFlight=false and
-                // _isAssistantSpeaking=false on the VAD worker thread, the cached
-                // _lastIdleState is NOT updated until UpdateIdleState runs on the
-                // Unity thread. If OnAsrSubmitHandler fires on the ASR thread before
-                // the Unity thread processes the posted delegate, TryDispatchBufferedInput
-                // sees a stale _lastIdleState=false and refuses to dispatch — the transcript
-                // is "lost" until the next Update() call at best, and under edge conditions
-                // (e.g. nested barge-ins) it can be permanently dropped.
-                if (_initializationFailed) return false;
-                return !_llmInFlight && !_isAssistantSpeaking;
+                if (_initializationFailed)
+                {
+                    return false;
+                }
+
+                return !_turnCoordinator.GetSnapshot().IsBusy;
             }
         }
         public bool IsChatActive => _isChatActive;
         public bool IsUserSpeaking => Microphone?.IsSpeaking ?? false;
         public bool IsAssistantSpeaking => _isAssistantSpeaking;
+        public EasyMicrophone MicrophoneSource => Microphone;
         public bool IsInitialized => _initialized;
         public float MicStartupDelaySeconds => Config.MicStartupDelay;
         public NetworkQualityInfo CurrentNetworkQuality => _networkHandler?.GetCurrentInfo() ?? NetworkQualityInfo.Default;
@@ -91,9 +91,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public void SetApiKey(string apiKey)
         {
+            CancelRuntimeConfigurationRefresh();
             Config.SetApiKeyOverride(apiKey);
-            InitializeOpenAiClient();
-            EnsureTtsPipelineConfigured();
+            if (_runtimeConfigStore == null || _initializationFailed)
+            {
+                return;
+            }
+
+            SafeFireAndForget(
+                RefreshRuntimeConfigurationAsync(),
+                "refresh after SetApiKey");
         }
         #endregion
 
@@ -117,6 +124,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private SpeechSynthesizer SpeechSynthesizer => Config.SpeechSynthesizer;
 
         private readonly AIChatControllerState _controllerState = new AIChatControllerState();
+        private readonly FullDuplexTurnCoordinator _turnCoordinator = new FullDuplexTurnCoordinator();
         private readonly object _stateLock = new object();
         private readonly StringBuilder _userInputBuffer = new StringBuilder(256);
         private string _lastErrorMessage = string.Empty;
@@ -126,10 +134,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private IAIChatRuntimeConfigStore _runtimeConfigStore;
         private Dictionary<string, float> _serviceLoadingRecord;
         private OpenAICompatibleClient _openAiClient;
-        private CancellationTokenSource _responseCts;
         private ChatTtsPipeline _ttsPipeline;
         private Coroutine _pendingMicStartupCoroutine;
+        private Coroutine _pendingBargeInConfirmationCoroutine;
         private AIChatConfigurationPolicy _fixedSettingsOverride;
+        private CancellationTokenSource _runtimeConfigurationRefreshCts;
+        private bool _restartConfigurationOnEnable;
 
         private bool _localTtsCallbacksRegistered;
         private bool _conversationStarted;
@@ -148,27 +158,24 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private AIChatPluginContext _pluginContext;
         private SiliconFlowExpressiveTtsInputPlugin _activeSiliconFlowTtsInputPlugin;
         private SiliconFlowExpressiveTtsInputPlugin.RuntimeBinding _activeSiliconFlowTtsInputBinding;
-        private long _responseGeneration;
         private Stopwatch _activeResponseStopwatch;
         private float _lastFirstTokenLatencyMs;
         private float _lastFirstSentenceLatencyMs;
         private float _lastFirstAudioLatencyMs;
         private float _lastPlaybackBufferedSeconds;
         private int _interruptionCount;
-        private float _lastResponseStartRealtime;
+        private float _lastAssistantAudioStartRealtime;
         private readonly System.Threading.ManualResetEventSlim _drainCompleteGate = new System.Threading.ManualResetEventSlim(true);
         private PipelineDebugTracker _latencyTracker;
 
         private bool _llmInFlight
         {
-            get => _controllerState.LlmInFlight;
-            set => _controllerState.LlmInFlight = value;
+            get => _turnCoordinator.GetSnapshot().LlmInFlight;
         }
 
         private bool _isAssistantSpeaking
         {
-            get => _controllerState.IsAssistantSpeaking;
-            set => _controllerState.IsAssistantSpeaking = value;
+            get => _turnCoordinator.GetSnapshot().AssistantSpeaking;
         }
 
         private bool _isChatActive
@@ -222,12 +229,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 return;
             }
-            LoadRuntimeConfigIfNeeded();
-            if (_initializationFailed)
-            {
-                return;
-            }
-            ApplyFixedSettingsOverrideIfPresent();
+            ApplyConfigurationLayers();
             InitializeOpenAiClient();
             if (_initializationFailed)
             {
@@ -286,14 +288,39 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         }
 #endif
 
+        private void OnEnable()
+        {
+            if (!_restartConfigurationOnEnable)
+            {
+                return;
+            }
+
+            _restartConfigurationOnEnable = false;
+            if (_runtimeConfigStore == null || _initializationFailed || _isShuttingDown)
+            {
+                return;
+            }
+
+            SafeFireAndForget(
+                RefreshRuntimeConfigurationAsync(),
+                "refresh after re-enable");
+        }
+
         private void OnDisable()
         {
+            if (_runtimeConfigStore != null && !_isShuttingDown)
+            {
+                _restartConfigurationOnEnable = true;
+            }
+
+            CancelRuntimeConfigurationRefresh();
             ResetCursorAutoHideState();
         }
 
         private void OnDestroy()
         {
             _isShuttingDown = true;
+            CancelRuntimeConfigurationRefresh();
             ResetCursorAutoHideState();
             CancelActiveResponseForTeardown();
             _pluginHost?.Shutdown();
@@ -303,6 +330,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             _openAiClient?.Dispose();
             _openAiClient = null;
+            _turnCoordinator.Dispose();
             _drainCompleteGate?.Dispose();
         }
         #endregion
@@ -388,93 +416,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }, null);
         }
 
-        private CancellationTokenSource TakeResponseCancellationTokenSource()
-        {
-            lock (_stateLock)
-            {
-                CancellationTokenSource current = _responseCts;
-                _responseCts = null;
-                return current;
-            }
-        }
-
-        private bool TryTakeResponseCancellationTokenSource(CancellationTokenSource expectedCts, out CancellationTokenSource current)
-        {
-            lock (_stateLock)
-            {
-                current = _responseCts;
-                if (!ReferenceEquals(current, expectedCts))
-                {
-                    current = null;
-                    return false;
-                }
-
-                _responseCts = null;
-                return true;
-            }
-        }
-
-        private void ReplaceResponseCancellationTokenSource(CancellationTokenSource nextCts)
-        {
-            CancellationTokenSource previous;
-            lock (_stateLock)
-            {
-                previous = _responseCts;
-                _responseCts = nextCts;
-            }
-
-            CancelCts(previous);
-        }
-
-        private static void CancelCts(CancellationTokenSource cts)
-        {
-            if (cts == null)
-            {
-                return;
-            }
-
-            try
-            {
-                if (!cts.IsCancellationRequested)
-                {
-                    cts.Cancel();
-                }
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
-
-        private static void CancelAndDisposeCts(CancellationTokenSource cts)
-        {
-            if (cts == null)
-            {
-                return;
-            }
-
-            try
-            {
-                if (!cts.IsCancellationRequested)
-                {
-                    cts.Cancel();
-                }
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-            finally
-            {
-                cts.Dispose();
-            }
-        }
-
         private void CancelActiveResponseForTeardown()
         {
-            CancelCts(TakeResponseCancellationTokenSource());
-            _requestOrchestrator?.ResetCurrentResponse();
-
-            _llmInFlight = false;
-            _isAssistantSpeaking = false;
+            FullDuplexInterruption interruption = _turnCoordinator.Interrupt(advanceGeneration: true);
+            _requestOrchestrator?.BeginResponse(interruption.CurrentTurnId);
         }
 
         private void SafeFireAndForget(Func<Task> asyncFunc, string context)
@@ -538,88 +483,4 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         #endregion
     }
 }
-
-#else
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using UnityEngine;
-
-namespace Eitan.EasyMic.Demo.AIChat.Samantha
-{
-    [DisallowMultipleComponent]
-    public partial class AIChatController : MonoBehaviour
-    {
-        [Header("Configuration")]
-        [SerializeField] private AIChatControllerConfig _config = new AIChatControllerConfig();
-
-        [Header("Plugins")]
-        [SerializeField] private List<MonoBehaviour> _pluginBehaviours = new List<MonoBehaviour>();
-
-        public enum ChatState
-        {
-            Idle,
-            UserInput,
-            AssistantResponseStreaming,
-            AssistantResponseFinish,
-            Failed
-        }
-
-        public event Action<ChatState, string> OnChatStateChanged;
-        public event Action<string[]> OnWebLinksExtracted;
-        public event Action<float> OnLoadingCallback;
-        public event Action<bool> OnIdleStateChanged;
-        public event Action<bool> OnUserSpeakingStateChanged;
-        public event Action<NetworkQualityInfo> OnNetworkQualityChanged;
-
-        public bool IsIdle => true;
-        public bool IsChatActive => false;
-        public bool IsUserSpeaking => false;
-        public bool IsAssistantSpeaking => false;
-        public bool IsInitialized => false;
-        public float MicStartupDelaySeconds => CurrentConfig.MicStartupDelay;
-        public NetworkQualityInfo CurrentNetworkQuality => NetworkQualityInfo.Default;
-        public float TimeSinceLastUserActivity => 0f;
-        public float TimeSinceLastAssistantResponse => 0f;
-        public float LastLoadingProgress => 0f;
-        public bool HasConversationHistory => false;
-        public string RuntimeConfigPath =>
-            Path.Combine(
-                Application.persistentDataPath,
-                string.IsNullOrWhiteSpace(CurrentConfig.RuntimeConfigFileName) ? "ai_chat_config.json" : CurrentConfig.RuntimeConfigFileName);
-        public string LastErrorMessage => GetMissingDependencyMessage();
-        public AIChatControllerConfig CurrentConfig => _config ??= new AIChatControllerConfig();
-        public bool HasConfigurationPolicy => TryGetComponent(out AIChatConfigurationPolicy policy) && policy.EnabledOverride;
-        public AIChatConfigurationPolicy.PolicyPreset ConfigurationPolicyPreset =>
-            TryGetComponent(out AIChatConfigurationPolicy policy) ? policy.Preset : AIChatConfigurationPolicy.PolicyPreset.Custom;
-
-        private void Start()
-        {
-            ReportMissingDependency();
-        }
-
-        public void SetApiKey(string apiKey)
-        {
-            CurrentConfig.SetApiKeyOverride(apiKey);
-        }
-
-        private void ReportMissingDependency()
-        {
-            string message = GetMissingDependencyMessage();
-            UnityEngine.Debug.LogWarning($"[AIChat] {message}", this);
-            OnLoadingCallback?.Invoke(0f);
-            OnIdleStateChanged?.Invoke(true);
-            OnNetworkQualityChanged?.Invoke(NetworkQualityInfo.Default);
-            OnChatStateChanged?.Invoke(ChatState.Failed, message);
-        }
-
-        private static string GetMissingDependencyMessage()
-        {
-            return "AI Chat sample is in compatibility mode because com.eitan.sherpa-onnx-unity is not installed. " +
-                   "Scene references are preserved, but ASR and local TTS features are unavailable.";
-        }
-    }
-}
-
 #endif

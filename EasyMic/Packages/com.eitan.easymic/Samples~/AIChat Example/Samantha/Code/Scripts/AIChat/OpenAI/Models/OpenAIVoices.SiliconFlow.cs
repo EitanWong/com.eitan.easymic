@@ -7,7 +7,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     internal static partial class OpenAIVoices
     {
         /// <summary>CosyVoice2 音色: Alex</summary>
-        public const string Alex = "FunAudioLLM/CosyVoice2-0.5B:alex";
+        public const string Alex = AIChatProviderPresets.SiliconFlowTtsVoice;
         /// <summary>CosyVoice2 音色: Benjamin</summary>
         public const string Benjamin = "FunAudioLLM/CosyVoice2-0.5B:benjamin";
         /// <summary>CosyVoice2 音色: Charles</summary>

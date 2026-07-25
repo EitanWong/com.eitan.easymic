@@ -89,8 +89,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 var host = new AIChatPluginHost(null, new MonoBehaviour[] { previous });
                 host.Tick(0.016f);
                 host.RefreshPlugins(new MonoBehaviour[] { next });
-                host.NotifyChatActivated();
                 host.Tick(0.016f);
+                host.NotifyChatActivated();
 
                 Assert.AreEqual(1, previous.ShutdownCount);
                 Assert.AreEqual(0, previous.ChatActivatedCount);

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR;
 using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS;
 using UnityEngine;
@@ -32,61 +33,154 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _networkHandler = new NetworkAdaptiveHandler();
         }
 
-        private void LoadRuntimeConfigIfNeeded()
+        private void ApplyConfigurationLayers()
         {
             if (_initializationFailed)
             {
                 return;
             }
 
-            if (!Config.LoadRuntimeConfigOnAwake)
+            try
             {
-                return;
+                AIChatRuntimeConfigurationFlow.ApplyStartupLayers(
+                    _fixedSettingsOverride,
+                    _runtimeConfigStore,
+                    RuntimeConfigPath,
+                    Config,
+                    Config.LoadRuntimeConfigOnAwake);
             }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AIChat] Failed to apply startup configuration: {ex.Message}");
+            }
+        }
+
+        internal async Task RefreshRuntimeConfigurationAsync()
+        {
+            var refreshCts = new CancellationTokenSource();
+            CancellationTokenSource previousRefresh =
+                Interlocked.Exchange(ref _runtimeConfigurationRefreshCts, refreshCts);
+            TryCancelRuntimeConfigurationRefresh(previousRefresh);
 
             try
             {
-                string path = RuntimeConfigPath;
-                var runtimeConfig = _runtimeConfigStore.LoadOrCreate(path, Config, out _);
-                if (runtimeConfig == null)
+                CancellationToken cancellationToken = refreshCts.Token;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_isShuttingDown || this == null)
                 {
-                    return;
+                    throw new ObjectDisposedException(nameof(AIChatController));
                 }
 
-                _runtimeConfigStore.Apply(runtimeConfig, Config);
+                if (_initializationFailed)
+                {
+                    throw new InvalidOperationException("AIChatController has a fatal initialization error.");
+                }
+
+                InitializeOpenAiClient();
+                if (_openAiClient == null)
+                {
+                    throw new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(_lastErrorMessage)
+                            ? "OpenAI-compatible client configuration is invalid."
+                            : _lastErrorMessage);
+                }
+
+                await RefreshSpeechSynthesizerConfigurationAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!isActiveAndEnabled)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+
+                if (_openAiClient == null)
+                {
+                    throw new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(_lastErrorMessage)
+                            ? "OpenAI-compatible client configuration is invalid."
+                            : _lastErrorMessage);
+                }
+
+                EnsureTtsPipelineConfigured();
+                RefreshSystemPromptCache();
+                if (IsIdle)
+                {
+                    NotifyChatStateChanged(ChatState.Idle, string.Empty);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                Debug.LogWarning($"[AIChat] Failed to load runtime config: {ex.Message}");
+                Interlocked.CompareExchange(
+                    ref _runtimeConfigurationRefreshCts,
+                    null,
+                    refreshCts);
+                refreshCts.Dispose();
             }
         }
 
-        private void ApplyFixedSettingsOverrideIfPresent()
+        private async Task RefreshSpeechSynthesizerConfigurationAsync(
+            CancellationToken cancellationToken)
         {
-            if (_initializationFailed || _fixedSettingsOverride == null || !_fixedSettingsOverride.EnabledOverride)
+            SpeechSynthesizer synthesizer = SpeechSynthesizer;
+            if (!Config.UseLocalTts)
             {
+                TeardownSpeechSynthesizer();
+                if (synthesizer != null)
+                {
+                    await synthesizer.StopAndWaitAsync();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    synthesizer.enabled = false;
+                }
+
+                UpdateServiceLoading(SERVICE_TTS_INIT_KEY, 1f);
                 return;
             }
 
-            _fixedSettingsOverride.ApplyTo(Config);
-            PersistRuntimeConfigSnapshot();
+            if (synthesizer == null)
+            {
+                throw new InvalidOperationException(
+                    "SpeechSynthesizer is required when local TTS is enabled.");
+            }
+
+            synthesizer.enabled = true;
+            if (!_localTtsCallbacksRegistered)
+            {
+                synthesizer.OnLoadingProgressFeedback += OnSpeechSynthesizerProgressFeedbackHandler;
+                _localTtsCallbacksRegistered = true;
+            }
+
+            UpdateServiceLoading(SERVICE_TTS_INIT_KEY, 0f);
+            await synthesizer.ReloadConfigurationAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!synthesizer.Initialized)
+            {
+                throw new InvalidOperationException(
+                    "Local TTS model initialization did not complete successfully.");
+            }
+
+            UpdateServiceLoading(SERVICE_TTS_INIT_KEY, 1f);
         }
 
-        private void PersistRuntimeConfigSnapshot()
+        private void CancelRuntimeConfigurationRefresh()
         {
-            if (_runtimeConfigStore == null)
+            CancellationTokenSource refreshCts =
+                Interlocked.Exchange(ref _runtimeConfigurationRefreshCts, null);
+            TryCancelRuntimeConfigurationRefresh(refreshCts);
+        }
+
+        private static void TryCancelRuntimeConfigurationRefresh(
+            CancellationTokenSource refreshCts)
+        {
+            if (refreshCts == null)
             {
                 return;
             }
 
             try
             {
-                AIChatRuntimeConfig snapshot = _runtimeConfigStore.Capture(Config);
-                _runtimeConfigStore.TrySave(RuntimeConfigPath, snapshot, out _);
+                refreshCts.Cancel();
             }
-            catch (Exception ex)
+            catch (ObjectDisposedException)
             {
-                Debug.LogWarning($"[AIChat] Failed to persist runtime config snapshot: {ex.Message}");
             }
         }
 
@@ -99,16 +193,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (string.IsNullOrWhiteSpace(Config.ApiBaseUrl))
             {
-                Debug.LogWarning("[AIChat] API base URL is empty.");
-                ReportError("API base URL is empty.");
+                const string message = "API base URL is empty.";
+                Debug.LogWarning($"[AIChat] {message}");
+                ReportRecoverableClientConfigurationError(message);
                 return;
             }
 
             var apiKey = Config.ResolveApiKey();
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                Debug.LogWarning("[AIChat] API key is missing. Set it via runtime config or SetApiKey.");
-                ReportError("API key is missing. Set it via runtime config or SetApiKey.");
+                const string message = "API key is missing. Set it via runtime config or SetApiKey.";
+                Debug.LogWarning($"[AIChat] {message}");
+                ReportRecoverableClientConfigurationError(message);
                 return;
             }
 
@@ -128,10 +224,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[AIChat] Failed to initialize OpenAI client: {ex.Message}");
-                ReportError($"Failed to initialize OpenAI client: {ex.Message}");
-                _openAiClient = null;
+                string message = $"Failed to initialize OpenAI client: {ex.Message}";
+                Debug.LogWarning($"[AIChat] {message}");
+                ReportRecoverableClientConfigurationError(message);
             }
+        }
+
+        private void ReportRecoverableClientConfigurationError(string message)
+        {
+            OpenAICompatibleClient previousClient = _openAiClient;
+            _openAiClient = null;
+            DisposeOpenAiClientWhenIdle(previousClient);
+            _lastErrorMessage = message ?? string.Empty;
+            NotifyChatStateChanged(ChatState.Failed, _lastErrorMessage);
         }
 
         private void InitializeMicrophone()
@@ -171,7 +276,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             float delay = Mathf.Max(0.1f, Config.AsrTurnDetectionDelaySeconds);
-            microphone.ConfigureTurnDetection(new TurnDetectionOptions(delay, delay));
+            float maxDelay = Mathf.Clamp(delay * 2.5f, 0.6f, 1.2f);
+            microphone.ConfigureTurnDetection(new TurnDetectionOptions(delay, Mathf.Max(delay, maxDelay)));
         }
 
         private void InitializeSpeechSynthesizer()
@@ -201,7 +307,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             SpeechSynthesizer.OnLoadingProgressFeedback += OnSpeechSynthesizerProgressFeedbackHandler;
-            SpeechSynthesizer.OnTTSStateChanged += OnLocalTtsStateChanged;
             _localTtsCallbacksRegistered = true;
             EnsureTtsPipelineConfigured();
         }
@@ -236,7 +341,6 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             SpeechSynthesizer.OnLoadingProgressFeedback -= OnSpeechSynthesizerProgressFeedbackHandler;
-            SpeechSynthesizer.OnTTSStateChanged -= OnLocalTtsStateChanged;
             _localTtsCallbacksRegistered = false;
         }
 
@@ -251,6 +355,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _ttsPipeline.OnSentenceStarted -= OnTtsSentenceStarted;
             _ttsPipeline.OnSentenceCompleted -= OnTtsSentenceCompleted;
             _ttsPipeline.OnBufferProgress -= OnTtsBufferProgress;
+            _ttsPipeline.OnPlaybackAudioQueued -= OnTtsPlaybackAudioQueued;
             _ttsPipeline.Dispose();
             _ttsPipeline = null;
         }
@@ -279,6 +384,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _ttsPipeline.OnSentenceStarted += OnTtsSentenceStarted;
                 _ttsPipeline.OnSentenceCompleted += OnTtsSentenceCompleted;
                 _ttsPipeline.OnBufferProgress += OnTtsBufferProgress;
+                _ttsPipeline.OnPlaybackAudioQueued += OnTtsPlaybackAudioQueued;
             }
 
             if (_openAiClient != null)
@@ -290,12 +396,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 UseLocalTts = Config.UseLocalTts && SpeechSynthesizer != null,
                 LocalSynthesizer = SpeechSynthesizer,
-                PlaybackSource = SpeechSynthesizer != null ? SpeechSynthesizer.PlaybackSource : null,
+                PlaybackSource = Config.UseLocalTts && SpeechSynthesizer != null
+                    ? SpeechSynthesizer.PlaybackSource
+                    : null,
                 ClientProvider = GetOrCreateOpenAiClient,
                 RemoteModel = Config.TtsModel,
                 RemoteVoice = Config.TtsVoice,
                 RemoteInputFormatter = BuildRemoteTtsInputFormatter(),
                 EnableStreamingTts = Config.UseStreamingTts,
+                MaxParallelGenerations = 2,
                 LogSentences = Config.LogStreamingChunks,
                 EnableDiagnostics = Config.EnableTtsDiagnostics,
                 MainThreadDispatcher = PostToUnityThread
@@ -372,24 +481,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             return null;
         }
 
-        private void OnPipelineSpeakingStateChanged(bool isSpeaking)
+        private void OnPipelineSpeakingStateChanged(long turnId, bool isSpeaking)
         {
-            SetAssistantSpeakingState(isSpeaking);
+            if (!IsCurrentResponseGeneration(turnId))
+            {
+                return;
+            }
+
+            SetAssistantSpeakingState(turnId, isSpeaking);
             if (!isSpeaking)
             {
-                // Guard: Only record playback drain if this is still the current response.
-                // During interruption, SignalCancelActiveResponse cancels the old round and
-                // starts a new one. The TTS pipeline's stale `NotifySpeakingState(false)` can
-                // arrive AFTER the new round is already created, causing RecordPlaybackDrained
-                // to finalize the new round prematurely (= corrupted timing data).
-                // The generation check rejects stale drain events from previous responses.
                 _latencyTracker?.RecordPlaybackDrained();
             }
         }
 
-        private void OnTtsSentenceStarted(string sentence)
+        private void OnTtsSentenceStarted(long turnId, string sentence)
         {
-            TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, Interlocked.Read(ref _responseGeneration));
+            if (!IsCurrentResponseGeneration(turnId))
+            {
+                return;
+            }
+
+            lock (_stateLock)
+            {
+                _lastAssistantAudioStartRealtime = Time.realtimeSinceStartup;
+            }
+            TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, turnId);
             _latencyTracker?.RecordTtsFirstAudio();
 
             if (Config.LogStreamingChunks)
@@ -398,8 +515,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void OnTtsSentenceCompleted(string sentence)
+        private void OnTtsSentenceCompleted(long turnId, string sentence)
         {
+            if (!IsCurrentResponseGeneration(turnId))
+            {
+                return;
+            }
+
             _latencyTracker?.RecordTtsSentenceCompleted();
             if (Config.LogStreamingChunks)
             {
@@ -407,9 +529,32 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        private void OnTtsBufferProgress(float bufferedSeconds)
+        private void OnTtsBufferProgress(long turnId, float bufferedSeconds)
         {
+            if (!IsCurrentResponseGeneration(turnId))
+            {
+                return;
+            }
+
             _lastPlaybackBufferedSeconds = bufferedSeconds;
+        }
+
+        private void OnTtsPlaybackAudioQueued(float[] samples, int count, int channels, int sampleRate)
+        {
+            var handler = OnAssistantAudioQueued;
+            if (handler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                handler(samples, count, channels, sampleRate);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AIChat] Assistant audio observer failed: {ex.Message}");
+            }
         }
     }
 }

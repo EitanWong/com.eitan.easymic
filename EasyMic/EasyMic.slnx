@@ -6,11 +6,12 @@
   <Project Path="Eitan.EasyMic.Mono.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Samples.csproj" />
   <Project Path="Eitan.EasyMic.Apm.csproj" />
+  <Project Path="Eitan.EasyMic.Apm.PlayModeTests.csproj" />
   <Project Path="Eitan.EasyMic.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Editor.csproj" />
   <Project Path="Eitan.EasyMic.Tests.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="Eitan.EasyMic.Apm.Tests.csproj" />
   <Project Path="Eitan.EasyMic.Editor.Mono.csproj" />
   <Project Path="IngameDebugConsole.Editor.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
 </Solution>

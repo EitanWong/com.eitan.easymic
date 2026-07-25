@@ -49,6 +49,8 @@ namespace Eitan.EasyMic.Runtime
 
         internal readonly struct DelayHandle : IDisposable
         {
+            private const int ScratchSampleCapacity = 1024;
+
             private readonly IntPtr _delayPtr;
             private readonly int _channels;
             internal bool IsValid => _delayPtr != IntPtr.Zero;
@@ -95,12 +97,35 @@ namespace Eitan.EasyMic.Runtime
             internal static bool ProcessInPlace(ref DelayHandle handle, Span<float> interleaved, int frameCount)
             {
                 if (!handle.IsValid || frameCount <= 0) return false;
-                int maxFrames = interleaved.Length / Math.Max(1, handle._channels);
+                int channels = Math.Max(1, handle._channels);
+                int maxFrames = interleaved.Length / channels;
                 if (frameCount > maxFrames) frameCount = maxFrames;
-                fixed (float* p = interleaved)
+                if (frameCount <= 0) return false;
+
+                int scratchFrames = Math.Max(1, ScratchSampleCapacity / channels);
+                Span<float> scratch = stackalloc float[scratchFrames * channels];
+                int processedFrames = 0;
+                while (processedFrames < frameCount)
                 {
-                    return DelayProcessPcmFrames(handle._delayPtr, (IntPtr)p, (IntPtr)p, (uint)frameCount) == Result.Success;
+                    int frames = Math.Min(scratchFrames, frameCount - processedFrames);
+                    int samples = frames * channels;
+                    Span<float> output = interleaved.Slice(processedFrames * channels, samples);
+                    Span<float> input = scratch.Slice(0, samples);
+                    output.CopyTo(input);
+
+                    fixed (float* pOut = output)
+                    fixed (float* pIn = input)
+                    {
+                        if (DelayProcessPcmFrames(handle._delayPtr, (IntPtr)pOut, (IntPtr)pIn, (uint)frames) != Result.Success)
+                        {
+                            return false;
+                        }
+                    }
+
+                    processedFrames += frames;
                 }
+
+                return true;
             }
 
             internal static void SetWet(ref DelayHandle handle, float wet)

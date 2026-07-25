@@ -13,9 +13,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 {
                     return new SiliconFlowProviderAdapter();
                 }
+
+                if (string.Equals(host, "api.openai.com", StringComparison.OrdinalIgnoreCase) ||
+                    host.EndsWith(".openai.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new OpenAIProviderAdapter();
+                }
             }
 
-            return new OpenAIProviderAdapter();
+            return new OpenAICompatibleProviderAdapter();
+        }
+
+        private sealed class OpenAICompatibleProviderAdapter : OpenAIProviderAdapterBase
+        {
         }
     }
 }

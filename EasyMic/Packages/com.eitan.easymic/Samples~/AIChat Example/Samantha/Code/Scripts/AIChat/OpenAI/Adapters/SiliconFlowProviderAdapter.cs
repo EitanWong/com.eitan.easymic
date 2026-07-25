@@ -39,6 +39,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public override string Name => "SiliconFlow";
         public override bool SupportsResponsesApi => false;
 
+        public override string BuildTtsPayload(OpenAITtsRequest request)
+        {
+            return request == null ? "{}" : JsonUtility.ToJson(request);
+        }
+
         public override string BuildChatCompletionsPayload(OpenAIChatRequest request)
         {
             if (request == null)

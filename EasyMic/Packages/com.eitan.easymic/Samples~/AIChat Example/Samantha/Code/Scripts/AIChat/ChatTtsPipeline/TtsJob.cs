@@ -10,6 +10,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     internal sealed class TtsJob
     {
         public readonly int SequenceNumber;
+        public readonly long TurnId;
         public readonly string Sentence;
         public readonly Stopwatch Stopwatch;
         public float[] AudioSamples;
@@ -25,9 +26,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private readonly ConcurrentQueue<float[]> _streamChunks = new ConcurrentQueue<float[]>();
         private long _lastChunkUtcTicks;
 
-        public TtsJob(int sequenceNumber, string sentence)
+        public TtsJob(int sequenceNumber, long turnId, string sentence)
         {
             SequenceNumber = sequenceNumber;
+            TurnId = turnId;
             Sentence = sentence;
             Stopwatch = Stopwatch.StartNew();
         }

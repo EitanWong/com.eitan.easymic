@@ -21,18 +21,21 @@ namespace Eitan.EasyMic.Tests
                 buffer[i] = (float)Math.Sin(2.0 * Math.PI * 440.0 * i / sourceSampleRate);
             }
 
-            var ctx = new AudioContext(channels, sourceSampleRate, buffer.Length);
+            var initializeContext = new AudioContext(channels, sourceSampleRate, buffer.Length);
+            var frameContext = new AudioContext(channels, sourceSampleRate, buffer.Length);
             var resampler = new Resampler(targetSampleRate);
 
-            resampler.Initialize(ctx);
-            resampler.OnAudioPass(buffer.AsSpan(), ctx);
+            resampler.Initialize(initializeContext);
+            Assert.That(initializeContext.SampleRate, Is.EqualTo(targetSampleRate));
+
+            resampler.OnAudioPass(buffer.AsSpan(), frameContext);
             resampler.Dispose();
 
-            Assert.That(ctx.SampleRate, Is.EqualTo(targetSampleRate));
-            Assert.That(ctx.Length, Is.GreaterThan(0));
-            Assert.That(ctx.Length, Is.LessThan(buffer.Length));
+            Assert.That(frameContext.SampleRate, Is.EqualTo(targetSampleRate));
+            Assert.That(frameContext.Length, Is.GreaterThan(0));
+            Assert.That(frameContext.Length, Is.LessThan(buffer.Length));
 
-            var output = new ReadOnlySpan<float>(buffer, 0, ctx.Length);
+            var output = new ReadOnlySpan<float>(buffer, 0, frameContext.Length);
             double sumSq = 0d;
             for (int i = 0; i < output.Length; i++)
             {
@@ -71,4 +74,3 @@ namespace Eitan.EasyMic.Tests
     }
 }
 #endif
-
