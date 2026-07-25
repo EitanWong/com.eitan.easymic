@@ -6,7 +6,7 @@
   **面向 Unity 的外部音频采集、播放与处理系统**
   
   <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.3-1f6feb.svg" alt="Version 0.1.3-exp.3"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.4-1f6feb.svg" alt="Version 0.1.3-exp.4"></a>
     <a href="https://unity3d.com/get-unity/download"><img src="https://img.shields.io/badge/Unity-2021.3%2B-222222.svg" alt="Unity 2021.3+"></a>
     <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-GPLv3-2ea043.svg" alt="GPLv3 License"></a>
     <a href="#系统要求"><img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-6e7681.svg" alt="支持平台"></a>
@@ -18,13 +18,13 @@
   </p>
 
   <p align="center">
-    <strong>版本：</strong><code>0.1.3-exp.3</code> · <span>2026-05-12</span>
+    <strong>版本：</strong><code>0.1.3-exp.4</code> · <span>2026-07-18</span>
   </p>
 
   <p align="center">
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md"><img src="https://img.shields.io/badge/阅读文档-入门指南-1f6feb.svg?style=for-the-badge" alt="阅读文档"></a>
     <a href="#-示例项目总览"><img src="https://img.shields.io/badge/打开示例-Unity_Package-2ea043.svg?style=for-the-badge" alt="打开示例"></a>
-    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/更新日志-0.1.3--exp.3-6e7681.svg?style=for-the-badge" alt="查看更新日志"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/更新日志-0.1.3--exp.4-6e7681.svg?style=for-the-badge" alt="查看更新日志"></a>
   </p>
   <p align="center">
     <em>适用于语音交互、AI 数字人、自定义播放链路和实时音频诊断。</em>
