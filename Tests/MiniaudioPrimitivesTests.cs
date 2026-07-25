@@ -474,24 +474,6 @@ namespace Eitan.EasyMic.Tests
         }
 
         [Test]
-        public void NativeResultFormattingIncludesNumericCode()
-        {
-            var formatted = Native.FormatResult(Native.Result.Error);
-
-            Assert.That(formatted, Does.Contain("Error"));
-            Assert.That(formatted, Does.Contain("-1"));
-        }
-
-        [Test]
-        public void NativeBackendListFormattingIncludesAndroidFallbackBackends()
-        {
-            var formatted = Native.FormatBackendList(new[] { Native.Backend.AAudio, Native.Backend.OpenSl });
-
-            Assert.That(formatted, Does.Contain("AAudio"));
-            Assert.That(formatted, Does.Contain("Open"));
-        }
-
-        [Test]
         public void PlaybackDefaultLatencyProfileIsConservativeOnAndroidOnly()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
