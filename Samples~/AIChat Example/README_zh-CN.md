@@ -106,6 +106,19 @@ Setup 和 Provider Setup 会自动读取 Unity Editor 的语言。简体中文�
 
 运行时面板不会管理全部场景行为。System Prompt、历史轮数、流式 TTS、打断策略和诊断选项仍由 Controller Inspector 或 Configuration Policy 管理。
 
+## 本地语音音量与调试
+
+1. 在 Provider Setup 选择本地语音，点击 SpeechSynthesizer 定位模型组件；确认 VoiceMicrophone 输入设备、ASR 模型和权限。外放时启用 APM/AEC。
+2. 保持 **自动均衡音量 / Normalize Output** 开启，**播放音量 / Playback Volume** 从 1 开始（0 静音，2 最多增加约 6 dB）。这两个选项也能在 SpeechSynthesizer Inspector 调整。
+3. 采用模型原生采样率，例如 vits-melo-tts-zh_en 为 44100 Hz；播放链路负责设备格式转换。降低配置的采样率不会加速模型推理。
+4. 点击 **应用场景并保存设备配置**，保存场景，进入 Play Mode 等待模型加载完成。先保持安静，确认主动问候完整播完，再在播放期间说话，确认可以及时打断。
+5. 排查问题时开启 **开发者调试模式 / Debug Mode**，按 F12 查看流水线延迟与打断；在 SpeechSynthesizer Inspector 查看输入 RMS、输出峰值和实际增益。需要逐字转写或远程音频诊断时，在 Controller Inspector 分别开启 Verbose Streaming Log 或 TTS Diagnostics。
+6. 排查后关闭 Debug Mode。调试日志、流水线采集及 F12 面板随之关闭；实际故障与配置错误仍会报告。设备配置优先于场景默认值，要保持下次启动的设置，请通过 Provider Setup 保存。
+
+均衡算法采用受限 RMS 自动增益：目标 -20 dBFS、最大提升 24 dB、-55 dBFS 静音门限、快降慢升的增益平滑，最后通过 -1 dBFS 采样峰值限制。关闭均衡后峰值保护仍有效。算法参考 [WebRTC 自适应数字增益控制](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_processing/agc2/adaptive_digital_gain_controller.cc) 和 [Limiter](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_processing/agc2/limiter.cc) 的增益约束与限制思路。
+
+处理在已有 20 ms 播放块上原地执行，不增加整句分析或额外排队；处理后的同一信号供播放和 AEC 参考。它减少模型间电平差异，不是 LUFS/真峰值归一化，也不会修复模型本身已产生的削波失真。最终混音和设备音量仍需在目标平台试听。旧 schema v4 缺少新增字段时保留场景默认值。
+
 ## 模块职责
 
 | 模块 | 主要职责 |
@@ -174,14 +187,14 @@ Provider Setup 会从 Controller 自身、子对象和父对象中补齐缺失�
 | 运行时设置没有更新 | 确认面板引用当前活动的 `AIChatController`，再在 Console 中检查保存路径或校验错误。 |
 | 尚未说话就产生请求 | 案例启用了 `ProactiveConversationPlugin`，初始化后会发送主动问候。产品不需要时关闭该行为。 |
 | 自定义 Provider 返回 `400`/`404` | 检查配置的 API 前缀、Bearer 鉴权、Chat Completions 路径和模型。自定义 Host 不要求 Responses API。 |
-| 助手反复打断自己 | 使用耳机或 AEC，调整 `BargeInEchoGuardSeconds`，或调试时关闭 `InterruptAssistantOnUserSpeech`。 |
+| 助手反复打断自己 | 确认 APM/AEC，关闭旁边其他设备声音，分别测试外放与耳机；开启 Debug Mode 查看 BargeIn 时刻、缓冲和采集丢帧，并保留真人打断测试。 |
 | 首次 ASR/本地 TTS 很慢 | Sherpa 模型首次使用可能需要下载和解压，请预留网络、磁盘空间并观察加载进度。 |
 
 ## 发布前检查
 
 - 把 Provider Key 移出本地 JSON，交给后端代理或产品自己的凭证系统。
 - 在 Controller 初始化前注入凭证，或替换案例持久化流程，避免生产凭证再次写回设备 JSON。
-- 在生产环境关闭 `LogStreamingChunks` 和 TTS Diagnostics。Console、诊断 Payload 和生成的 WAV 文件名可能包含转写、Prompt 或回答内容。
+- 在生产环境关闭 `DebugMode`。Console、诊断 Payload 和生成的 WAV 文件名可能包含转写、Prompt 或回答内容。
 - 在每个目标平台测试麦克风权限和设备选择。
 - 使用真实 Provider 账号与模型测试打断、网络失败、长回答，以及本地和远程两种 TTS 模式。
 - 替换案例 UI/角色资源，并检查全部 Prompt 是否符合产品用途。

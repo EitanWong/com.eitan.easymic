@@ -21,6 +21,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 TtsModel = config.TtsModel,
                 TtsVoice = config.TtsVoice,
                 UseLocalTts = config.UseLocalTts ? 1 : 0,
+                DebugMode = config.DebugMode ? 1 : 0,
+                LocalTtsNormalizeOutput = config.SpeechSynthesizer == null || config.SpeechSynthesizer.NormalizeOutput ? 1 : 0,
+                LocalTtsPlaybackVolume = config.SpeechSynthesizer != null ? config.SpeechSynthesizer.PlaybackVolume : 1f,
                 MicrophoneDeviceName = config.Microphone != null
                     ? config.Microphone.DeviceOpts.DeviceName
                     : null,
@@ -65,6 +68,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             snapshot.TtsModel = controllerConfig.TtsModel;
             snapshot.TtsVoice = controllerConfig.TtsVoice;
             snapshot.UseLocalTts = controllerConfig.UseLocalTts ? 1 : 0;
+            snapshot.DebugMode = controllerConfig.DebugMode ? 1 : 0;
+            if (controllerConfig.SpeechSynthesizer != null)
+            {
+                snapshot.LocalTtsNormalizeOutput = controllerConfig.SpeechSynthesizer.NormalizeOutput ? 1 : 0;
+                snapshot.LocalTtsPlaybackVolume = controllerConfig.SpeechSynthesizer.PlaybackVolume;
+            }
             snapshot.MicrophoneDeviceName = controllerConfig.Microphone != null
                 ? controllerConfig.Microphone.DeviceOpts.DeviceName
                 : null;
@@ -112,7 +121,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return false;
                 }
 
-                runtimeConfig = JsonUtility.FromJson<AIChatRuntimeConfig>(json);
+                // Preserve sentinel defaults for additive settings absent in older schema-v4 files.
+                runtimeConfig = new AIChatRuntimeConfig { SchemaVersion = 0 };
+                JsonUtility.FromJsonOverwrite(json, runtimeConfig);
                 if (runtimeConfig == null ||
                     runtimeConfig.SchemaVersion != AIChatRuntimeConfig.CurrentSchemaVersion)
                 {
@@ -215,6 +226,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (runtimeConfig.UseLocalTts >= 0)
             {
                 controllerConfig.UseLocalTts = runtimeConfig.UseLocalTts > 0;
+            }
+
+            if (runtimeConfig.DebugMode >= 0)
+            {
+                controllerConfig.DebugMode = runtimeConfig.DebugMode > 0;
             }
 
             ApplyMicrophoneDevice(runtimeConfig, controllerConfig.Microphone);
@@ -330,6 +346,16 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             if (runtimeConfig.LocalTtsSampleRate > 0)
             {
                 preset.sampleRates = runtimeConfig.LocalTtsSampleRate;
+            }
+
+            if (runtimeConfig.LocalTtsNormalizeOutput >= 0)
+            {
+                synthesizer.NormalizeOutput = runtimeConfig.LocalTtsNormalizeOutput > 0;
+            }
+
+            if (runtimeConfig.LocalTtsPlaybackVolume >= 0f)
+            {
+                synthesizer.PlaybackVolume = runtimeConfig.LocalTtsPlaybackVolume;
             }
 
             preset.Id = SpeechSynthesizerConfiguration.TTSPreset.DefaultPresetId;

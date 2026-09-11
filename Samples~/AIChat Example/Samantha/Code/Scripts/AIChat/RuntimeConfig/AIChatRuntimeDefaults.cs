@@ -10,7 +10,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         public const string DefaultLocalTtsModelId = "vits-melo-tts-zh_en";
         public const int DefaultLocalTtsVoiceId = 1;
-        public const float DefaultLocalTtsSpeed = 1f;
+        public const float DefaultLocalTtsSpeed = 1.15f;
         public const int DefaultLocalTtsSampleRate = 44100;
     }
 }

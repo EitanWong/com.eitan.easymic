@@ -206,6 +206,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return;
                 }
 
+                if (!controller.CurrentConfig.DebugMode)
+                {
+                    EditorGUILayout.HelpBox("Enable Debug Mode in the Controller configuration or Provider Setup to inspect diagnostics.", MessageType.Info);
+                    return;
+                }
+
                 DrawRuntimeField("Initialized", BoolToStatus(controller.IsInitialized));
                 DrawRuntimeField("Chat Active", BoolToStatus(controller.IsChatActive));
                 DrawRuntimeField("Idle", BoolToStatus(controller.IsIdle));

@@ -42,7 +42,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             long generation = responseTurn.TurnId;
             CancellationTokenSource responseCts = responseTurn.CancellationSource;
             CancellationToken token = responseTurn.Token;
-            bool requestTurnPublished = _requestOrchestrator == null || _requestOrchestrator.BeginResponse(generation);
+            bool requestTurnPublished = _requestOrchestrator == null || _requestOrchestrator.BeginResponse(generation, Config.UseLocalTts);
             bool ttsTurnPublished = _ttsPipeline == null || _ttsPipeline.BeginTurn(generation);
             if (!requestTurnPublished || !ttsTurnPublished)
             {
@@ -253,7 +253,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         _networkHandler.RecordLatency(latencyMs);
                         UpdateAverageLatency(latencyMs);
 
-                        if (Config.LogStreamingChunks)
+                        if (Config.DebugMode && Config.LogStreamingChunks)
                         {
                             Debug.Log($"[AIChat] First chunk latency: {latencyMs:F0}ms");
                         }
@@ -261,7 +261,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                     if (!string.IsNullOrEmpty(chunk))
                     {
-                        if (Config.LogStreamingChunks)
+                        if (Config.DebugMode && Config.LogStreamingChunks)
                         {
                             Debug.Log($"[AIChat][LLM] {chunk}");
                         }
@@ -295,7 +295,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
             catch (OperationCanceledException)
             {
-                Debug.Log("[AIChat] Response cancelled.");
+                if (Config.DebugMode)
+                {
+                    Debug.Log("[AIChat] Response cancelled.");
+                }
             }
             catch (TimeoutException ex)
             {
@@ -403,7 +406,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (Config.LogStreamingChunks)
+            if (Config.DebugMode && Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][Sentence] {cleaned}");
             }

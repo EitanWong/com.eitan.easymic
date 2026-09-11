@@ -22,6 +22,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public PromptProfile SystemPromptProfile;
         public bool LogStreamingChunks;
 
+        [Header("Diagnostics")]
+        [Tooltip("Enables the pipeline panel and verbose ASR, LLM, TTS, microphone and local-TTS diagnostics.")]
+        public bool DebugMode;
+
         [Header("Conversation")]
         [Min(0)]
         public int MaxHistoryTurns = 6;

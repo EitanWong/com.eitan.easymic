@@ -253,7 +253,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     return;
                 }
 
-                Debug.Log($"[AIChat] Runtime settings saved to {path} and applied.");
+                if (_controller != null && _controller.CurrentConfig.DebugMode)
+                {
+                    Debug.Log($"[AIChat] Runtime settings saved to {path} and applied.");
+                }
             }
             catch (Exception ex)
             {
@@ -266,8 +269,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private AIChatRuntimeConfig ReadFields()
         {
+            // This panel has no controls for the editor's output/debug preferences.
+            // Preserve them when saving the fields that it does manage.
+            var preferences = _runtimeConfigStore.Capture(_controller != null ? _controller.CurrentConfig : null);
+            if (_controller == null && _runtimeConfigStore.TryLoad(ResolveConfigPath(), out var saved))
+            {
+                preferences = saved;
+            }
             return new AIChatRuntimeConfig
             {
+                DebugMode = preferences.DebugMode,
+                LocalTtsNormalizeOutput = preferences.LocalTtsNormalizeOutput,
+                LocalTtsPlaybackVolume = preferences.LocalTtsPlaybackVolume,
                 ApiKey = GetText(_apiKeyInput),
                 ApiBaseUrl = GetText(_apiBaseUrlInput),
                 LlmModel = GetText(_llmModelInput),
