@@ -29,5 +29,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         public int LocalTtsVoiceId = -1;
         public float LocalTtsSpeed = -1f;
         public int LocalTtsSampleRate = -1;
+        public int DebugMode = -1;
+        public int LocalTtsNormalizeOutput = -1;
+        public float LocalTtsPlaybackVolume = -1f;
     }
 }

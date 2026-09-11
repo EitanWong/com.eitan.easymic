@@ -55,6 +55,43 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
+        private void ApplyDebugSettings()
+        {
+            bool enabled = Config != null && Config.DebugMode;
+            if (_latencyTracker != null)
+            {
+                _latencyTracker.Enabled = enabled;
+                _latencyTracker.LogEvents = enabled;
+            }
+
+            if (Microphone != null)
+            {
+                Microphone.EnableLog = enabled;
+            }
+
+            if (SpeechSynthesizer != null)
+            {
+                SpeechSynthesizer.EnableLog = enabled;
+            }
+
+            var panel = FindObjectOfType<PipelineDebugPanel>();
+            if (panel == null && enabled && Application.isPlaying)
+            {
+                panel = gameObject.AddComponent<PipelineDebugPanel>();
+            }
+            if (panel != null)
+            {
+                panel.AssignTracker(_latencyTracker);
+                panel.SetDebugMode(enabled);
+            }
+            if (_openAiClient != null)
+            {
+                _openAiClient.EnableTtsDiagnostics = enabled && Config.EnableTtsDiagnostics;
+            }
+            _ttsPipeline?.ConfigureDiagnostics(
+                enabled && Config.LogStreamingChunks, enabled && Config.EnableTtsDiagnostics);
+        }
+
         internal async Task RefreshRuntimeConfigurationAsync()
         {
             var refreshCts = new CancellationTokenSource();
@@ -76,6 +113,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     throw new InvalidOperationException("AIChatController has a fatal initialization error.");
                 }
 
+                ApplyDebugSettings();
                 InitializeOpenAiClient();
                 if (_openAiClient == null)
                 {
@@ -218,7 +256,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 OpenAICompatibleClient previousClient = _openAiClient;
                 _openAiClient = new OpenAICompatibleClient(normalized, apiKey);
-                _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
+                _openAiClient.EnableTtsDiagnostics = Config.DebugMode && Config.EnableTtsDiagnostics;
                 DisposeOpenAiClientWhenIdle(previousClient);
                 _lastErrorMessage = string.Empty;
             }
@@ -389,7 +427,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             if (_openAiClient != null)
             {
-                _openAiClient.EnableTtsDiagnostics = Config.EnableTtsDiagnostics;
+                _openAiClient.EnableTtsDiagnostics = Config.DebugMode && Config.EnableTtsDiagnostics;
             }
 
             var pipelineConfig = new TtsPipelineConfig
@@ -405,8 +443,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 RemoteInputFormatter = BuildRemoteTtsInputFormatter(),
                 EnableStreamingTts = Config.UseStreamingTts,
                 MaxParallelGenerations = 2,
-                LogSentences = Config.LogStreamingChunks,
-                EnableDiagnostics = Config.EnableTtsDiagnostics,
+                LogSentences = Config.DebugMode && Config.LogStreamingChunks,
+                EnableDiagnostics = Config.DebugMode && Config.EnableTtsDiagnostics,
                 MainThreadDispatcher = PostToUnityThread
             };
 
@@ -509,7 +547,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             TryCaptureLatencyMilestone(ref _lastFirstAudioLatencyMs, turnId);
             _latencyTracker?.RecordTtsFirstAudio();
 
-            if (Config.LogStreamingChunks)
+            if (Config.DebugMode && Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][TTS] Speaking: {sentence}");
             }
@@ -523,7 +561,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
 
             _latencyTracker?.RecordTtsSentenceCompleted();
-            if (Config.LogStreamingChunks)
+            if (Config.DebugMode && Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][TTS] Completed: {sentence}");
             }

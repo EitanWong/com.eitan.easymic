@@ -65,5 +65,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
             Assert.AreEqual(48, emitted[0].Length);
             Assert.AreEqual(4, assembler.BufferLength);
         }
+
+        [Test]
+        public void Append_ShouldEmitFirstClauseForLowLatencyLocalTts()
+        {
+            var assembler = new StreamingSentenceAssembler { PreferShortPhrases = true };
+
+            var emitted = assembler.Append("这是一个用于实时语音合成的短语，后面还有内容", forceFlush: false).ToList();
+
+            CollectionAssert.AreEqual(new[] { "这是一个用于实时语音合成的短语，" }, emitted);
+        }
     }
 }

@@ -34,7 +34,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 };
             }
 
-            public static TTSPreset Default => Create("vits-melo-tts-zh_en", 1, 1f, 44100);
+            public static TTSPreset Default => Create("vits-melo-tts-zh_en", 1, 1.15f, 44100);
         }
 
         [SerializeField] private TTSPreset[] _presets = { TTSPreset.Default };

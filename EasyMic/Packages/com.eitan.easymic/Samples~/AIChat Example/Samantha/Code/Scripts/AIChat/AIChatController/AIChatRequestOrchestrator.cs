@@ -51,7 +51,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             }
         }
 
-        public bool BeginResponse(long responseId)
+        public bool BeginResponse(long responseId, bool preferShortPhrases = false)
         {
             lock (_sync)
             {
@@ -62,6 +62,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 _activeResponseId = responseId;
                 ResetCurrentResponseLocked();
+                _sentenceAssembler.PreferShortPhrases = preferShortPhrases;
                 return true;
             }
         }

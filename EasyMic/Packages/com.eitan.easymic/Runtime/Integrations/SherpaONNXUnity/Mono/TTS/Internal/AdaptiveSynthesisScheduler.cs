@@ -12,6 +12,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.Internal
 
         private readonly float _minBufferedSeconds;
         private readonly float _maxBufferedSeconds;
+        private readonly int _maxParallel;
         private float _smoothedLoad;
         private bool _hasLoadSample;
         private double _lastCpuTotalSeconds;
@@ -34,15 +35,19 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.Internal
             TargetBufferedSeconds = baseBuffer;
 
             int hardMax = Mathf.Clamp(Mathf.Max(1, SystemInfo.processorCount - 1), 1, MaxParallelClamp);
-            int baseParallel = Mathf.Clamp(baseMaxParallel, 1, hardMax);
-            MaxParallel = baseParallel;
+            _maxParallel = Mathf.Clamp(baseMaxParallel, 1, hardMax);
+            MaxParallel = _maxParallel;
         }
 
         public void Sample()
         {
             float cpuLoad = SampleCpuLoad();
             float framePressure = SampleFramePressure();
-            float load = CombineLoad(cpuLoad, framePressure);
+            UpdateLoad(CombineLoad(cpuLoad, framePressure));
+        }
+
+        internal void UpdateLoad(float load)
+        {
             if (load < 0f)
             {
                 return;
@@ -51,8 +56,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.Internal
             _smoothedLoad = _hasLoadSample ? Mathf.Lerp(_smoothedLoad, load, SmoothFactor) : load;
             _hasLoadSample = true;
 
-            int hardMax = Mathf.Clamp(Mathf.Max(1, SystemInfo.processorCount - 1), 1, MaxParallelClamp);
-            MaxParallel = Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(hardMax, 1, _smoothedLoad)), 1, hardMax);
+            MaxParallel = Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(_maxParallel, 1, _smoothedLoad)), 1, _maxParallel);
             TargetBufferedSeconds = Mathf.Clamp(
                 Mathf.Lerp(_minBufferedSeconds, _maxBufferedSeconds, _smoothedLoad),
                 _minBufferedSeconds,

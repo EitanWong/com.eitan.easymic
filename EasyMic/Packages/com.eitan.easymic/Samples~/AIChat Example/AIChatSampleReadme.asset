@@ -22,6 +22,14 @@ MonoBehaviour:
         the dependency check, then configure a Provider and save the device API key.
       _linkLabel: 
       _url: 
+    - _heading: Audio Setup and First Conversation
+      _body: Select VoiceMicrophone to choose the input and ASR model; enable APM/AEC
+        for speakers. In Provider Setup choose local speech, select SpeechSynthesizer
+        for the model, and keep automatic volume balance on with playback volume 1.
+        Save and enter Play Mode. Let the greeting finish in silence, then speak during
+        playback to verify interruption. Enable Debug Mode and press F12 when troubleshooting.
+      _linkLabel:
+      _url:
     - _heading: Core Modules
       _body: VoiceMicrophone handles capture and ASR. AIChatController owns turns
         and orchestration. OpenAI adapters select the Provider contract. ChatTtsPipeline
@@ -58,6 +66,13 @@ MonoBehaviour:
         Provider 并保存当前设备的 API Key。
       _linkLabel: 
       _url: 
+    - _heading: 音频配置与首次对话
+      _body: 选择 VoiceMicrophone 设置输入与 ASR 模型，外放时启用 APM/AEC。
+        在 Provider 设置中选择本地语音，通过 SpeechSynthesizer 设置模型，保持自动均衡开启、播放音量为 1。
+        保存后进入 Play Mode，先保持安静听完问候，再在播放时说话验证打断。
+        排查问题时开启 Debug Mode 并按 F12 查看流水线。
+      _linkLabel:
+      _url:
     - _heading: 核心模块
       _body: VoiceMicrophone 负责采集与 ASR；AIChatController 管理轮次和编排；OpenAI
         适配器选择 Provider 契约；ChatTtsPipeline 生成并播放语音；Plugins

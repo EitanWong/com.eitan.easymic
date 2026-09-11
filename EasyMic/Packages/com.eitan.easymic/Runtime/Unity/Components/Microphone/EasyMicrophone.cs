@@ -42,7 +42,6 @@ namespace Eitan.EasyMic.Runtime.Mono
         private Coroutine _pendingStartRecordingRoutine;
         private bool _pendingStartRecording;
         private float _nextRecordingDiagnosticsLogTime;
-        private bool _reportedMacEditorSilentCapture;
 
         private static string s_lastApmUnavailableReason = string.Empty;
 
@@ -592,30 +591,16 @@ namespace Eitan.EasyMic.Runtime.Mono
 
             _nextRecordingDiagnosticsLogTime = Time.unscaledTime + 1f;
             var info = CurrentRecordingInfo;
+            var telemetry = info.Telemetry;
             bool unityMicAuthorized = Application.HasUserAuthorization(UserAuthorization.Microphone);
+            // The transport callback does not sample raw peaks/bytes; legacy zero counters are not silence evidence.
             LogInfo(
                 $"Recording diagnostics: device='{info.Device.Name}', rate={(int)info.SampleRate}, channel={(int)info.Channel}, callbacks={info.NativeCallbackCount}, " +
-                $"inputNull={info.NativeInputNullCount}, outputNull={info.NativeOutputNullCount}, nonZeroCallbacks={info.NativeNonZeroCallbackCount}, " +
-                $"nonZeroByteCallbacks={info.NativeNonZeroByteCallbackCount}, nonZeroOutputByteCallbacks={info.NativeNonZeroOutputByteCallbackCount}, " +
-                $"lastRawPeak={info.LastRawInputPeak:0.000000}, maxRawPeak={info.MaxRawInputPeak:0.000000}, " +
-                $"lastNonZeroBytes={info.LastRawInputNonZeroBytes}, maxNonZeroBytes={info.MaxRawInputNonZeroBytes}, " +
-                $"lastOutputNonZeroBytes={info.LastRawOutputNonZeroBytes}, maxOutputNonZeroBytes={info.MaxRawOutputNonZeroBytes}, unityMicAuthorized={unityMicAuthorized}");
-
-#if UNITY_EDITOR_OSX
-            if (!_reportedMacEditorSilentCapture &&
-                unityMicAuthorized &&
-                info.NativeCallbackCount >= 300 &&
-                info.NativeInputNullCount == 0 &&
-                info.NativeNonZeroByteCallbackCount == 0)
-            {
-                _reportedMacEditorSilentCapture = true;
-                LogWarning(
-                    "EasyMicrophone: CoreAudio capture is running but delivering silent buffers in Unity Editor. " +
-                    "On macOS this usually means microphone access was granted to Unity Hub, but not to the Unity Editor process " +
-                    "(bundle id com.unity3d.UnityEditor5.x). This Unity Editor build may also lack NSMicrophoneUsageDescription in its Info.plist. " +
-                    "A Player build with microphone permission should not use the Editor's TCC state.");
-            }
-#endif
+                $"inputNull={info.NativeInputNullCount}, outputNull={info.NativeOutputNullCount}, raw_stats=not_collected, " +
+                $"framesReceived={telemetry.FramesReceived}, framesDropped={telemetry.FramesDropped}, transportOverruns={telemetry.TransportOverruns}, " +
+                $"queueSamples={telemetry.LastQueueDepthSamples}, maxQueueSamples={telemetry.MaxQueueDepthSamples}, " +
+                $"workerMaxMs={telemetry.WorkerMaxMicroseconds / 1000d:0.00}, processorExceptions={telemetry.ProcessorExceptions}, " +
+                $"callbackExceptions={telemetry.CallbackExceptions}, unityMicAuthorized={unityMicAuthorized}");
         }
         private void InternalStartRecordingHandler()
         {

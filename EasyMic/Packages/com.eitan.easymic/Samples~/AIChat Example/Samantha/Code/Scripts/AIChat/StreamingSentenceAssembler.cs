@@ -41,6 +41,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private bool _hasEmittedSentence;
 
         public int BufferLength => _buffer.Length;
+        public bool PreferShortPhrases { get; set; }
 
         public IEnumerable<string> Append(string chunk, bool forceFlush = false)
         {
@@ -122,6 +123,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             int softBreakMinimum = _hasEmittedSentence
                 ? SoftBreakMinimumLength
                 : FirstSoftBreakMinimumLength;
+            if (PreferShortPhrases)
+                softBreakMinimum = _hasEmittedSentence ? 24 : 12;
             if (IsSoftBreak(c) && IsBalanced() && _buffer.Length >= softBreakMinimum)
             {
                 EmitSentence();
@@ -143,6 +146,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             int safetySplitLength = _hasEmittedSentence
                 ? SafetySplitLength
                 : FirstSafetySplitLength;
+            if (PreferShortPhrases)
+                safetySplitLength = _hasEmittedSentence ? 96 : 32;
             if (_buffer.Length >= safetySplitLength && IsBalanced())
             {
                 TrySafetySplit(safetySplitLength);

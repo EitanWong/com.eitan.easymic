@@ -21,6 +21,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private Rect _windowRect = new Rect(30, 40, 920, 620);
         private PipelineDebugTracker _tracker;
         private bool _visible;
+        private bool _debugMode;
         private bool _showHistory;
         private Vector2 _scroll;
         private Vector2 _historyScroll;
@@ -90,9 +91,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _tracker = tracker;
         }
 
+        public void SetDebugMode(bool enabled)
+        {
+            _debugMode = enabled;
+            if (!enabled)
+            {
+                _visible = false;
+            }
+        }
+
         private void Update()
         {
-            if (Input.GetKeyDown(_toggleKey))
+            if (_debugMode && Input.GetKeyDown(_toggleKey))
             {
                 _visible = !_visible;
             }
@@ -100,7 +110,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
         private void OnGUI()
         {
-            if (!_visible)
+            if (!_debugMode || !_visible)
             {
                 return;
             }

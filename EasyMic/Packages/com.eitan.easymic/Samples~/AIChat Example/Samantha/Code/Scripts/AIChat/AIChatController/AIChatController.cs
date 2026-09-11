@@ -230,6 +230,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
             ApplyConfigurationLayers();
+            ApplyDebugSettings();
             InitializeOpenAiClient();
             if (_initializationFailed)
             {
@@ -270,6 +271,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
             UpdateIdleState();
             UpdateCursorAutoHideState();
+            if (_latencyTracker != null && _latencyTracker.Enabled != Config.DebugMode)
+            {
+                ApplyDebugSettings();
+            }
             _lastMainThreadTime = Time.realtimeSinceStartup;
             RefreshSystemPromptCache();
             _pluginHost?.Tick(Time.unscaledDeltaTime);

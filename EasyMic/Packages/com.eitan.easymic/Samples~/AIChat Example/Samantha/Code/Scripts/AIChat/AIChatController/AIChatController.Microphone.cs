@@ -58,7 +58,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
-            if (Config.LogStreamingChunks)
+            if (Config.DebugMode && Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][ASR] Streaming: {preview}");
             }
@@ -93,7 +93,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 _userInputBuffer.Append(trimmed);
             }
             var finalSubmit = GetUserInputBuffer();
-            if (Config.LogStreamingChunks)
+            if (Config.DebugMode && Config.LogStreamingChunks)
             {
                 Debug.Log($"[AIChat][ASR] Submit: {finalSubmit}");
             }
@@ -177,11 +177,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             _pendingBargeInConfirmationCoroutine = null;
             if (Microphone != null && Microphone.IsSpeaking)
             {
-                TryInterruptAssistantForUserSpeech(turnId);
+                TryInterruptAssistantForUserSpeech(turnId, "echo_guard_expired");
             }
         }
 
-        private void TryInterruptAssistantForUserSpeech(long turnId)
+        private void TryInterruptAssistantForUserSpeech(long turnId, string reason = "voice_activity")
         {
             FullDuplexTurnSnapshot snapshot = _turnCoordinator.GetSnapshot();
             if (snapshot.TurnId != turnId || !snapshot.IsBusy)
@@ -189,8 +189,34 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            if (Config.DebugMode)
+            {
+                LogBargeIn(turnId, reason, snapshot);
+            }
+
             Interlocked.Increment(ref _interruptionCount);
             SignalCancelActiveResponse(advanceGeneration: true);
+        }
+
+        private void LogBargeIn(long turnId, string reason, FullDuplexTurnSnapshot snapshot)
+        {
+            float audioStartRealtime;
+            lock (_stateLock) audioStartRealtime = _lastAssistantAudioStartRealtime;
+            var synth = SpeechSynthesizer;
+            double bufferedSeconds = Config.UseLocalTts && synth != null && synth.PlaybackSource != null
+                ? synth.PlaybackSource.BufferedSeconds
+                : _lastPlaybackBufferedSeconds;
+            var capture = Microphone != null ? Microphone.CurrentRecordingInfo.Telemetry : default;
+            Debug.Log(
+                $"[AIChat][BargeIn] reason={reason} turn={turnId} local_tts={Config.UseLocalTts} " +
+                $"time={Time.realtimeSinceStartup:0.000} assistant_speaking={snapshot.AssistantSpeaking} " +
+                $"audio_started={audioStartRealtime > 0f} audio_age_ms={(audioStartRealtime > 0f ? (Time.realtimeSinceStartup - audioStartRealtime) * 1000f : -1f):0} " +
+                $"guard_ms={Config.BargeInEchoGuardSeconds * 1000f:0} buffered_ms={bufferedSeconds * 1000d:0} " +
+                $"synthesis_jobs={(Config.UseLocalTts && synth != null ? synth.ActiveSynthesisJobs : 0)} " +
+                $"synthesis_limit={(Config.UseLocalTts && synth != null ? synth.MaxParallelSynthesis : 0)} " +
+                $"capture_overruns={capture.TransportOverruns} capture_dropped_frames={capture.FramesDropped} " +
+                $"capture_worker_max_ms={capture.WorkerMaxMicroseconds / 1000d:0.00} capture_errors={capture.ProcessorExceptions}");
+
         }
 
         private void StopPendingBargeInConfirmation()
