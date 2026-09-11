@@ -101,6 +101,19 @@ The scene Policy therefore remains a reusable default, while settings saved thro
 
 The runtime panel deliberately does not manage every scene-level behavior. System prompt, history size, streaming-TTS behavior, interruption behavior, and diagnostics remain in the controller inspector or configuration policy.
 
+## Local Speech Volume And Debugging
+
+1. Choose local speech in Provider Setup and select SpeechSynthesizer to configure the model. Check VoiceMicrophone input, ASR and permissions; enable APM/AEC when using speakers.
+2. Keep **Normalize Output** enabled and start **Playback Volume** at 1 (0 mutes; 2 adds up to 6 dB). Both controls are also available in the SpeechSynthesizer inspector.
+3. Use the model's native rate, e.g. 44100 Hz for vits-melo-tts-zh_en. Playback converts to the device format; lowering the configured rate does not accelerate inference.
+4. Apply and save device settings, save the scene, and enter Play Mode. Wait for model loading. First remain quiet through the greeting, then speak during playback to verify interruption.
+5. Enable **Debug Mode** to inspect F12 pipeline timing and interruption history. Select SpeechSynthesizer for input RMS, output peak and gain. Opt into Verbose Streaming Log or TTS Diagnostics separately in the Controller inspector when needed.
+6. Disable Debug Mode after testing. Component debug logs, pipeline collection and the F12 panel turn off; actionable errors remain reported. Save in Provider Setup to keep these settings on the next launch, since device settings override scene defaults.
+
+The leveler uses a -20 dBFS RMS target, 24 dB maximum boost, -55 dBFS silence gate, faster gain reduction than recovery and a -1 dBFS sample-peak limiter. Peak protection remains active with normalization off. Its bounded-gain and limiting design is informed by [WebRTC adaptive digital gain control](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_processing/agc2/adaptive_digital_gain_controller.cc) and its [limiter](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_processing/agc2/limiter.cc).
+
+Existing 20 ms blocks are processed in place with no extra queue or whole-utterance analysis. Playback and AEC receive the same processed signal. This reduces model level differences; it is not LUFS or true-peak normalization and cannot repair already clipped model output. Check the final mix and listening level on each platform. Older schema-v4 files without the additive fields preserve scene defaults.
+
 ## Module Map
 
 | Module | Main responsibility |

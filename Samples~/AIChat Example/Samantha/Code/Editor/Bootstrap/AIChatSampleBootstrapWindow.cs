@@ -87,6 +87,17 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             : AIChatSetupTextKey.ProviderPendingDetail),
                     providerReady);
 
+                using (new EditorGUILayout.VerticalScope(AIChatSetupGui.CardStyle))
+                {
+                    AIChatSetupGui.DrawSectionHeader(4, Text(AIChatSetupTextKey.AudioSetupStep));
+                    EditorGUILayout.LabelField(Text(AIChatSetupTextKey.AudioSetupHelp), AIChatSetupGui.BodyStyle);
+                }
+                using (new EditorGUILayout.VerticalScope(AIChatSetupGui.CardStyle))
+                {
+                    AIChatSetupGui.DrawSectionHeader(5, Text(AIChatSetupTextKey.FirstConversationStep));
+                    EditorGUILayout.LabelField(Text(AIChatSetupTextKey.FirstConversationHelp), AIChatSetupGui.BodyStyle);
+                }
+
                 AIChatSetupGui.DrawContract(
                     Text(AIChatSetupTextKey.CurrentContract),
                     Text(AIChatSetupTextKey.CurrentContractDetail, CurrentSchemaVersion));

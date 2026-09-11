@@ -5,7 +5,7 @@
 
 **面向 Unity 的低延迟麦克风采集、播放和可扩展音频管线**
 
-![Version](https://img.shields.io/badge/version-0.1.3--exp.4-175cd3)
+![Version](https://img.shields.io/badge/version-0.1.3--exp.5-175cd3)
 ![Unity](https://img.shields.io/badge/Unity-2021.3%2B-101828)
 ![License](https://img.shields.io/badge/license-GPL--3.0-067647)
 

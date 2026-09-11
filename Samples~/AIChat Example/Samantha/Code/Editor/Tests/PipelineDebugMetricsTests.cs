@@ -5,6 +5,19 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
     public class PipelineDebugMetricsTests
     {
         [Test]
+        public void DebugMode_DefaultsOffAndDisabledTrackerDoesNotCollect()
+        {
+            Assert.IsFalse(new AIChatControllerConfig().DebugMode);
+            var tracker = new PipelineDebugTracker();
+            tracker.RecordAsrStart();
+            tracker.RecordLlmRequestSent();
+            Assert.IsNull(tracker.CurrentRound);
+            tracker.Enabled = true;
+            tracker.RecordLlmRequestSent();
+            Assert.IsNotNull(tracker.CurrentRound);
+        }
+
+        [Test]
         public void ConversationRound_ShouldCalculateVoicePipelineHandoffs()
         {
             var round = new ConversationRound

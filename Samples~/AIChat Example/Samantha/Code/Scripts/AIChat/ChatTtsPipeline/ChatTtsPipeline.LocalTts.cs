@@ -7,6 +7,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 {
     internal sealed partial class ChatTtsPipeline
     {
+        private int _localSynthPreviousMaxParallel;
+
         private void AttachLocalSynthCallbacks(SpeechSynthesizer synth)
         {
             if (_localSynthCallbacksBound || synth == null)
@@ -14,7 +16,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 return;
             }
 
+            // Each ONNX inference already uses multiple threads; keep headroom for capture and AEC.
+            _localSynthPreviousMaxParallel = synth.MaxParallelSynthesis;
+            synth.MaxParallelSynthesis = 1;
             synth.OnTTSStateChanged += OnLocalTtsStateChanged;
+            synth.OnSentencePlaybackStarted += OnLocalSentencePlaybackStarted;
             _boundLocalSynthesizer = synth;
             _localSynthCallbacksBound = true;
         }
@@ -31,6 +37,8 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                 try
                 {
                     _boundLocalSynthesizer.OnTTSStateChanged -= OnLocalTtsStateChanged;
+                    _boundLocalSynthesizer.OnSentencePlaybackStarted -= OnLocalSentencePlaybackStarted;
+                    _boundLocalSynthesizer.MaxParallelSynthesis = _localSynthPreviousMaxParallel;
                 }
                 catch
                 {
@@ -44,6 +52,18 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         private void OnLocalTtsStateChanged(bool isSpeaking)
         {
             NotifySpeakingState(Interlocked.Read(ref _activeTurnId), isSpeaking);
+        }
+
+        private void OnLocalSentencePlaybackStarted(string sentence)
+        {
+            long turnId = Interlocked.Read(ref _activeTurnId);
+            SafeInvoke(() =>
+            {
+                if (!_disposed && turnId > 0 && turnId == Interlocked.Read(ref _activeTurnId))
+                {
+                    OnSentenceStarted?.Invoke(turnId, sentence);
+                }
+            });
         }
     }
 }

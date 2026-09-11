@@ -131,6 +131,15 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             ResetAdaptiveBufferState();
         }
 
+        public void ConfigureDiagnostics(bool logSentences, bool enableDiagnostics)
+        {
+            lock (_stateLock)
+            {
+                _config.LogSentences = logSentences;
+                _config.EnableDiagnostics = enableDiagnostics;
+            }
+        }
+
         private void CacheProjectRootPath()
         {
             if (!string.IsNullOrEmpty(_projectRootPath))

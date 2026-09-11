@@ -25,6 +25,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         [SerializeField] private string _ttsModel = string.Empty;
         [SerializeField] private string _ttsVoice = string.Empty;
         [SerializeField] private bool _useStreamingTts = true;
+        [SerializeField] private bool _debugMode;
+        [SerializeField] private bool _normalizeLocalTts = true;
+        [SerializeField] private float _localTtsVolume = 1f;
         [SerializeField] private Vector2 _scrollPosition;
 
         private string _apiKey = string.Empty;
@@ -178,6 +181,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
 
                 _apiBaseUrl = EditorGUILayout.TextField(Text(AIChatSetupTextKey.ApiBaseUrl), _apiBaseUrl);
                 _llmModel = EditorGUILayout.TextField(Text(AIChatSetupTextKey.LlmModel), _llmModel);
+                _debugMode = EditorGUILayout.Toggle(Text(AIChatSetupTextKey.DebugMode), _debugMode);
+                if (_debugMode)
+                {
+                    EditorGUILayout.HelpBox(Text(AIChatSetupTextKey.DebugModeHelp), MessageType.Info);
+                }
             }
 
             using (new EditorGUILayout.VerticalScope(AIChatSetupGui.CardStyle))
@@ -198,6 +206,14 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     EditorGUILayout.HelpBox(
                         Text(AIChatSetupTextKey.LocalTtsHelp),
                         MessageType.Info);
+                    _normalizeLocalTts = EditorGUILayout.Toggle(Text(AIChatSetupTextKey.NormalizeLocalTts), _normalizeLocalTts);
+                    _localTtsVolume = EditorGUILayout.Slider(Text(AIChatSetupTextKey.LocalTtsVolume), _localTtsVolume, 0f, 2f);
+                    EditorGUILayout.HelpBox(Text(AIChatSetupTextKey.LocalTtsAudioHelp), MessageType.None);
+                    if (GUILayout.Button("SpeechSynthesizer", EditorStyles.miniButton))
+                    {
+                        Selection.activeObject = _controller.CurrentConfig.SpeechSynthesizer ??
+                            FindControllerComponent<SpeechSynthesizer>();
+                    }
                 }
                 else
                 {
@@ -321,6 +337,10 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
         {
             AIChatControllerConfig config = _controller.CurrentConfig;
             var policy = _controller.GetComponent<AIChatConfigurationPolicy>();
+            _debugMode = config.DebugMode;
+            var synthesizer = config.SpeechSynthesizer ?? FindControllerComponent<SpeechSynthesizer>();
+            _normalizeLocalTts = synthesizer == null || synthesizer.NormalizeOutput;
+            _localTtsVolume = synthesizer != null ? synthesizer.PlaybackVolume : 1f;
 
             if (policy != null && policy.EnabledOverride)
             {
@@ -383,6 +403,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             {
                 _useLocalTts = runtimeConfig.UseLocalTts > 0;
             }
+            if (runtimeConfig.DebugMode >= 0) _debugMode = runtimeConfig.DebugMode > 0;
+            if (runtimeConfig.LocalTtsNormalizeOutput >= 0) _normalizeLocalTts = runtimeConfig.LocalTtsNormalizeOutput > 0;
+            if (runtimeConfig.LocalTtsPlaybackVolume >= 0f) _localTtsVolume = Mathf.Clamp(runtimeConfig.LocalTtsPlaybackVolume, 0f, 2f);
         }
 
         private void ApplyPresetToFields(AIChatProviderPreset preset)
@@ -423,11 +446,28 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             SetString(config.FindPropertyRelative(nameof(AIChatControllerConfig.ApiBaseUrl)), normalizedApiBaseUrl);
             SetString(config.FindPropertyRelative(nameof(AIChatControllerConfig.LlmModel)), _llmModel);
             SetBool(config.FindPropertyRelative(nameof(AIChatControllerConfig.UseLocalTts)), _useLocalTts);
+            SetBool(config.FindPropertyRelative(nameof(AIChatControllerConfig.DebugMode)), _debugMode);
             SetString(config.FindPropertyRelative(nameof(AIChatControllerConfig.TtsModel)), _ttsModel);
             SetString(config.FindPropertyRelative(nameof(AIChatControllerConfig.TtsVoice)), _ttsVoice);
             SetBool(config.FindPropertyRelative(nameof(AIChatControllerConfig.UseStreamingTts)), !_useLocalTts && _useStreamingTts);
             controllerSerialized.ApplyModifiedProperties();
             EditorUtility.SetDirty(_controller);
+
+            SpeechSynthesizer synthesizer = _controller.CurrentConfig.SpeechSynthesizer;
+            if (synthesizer != null)
+            {
+                Undo.RecordObject(synthesizer, Text(AIChatSetupTextKey.ConfigureProviderUndo));
+                synthesizer.NormalizeOutput = _normalizeLocalTts;
+                synthesizer.PlaybackVolume = _localTtsVolume;
+                synthesizer.EnableLog = _debugMode;
+                EditorUtility.SetDirty(synthesizer);
+            }
+            if (_controller.CurrentConfig.Microphone != null)
+            {
+                Undo.RecordObject(_controller.CurrentConfig.Microphone, Text(AIChatSetupTextKey.ConfigureProviderUndo));
+                _controller.CurrentConfig.Microphone.EnableLog = _debugMode;
+                EditorUtility.SetDirty(_controller.CurrentConfig.Microphone);
+            }
 
             AIChatConfigurationPolicy policy = _controller.GetComponent<AIChatConfigurationPolicy>();
             if (policy == null)
@@ -487,6 +527,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
             runtimeConfig.TtsModel = (_ttsModel ?? string.Empty).Trim();
             runtimeConfig.TtsVoice = (_ttsVoice ?? string.Empty).Trim();
             runtimeConfig.UseLocalTts = _useLocalTts ? 1 : 0;
+            runtimeConfig.DebugMode = _debugMode ? 1 : 0;
+            runtimeConfig.LocalTtsNormalizeOutput = _normalizeLocalTts ? 1 : 0;
+            runtimeConfig.LocalTtsPlaybackVolume = _localTtsVolume;
 
             if (!string.IsNullOrWhiteSpace(_apiKey))
             {

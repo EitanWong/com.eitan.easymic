@@ -35,7 +35,7 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
     public sealed class PipelineDebugTracker
     {
         public int MaxHistoryRounds { get; set; } = 50;
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; }
         public bool LogEvents { get; set; }
 
         public IReadOnlyList<ConversationRound> CompletedRounds => _completedRounds;
