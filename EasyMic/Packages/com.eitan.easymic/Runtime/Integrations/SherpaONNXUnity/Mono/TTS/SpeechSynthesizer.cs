@@ -28,6 +28,10 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         [Header("Playback")]
         [SerializeField] private PlaybackAudioSourceBehaviour _playbackSource;
+        [Tooltip("Balance local model loudness with bounded automatic gain, a silence gate and peak protection.")]
+        [SerializeField] private bool _normalizeOutput = true;
+        [Tooltip("Local speech volume after automatic levelling. 0 mutes; 1 is the normal level. Peak protection stays active.")]
+        [Range(0f, 2f)] [SerializeField] private float _playbackVolume = 1f;
         [Range(0.02f, 0.5f)]
         [SerializeField, HideInInspector] private float _targetBufferedSeconds = 0.12f;
 
@@ -36,7 +40,21 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         [SerializeField, HideInInspector] private int _maxParallelSynthesis = 2;
 
         [Header("Logging")]
-        [SerializeField] private bool _enableLog = true;
+        [SerializeField] private bool _enableLog = false;
+
+        public bool EnableLog { get => _enableLog; set => _enableLog = value; }
+        public bool NormalizeOutput { get => _normalizeOutput; set => _normalizeOutput = value; }
+        public float PlaybackVolume
+        {
+            get => _playbackVolume;
+            set => _playbackVolume = float.IsNaN(value) || float.IsInfinity(value) ? 1f : Mathf.Clamp(value, 0f, 2f);
+        }
+        public float OutputInputRmsDb => _outputInputRmsDb;
+        public float OutputPeakDb => _outputPeakDb;
+        public float OutputGainDb => _outputGainDb;
+        private volatile float _outputInputRmsDb = -120f;
+        private volatile float _outputPeakDb = -120f;
+        private volatile float _outputGainDb;
 
         public event Action<string, float> OnLoadingProgressFeedback;
         public event Action<FailedFeedback> OnLoadingFailedFeedback;
@@ -45,8 +63,20 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         public event Action<bool> OnTTSStateChanged;
         public event Action<string> OnSentenceStarted;
         public event Action<string> OnSentenceFinished;
+        /// <summary>Raised on the Unity thread when a sentence's first audio is accepted for playback.</summary>
+        public event Action<string> OnSentencePlaybackStarted;
         public PlaybackAudioSourceBehaviour PlaybackSource => _playbackSource;
         public SpeechSynthesizerConfiguration TtsConfig => _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
+        public int ActiveSynthesisJobs => Volatile.Read(ref _activeSynthesisJobs);
+        public int MaxParallelSynthesis
+        {
+            get => _maxParallelSynthesis;
+            set
+            {
+                _maxParallelSynthesis = ClampInt(value, 1, MaxParallelCap);
+                InitializeAdaptiveScheduling();
+            }
+        }
         #endregion
 
         #region Private Fields
@@ -107,10 +137,6 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private void LogError(string message)
         {
-            if (!_enableLog)
-            {
-                return;
-            }
             Debug.LogError(message, this);
         }
         #endregion
@@ -528,7 +554,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private int GetAdaptiveMaxParallel()
         {
-            int hardMax = ClampInt(Math.Max(1, _processorCount - 1), 1, MaxParallelCap);
+            int hardMax = ClampInt(_maxParallelSynthesis, 1,
+                ClampInt(Math.Max(1, _processorCount - 1), 1, MaxParallelCap));
             int maxParallel = _adaptiveScheduler != null
                 ? Volatile.Read(ref _adaptiveMaxParallel)
                 : _maxParallelSynthesis;
@@ -786,6 +813,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
         private async Task ProcessSentenceQueueAsync(long sessionId, CancellationToken cancellationToken)
         {
+            using var workersCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cancellationToken = workersCts.Token;
             UpdateTtsState(true);
 
             try
@@ -810,6 +839,11 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                     () => Interlocked.CompareExchange(ref generationDone, 0, 0) == 1,
                     cancellationToken);
 
+                Task firstCompleted = await Task.WhenAny(generationTask, playbackTask).ConfigureAwait(false);
+                if (firstCompleted.IsFaulted || firstCompleted.IsCanceled)
+                {
+                    workersCts.Cancel();
+                }
                 await Task.WhenAll(generationTask, playbackTask).ConfigureAwait(false);
             }
             finally
@@ -835,7 +869,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 {
                     if (!_sentenceQueue.TryDequeue(out string sentence))
                     {
-                        if (_sentenceQueue.IsEmpty)
+                        // Streamed text can arrive while the previous sentence is still being queued.
+                        if (results.IsEmpty && Volatile.Read(ref _activeSynthesisJobs) == 0)
                         {
                             break;
                         }
@@ -957,14 +992,11 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
             CancellationToken cancellationToken)
         {
             int expectedSequence = 0;
-            int stagnantCycles = 0;
-            const int maxStagnantCycles = 200;
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 if (results.TryGetValue(expectedSequence, out var result))
                 {
-                    stagnantCycles = 0;
                     await PlaySynthesisResultAsync(sessionId, result, cancellationToken).ConfigureAwait(false);
                     results.TryRemove(expectedSequence, out _);
                     expectedSequence++;
@@ -973,15 +1005,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
                 if (generationDone != null && generationDone() && results.IsEmpty)
                 {
-                    stagnantCycles++;
-                    if (stagnantCycles > maxStagnantCycles)
-                    {
-                        break;
-                    }
-                }
-                else
-                {
-                    stagnantCycles = 0;
+                    break;
                 }
 
                 try
@@ -993,6 +1017,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                     break;
                 }
             }
+
+            await WaitForPlaybackDrainAsync(sessionId, cancellationToken).ConfigureAwait(false);
         }
 
         private async Task PlaySynthesisResultAsync(
@@ -1009,6 +1035,10 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
             int channels = result.Channels > 0 ? result.Channels : 1;
             int sampleRate = result.SampleRate > 0 ? result.SampleRate : Math.Max(8000, _ttsConfig.SampleRates);
             bool stallWarned = false;
+            bool playbackStarted = false;
+            // Model callbacks can contain several seconds; the playback queue is bounded.
+            var playbackChunk = new float[Math.Max(1, sampleRate / 50) * channels];
+            var outputLeveler = new SpeechOutputLeveler();
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -1025,9 +1055,54 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                 {
                     if (samples != null && samples.Length > 0)
                     {
-                        double bufferBudget = Math.Max(0.05, GetAdaptiveBufferedSeconds());
-                        await WaitForBufferBudgetAsync(playbackSource, bufferBudget, cancellationToken).ConfigureAwait(false);
-                        playbackSource.Enqueue(samples, samples.Length, channels, sampleRate, false);
+                        for (int offset = 0; offset < samples.Length;)
+                        {
+                            int count = Math.Min(playbackChunk.Length, samples.Length - offset);
+                            var source = playbackSource.Source;
+                            if (source == null)
+                            {
+                                return;
+                            }
+
+                            // FreeSamples and SamplesWritten use the output format after conversion.
+                            int outputSamples = (int)Math.Ceiling(
+                                (count / channels) * (double)source.SampleRate / sampleRate) * source.Channels;
+                            double bufferBudget = Math.Max(0.05, GetAdaptiveBufferedSeconds());
+                            await WaitForBufferBudgetAsync(
+                                playbackSource, bufferBudget, cancellationToken, outputSamples).ConfigureAwait(false);
+                            if (cancellationToken.IsCancellationRequested ||
+                                !ReferenceEquals(GetPlaybackSourceForSession(sessionId), playbackSource))
+                            {
+                                return;
+                            }
+
+                            Array.Copy(samples, offset, playbackChunk, 0, count);
+                            // Process before mixing so AEC receives the same levelled signal as the speaker.
+                            outputLeveler.Process(playbackChunk, count, channels, sampleRate, _normalizeOutput, _playbackVolume);
+                            _outputInputRmsDb = outputLeveler.InputRmsDb;
+                            _outputPeakDb = outputLeveler.OutputPeakDb;
+                            _outputGainDb = outputLeveler.AppliedGainDb;
+                            var enqueueResult = playbackSource.TryEnqueue(playbackChunk, count, channels, sampleRate, false);
+                            if (enqueueResult.SamplesWritten != outputSamples)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                throw new InvalidOperationException(
+                                    $"Local TTS playback accepted {enqueueResult.SamplesWritten}/{outputSamples} output samples ({enqueueResult.Status}).");
+                            }
+                            offset += count;
+                            if (!playbackStarted && enqueueResult.WroteAnySamples)
+                            {
+                                playbackStarted = true;
+                                SafeInvokeOnMainThread(() =>
+                                {
+                                    if (!cancellationToken.IsCancellationRequested &&
+                                        ReferenceEquals(GetPlaybackSourceForSession(sessionId), playbackSource))
+                                    {
+                                        OnSentencePlaybackStarted?.Invoke(result.Sentence);
+                                    }
+                                });
+                            }
+                        }
                     }
                     stallWarned = false;
                     continue;
@@ -1068,8 +1143,6 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
                     break;
                 }
             }
-
-            await WaitForPlaybackDrainAsync(sessionId, cancellationToken).ConfigureAwait(false);
         }
 
         private static double GetPlaybackStallWarningSeconds(SpeechSynthesisResult result)
@@ -1092,7 +1165,8 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         private async Task WaitForBufferBudgetAsync(
             PlaybackAudioSourceBehaviour playbackSource,
             double budgetSeconds,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            int requiredOutputSamples = 0)
         {
             if (playbackSource == null)
             {
@@ -1101,7 +1175,9 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                if (playbackSource.BufferedSeconds <= budgetSeconds)
+                var source = playbackSource.Source;
+                if (source == null ||
+                    (playbackSource.BufferedSeconds <= budgetSeconds && source.FreeSamples >= requiredOutputSamples))
                 {
                     break;
                 }
@@ -1331,13 +1407,19 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         [SerializeField, HideInInspector] private int _maxParallelSynthesis = 2;
 
         [Header("Logging")]
-        [SerializeField] private bool _enableLog = true;
+        [SerializeField] private bool _enableLog;
 
         private static bool s_loggedMissingDependency;
 
         public bool InitOnAwake => _initOnAwake;
         public bool Initialized { get; private set; }
         public bool IsProcessingTTS => false;
+        public int ActiveSynthesisJobs => 0;
+        public int MaxParallelSynthesis
+        {
+            get => _maxParallelSynthesis;
+            set => _maxParallelSynthesis = Mathf.Clamp(value, 1, 8);
+        }
         public PlaybackAudioSourceBehaviour PlaybackSource => _playbackSource;
         public SpeechSynthesizerConfiguration TtsConfig => _ttsConfig ??= SpeechSynthesizerConfiguration.CreateDefault();
 
@@ -1348,6 +1430,7 @@ namespace Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS
         public event Action<bool> OnTTSStateChanged;
         public event Action<string> OnSentenceStarted;
         public event Action<string> OnSentenceFinished;
+        public event Action<string> OnSentencePlaybackStarted;
 
         private void Awake()
         {

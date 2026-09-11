@@ -102,7 +102,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     y = DrawProperty(contentRoot, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.AutoHideMouseCursorWhenIdle)), "Auto Hide Cursor");
                     y = DrawProperty(contentRoot, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.MouseCursorHideDelaySeconds)), "Cursor Hide Delay (s)");
                     y = DrawProperty(contentRoot, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.CursorMoveThresholdPixels)), "Cursor Move Threshold (px)");
-                    y = DrawProperty(contentRoot, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LogStreamingChunks)), "Verbose Streaming Log");
+                    var debugModeProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.DebugMode));
+                    y = DrawProperty(contentRoot, y, debugModeProp, "Debug Mode");
+                    if (debugModeProp == null || debugModeProp.hasMultipleDifferentValues || debugModeProp.boolValue)
+                    {
+                        y = DrawProperty(contentRoot, y, property.FindPropertyRelative(nameof(AIChatControllerConfig.LogStreamingChunks)), "Verbose Streaming Log");
+                    }
                     break;
 
                 case Section.Speech:
@@ -135,9 +140,13 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                             y = infoRect.yMax + EditorGUIUtility.standardVerticalSpacing;
                         }
 
-                        y = DrawProperty(contentRoot, y,
-                            property.FindPropertyRelative(nameof(AIChatControllerConfig.EnableTtsDiagnostics)),
-                            "TTS Diagnostics");
+                        var speechDebugModeProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.DebugMode));
+                        if (speechDebugModeProp == null || speechDebugModeProp.hasMultipleDifferentValues || speechDebugModeProp.boolValue)
+                        {
+                            y = DrawProperty(contentRoot, y,
+                                property.FindPropertyRelative(nameof(AIChatControllerConfig.EnableTtsDiagnostics)),
+                                "TTS Diagnostics");
+                        }
                     }
 
                     break;
@@ -222,7 +231,12 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                     height += AddProp(nameof(AIChatControllerConfig.AutoHideMouseCursorWhenIdle));
                     height += AddProp(nameof(AIChatControllerConfig.MouseCursorHideDelaySeconds));
                     height += AddProp(nameof(AIChatControllerConfig.CursorMoveThresholdPixels));
-                    height += AddProp(nameof(AIChatControllerConfig.LogStreamingChunks));
+                    height += AddProp(nameof(AIChatControllerConfig.DebugMode));
+                    var debugModeProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.DebugMode));
+                    if (debugModeProp == null || debugModeProp.hasMultipleDifferentValues || debugModeProp.boolValue)
+                    {
+                        height += AddProp(nameof(AIChatControllerConfig.LogStreamingChunks));
+                    }
                     break;
 
                 case Section.Speech:
@@ -252,7 +266,11 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha
                         {
                             height += (EditorGUIUtility.singleLineHeight * 1.6f) + spacing;
                         }
-                        height += AddProp(nameof(AIChatControllerConfig.EnableTtsDiagnostics));
+                        var speechDebugModeProp = property.FindPropertyRelative(nameof(AIChatControllerConfig.DebugMode));
+                        if (speechDebugModeProp == null || speechDebugModeProp.hasMultipleDifferentValues || speechDebugModeProp.boolValue)
+                        {
+                            height += AddProp(nameof(AIChatControllerConfig.EnableTtsDiagnostics));
+                        }
                     }
 
                     break;

@@ -35,6 +35,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                     TtsModel = "gpt-4o-mini-tts",
                     TtsVoice = "marin",
                     UseLocalTts = 1,
+                    DebugMode = 1,
+                    LocalTtsNormalizeOutput = 1,
+                    LocalTtsPlaybackVolume = 1.4f,
                     MicrophoneDeviceName = "USB Microphone",
                     AsrRecognitionModeIndex = 2,
                     AsrStreamingModelId = "stream-model",
@@ -61,6 +64,9 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 Assert.AreEqual(input.TtsModel, output.TtsModel);
                 Assert.AreEqual(input.TtsVoice, output.TtsVoice);
                 Assert.AreEqual(input.UseLocalTts, output.UseLocalTts);
+                Assert.AreEqual(input.DebugMode, output.DebugMode);
+                Assert.AreEqual(input.LocalTtsNormalizeOutput, output.LocalTtsNormalizeOutput);
+                Assert.AreEqual(input.LocalTtsPlaybackVolume, output.LocalTtsPlaybackVolume);
                 Assert.AreEqual(input.MicrophoneDeviceName, output.MicrophoneDeviceName);
                 Assert.AreEqual(input.AsrRecognitionModeIndex, output.AsrRecognitionModeIndex);
                 Assert.AreEqual(input.AsrStreamingModelId, output.AsrStreamingModelId);
@@ -95,6 +101,48 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
         }
 
         [Test]
+        public void OlderV4Config_PreservesNewSettingDefaults()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"ai_chat_old_v4_{Guid.NewGuid():N}.json");
+            try
+            {
+                File.WriteAllText(path, "{\"SchemaVersion\":4,\"ApiKey\":\"fixture\"}");
+                var store = new JsonAIChatRuntimeConfigStore();
+                Assert.IsTrue(store.TryLoad(path, out var config));
+                Assert.AreEqual(-1, config.DebugMode);
+                Assert.AreEqual(-1, config.LocalTtsNormalizeOutput);
+                Assert.AreEqual(-1f, config.LocalTtsPlaybackVolume);
+                Assert.AreEqual(FixtureApiKey, config.ApiKey);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void ApplyAndCapture_PreserveDebugAndLocalOutputSettings()
+        {
+            var owner = new UnityEngine.GameObject("TTS output config");
+            owner.SetActive(false);
+            try
+            {
+                var synthesizer = owner.AddComponent<Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.SpeechSynthesizer>();
+                var controller = new AIChatControllerConfig { SpeechSynthesizer = synthesizer };
+                var store = new JsonAIChatRuntimeConfigStore();
+                store.Apply(new AIChatRuntimeConfig
+                {
+                    DebugMode = 1, LocalTtsNormalizeOutput = 0, LocalTtsPlaybackVolume = 1.4f
+                }, controller);
+                Assert.IsTrue(controller.DebugMode);
+                Assert.IsFalse(synthesizer.NormalizeOutput);
+                Assert.AreEqual(1.4f, synthesizer.PlaybackVolume);
+                var captured = store.Capture(controller);
+                Assert.AreEqual(1, captured.DebugMode);
+                Assert.AreEqual(0, captured.LocalTtsNormalizeOutput);
+                Assert.AreEqual(1.4f, captured.LocalTtsPlaybackVolume);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); }
+        }
+
+        [Test]
         public void Apply_WithEmptyPersistedKey_ShouldClearTransientControllerKey()
         {
             var store = new JsonAIChatRuntimeConfigStore();
@@ -106,6 +154,58 @@ namespace Eitan.EasyMic.Demo.AIChat.Samantha.Tests
                 controllerConfig);
 
             Assert.IsTrue(string.IsNullOrEmpty(controllerConfig.ResolveApiKey()));
+        }
+
+        [Test]
+        public void DebugMode_ControlsMicrophoneSynthesizerAndTrackerTogether()
+        {
+            var owner = new UnityEngine.GameObject("Debug settings");
+            owner.SetActive(false);
+            try
+            {
+                var controller = owner.AddComponent<AIChatController>();
+                var synth = owner.AddComponent<Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.SpeechSynthesizer>();
+                var mic = owner.AddComponent<Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.ASR.VoiceMicrophone>();
+                controller.CurrentConfig.Microphone = mic;
+                controller.CurrentConfig.SpeechSynthesizer = synth;
+                var tracker = new PipelineDebugTracker();
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                typeof(AIChatController).GetField("_latencyTracker", flags).SetValue(controller, tracker);
+                foreach (bool enabled in new[] { true, false })
+                {
+                    controller.CurrentConfig.DebugMode = enabled;
+                    typeof(AIChatController).GetMethod("ApplyDebugSettings", flags).Invoke(controller, null);
+                    Assert.AreEqual(enabled, mic.EnableLog);
+                    Assert.AreEqual(enabled, synth.EnableLog);
+                    Assert.AreEqual(enabled, tracker.Enabled);
+                    Assert.AreEqual(enabled, tracker.LogEvents);
+                }
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); }
+        }
+
+        [Test]
+        public void RuntimePanelSave_PreservesOutputPreferencesWithoutControls()
+        {
+            var owner = new UnityEngine.GameObject("Runtime panel preferences");
+            owner.SetActive(false);
+            try
+            {
+                var controller = owner.AddComponent<AIChatController>();
+                var synth = owner.AddComponent<Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.SpeechSynthesizer>();
+                var panel = owner.AddComponent<AIChatRuntimeConfigPanel>();
+                controller.CurrentConfig.DebugMode = true;
+                controller.CurrentConfig.SpeechSynthesizer = synth;
+                synth.NormalizeOutput = false;
+                synth.PlaybackVolume = 1.3f;
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                typeof(AIChatRuntimeConfigPanel).GetField("_controller", flags).SetValue(panel, controller);
+                var captured = (AIChatRuntimeConfig)typeof(AIChatRuntimeConfigPanel).GetMethod("ReadFields", flags).Invoke(panel, null);
+                Assert.AreEqual(1, captured.DebugMode);
+                Assert.AreEqual(0, captured.LocalTtsNormalizeOutput);
+                Assert.AreEqual(1.3f, captured.LocalTtsPlaybackVolume);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); }
         }
 
         [TestCase(3)]

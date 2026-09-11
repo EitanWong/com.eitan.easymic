@@ -7,10 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3-exp.5] - 2026-09-11
+
 ### Added
 
 - Added per-capture-frame delay telemetry that combines the configured input
   device buffering with measured callback-to-worker queue time for AEC hosts.
+- Added a low-latency local TTS output leveler with bounded RMS normalization,
+  silence protection, linked-channel gain, manual volume control, and a -1 dBFS
+  sample-peak limiter.
+- Added local TTS output level diagnostics and focused coverage for quiet and loud
+  models, clipping, silence, invalid samples, stereo linking, and common sample rates.
+- Added a unified AIChat developer debug mode, an optional F12 pipeline panel,
+  runtime preference persistence, and guided English and Chinese setup content.
+
+### Changed
+
+- Updated local TTS playback to process the same levelled PCM that is submitted to
+  the EasyMic playback path, keeping the AEC render reference aligned with audible output.
+- Improved local TTS responsiveness with bounded playback chunks, adaptive buffering,
+  parallel synthesis scheduling, and earlier sentence playback notification.
+- Updated the AIChat Provider Setup and bootstrap workflow with local/remote TTS
+  selection, normalization and volume controls, component shortcuts, and first-run checks.
+- Disabled verbose microphone, synthesizer, streaming, and pipeline diagnostics by
+  default while retaining actionable warning and error reporting.
+
+### Fixed
+
+- Fixed local TTS sessions waiting after completed generation and corrected playback
+  backpressure handling that could truncate or delay synthesized speech.
+- Fixed stale interruption and sentence-ordering states around local TTS cancellation,
+  rapid response replacement, and barge-in handling.
+- Fixed legacy runtime configuration loading so newly added debug and local-volume
+  preferences preserve their defaults when reading existing schema-v4 files.
 
 ## [0.1.3-exp.4] - 2026-07-18
 
