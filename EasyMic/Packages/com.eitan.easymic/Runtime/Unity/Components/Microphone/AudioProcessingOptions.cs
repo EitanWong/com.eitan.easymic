@@ -11,14 +11,16 @@ namespace Eitan.EasyMic.Runtime.Mono
         public bool EnableAEC;
         public bool EnableANS;
         public bool EnableAGC;
+        public bool EnableDirectional;
 
-        public bool AnyEnabled => EnableAEC || EnableANS || EnableAGC;
+        public bool AnyEnabled => EnableAEC || EnableANS || EnableAGC || EnableDirectional;
 
-        public AudioProcessingOptions(bool enableAEC, bool enableANS, bool enableAGC)
+        public AudioProcessingOptions(bool enableAEC, bool enableANS, bool enableAGC, bool enableDirectional = false)
         {
             EnableAEC = enableAEC;
             EnableANS = enableANS;
             EnableAGC = enableAGC;
+            EnableDirectional = enableDirectional;
         }
 
         public static AudioProcessingOptions Default => Disable;
