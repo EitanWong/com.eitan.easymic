@@ -110,3 +110,7 @@ EasyMic/Assets/Plugins
 EasyMic/Assets/Plugins.meta
 EasyMic/Assets/Editor
 EasyMic/Assets/Editor.meta
+
+# Per-developer generated APM runtime identity
+EasyMic/Assets/EasyMic/_/
+EasyMic/Assets/EasyMic/_.meta

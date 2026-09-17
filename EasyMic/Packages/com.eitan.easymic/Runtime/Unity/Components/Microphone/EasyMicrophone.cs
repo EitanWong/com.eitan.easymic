@@ -158,6 +158,22 @@ namespace Eitan.EasyMic.Runtime.Mono
             }
         }
 
+        public bool DirectionalEnabled
+        {
+            get => AudioProcessingOpts.EnableDirectional;
+            set
+            {
+                var options = AudioProcessingOpts;
+                if (options.EnableDirectional == value)
+                {
+                    return;
+                }
+
+                options.EnableDirectional = value;
+                SetAudioProcessingOptions(options);
+            }
+        }
+
         public bool TryGetApmDiagnostics(out object diagnostics)
         {
             var apmWorker = GetCurrentApmWorker();
@@ -281,6 +297,15 @@ namespace Eitan.EasyMic.Runtime.Mono
         }
 
         protected virtual void OnAudioPiplineBuild(AudioPipeline pipeline)
+        {
+
+        }
+
+        /// <summary>
+        /// Adds optional read-only capture workers before APM and downmixing. Implementations must
+        /// not mutate the input buffer; this hook is intended for diagnostics that need array PCM.
+        /// </summary>
+        protected virtual void OnAudioPipelineBeforeProcessing(AudioPipeline pipeline)
         {
 
         }
@@ -807,6 +832,7 @@ namespace Eitan.EasyMic.Runtime.Mono
             _pipelineBlueprint = new AudioWorkerBlueprint(() =>
             {
                 var pipeline = new AudioPipeline();
+                OnAudioPipelineBeforeProcessing(pipeline);
 
                 if (_audioProcessingOptions.AnyEnabled)
                 {
@@ -818,7 +844,8 @@ namespace Eitan.EasyMic.Runtime.Mono
                             apm.SetProcessingOptions(
                             _audioProcessingOptions.EnableAEC,
                             _audioProcessingOptions.EnableANS,
-                            _audioProcessingOptions.EnableAGC);
+                            _audioProcessingOptions.EnableAGC,
+                            _audioProcessingOptions.EnableDirectional);
                             pipeline.AddWorker(apm);
                         }
                     }
@@ -910,9 +937,10 @@ namespace Eitan.EasyMic.Runtime.Mono
             apmWorker.GetProcessingOptions(
                 out bool enableAEC,
                 out bool enableANS,
-                out bool enableAGC);
+                out bool enableAGC,
+                out bool enableDirectional);
 
-            var runtimeOptions = new AudioProcessingOptions(enableAEC, enableANS, enableAGC);
+            var runtimeOptions = new AudioProcessingOptions(enableAEC, enableANS, enableAGC, enableDirectional);
 
             // Keep serialized staging options in sync with the active runtime worker state.
             _audioProcessingOptions = runtimeOptions;
@@ -929,7 +957,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return;
             }
 
-            apmWorker.SetProcessingOptions(options.EnableAEC, options.EnableANS, options.EnableAGC);
+            apmWorker.SetProcessingOptions(options.EnableAEC, options.EnableANS, options.EnableAGC, options.EnableDirectional);
         }
 
         private IEasyMicApmWorkerBridge GetCurrentApmWorker()

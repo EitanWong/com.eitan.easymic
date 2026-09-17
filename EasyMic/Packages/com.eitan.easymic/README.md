@@ -133,3 +133,5 @@ Import samples from the Package Manager `Samples` tab.
 ## License
 
 EasyMic is licensed under [GPL-3.0-only](LICENSE.md). Third-party notices are listed in [THIRD PARTY NOTICES](THIRD%20PARTY%20NOTICES.md).
+
+The directional option is available with EasyMic `0.1.3-exp.6` and matching APM `0.1.1-exp.4`. Set `AudioProcessingOptions.EnableDirectional` only with APM experimental features enabled, directional authorization and synchronized multichannel capture. The native APM owns IVA/BSS, MVDR, DOA and sector admission; EasyMic transports its output/status. Ordinary APM processing remains available when directional pickup is off.

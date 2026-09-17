@@ -6,7 +6,7 @@
   **External audio capture, playback, and processing for Unity**
   
   <p>
-    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.5-1f6feb.svg" alt="Version 0.1.3-exp.5"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/package.json"><img src="https://img.shields.io/badge/version-0.1.3--exp.6-1f6feb.svg" alt="Version 0.1.3-exp.6"></a>
     <a href="https://unity3d.com/get-unity/download"><img src="https://img.shields.io/badge/Unity-2021.3%2B-222222.svg" alt="Unity 2021.3+"></a>
     <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-GPLv3-2ea043.svg" alt="GPLv3 License"></a>
     <a href="#system-requirements"><img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-6e7681.svg" alt="Supported platforms"></a>
@@ -18,13 +18,13 @@
   </p>
 
   <p align="center">
-    <strong>Release:</strong> <code>0.1.3-exp.5</code> · <span>2026-09-11</span>
+    <strong>Source baseline:</strong> <code>0.1.3-exp.6</code> · <span>2026-09-18</span>
   </p>
 
   <p align="center">
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md"><img src="https://img.shields.io/badge/Read_the_docs-Getting_Started-1f6feb.svg?style=for-the-badge" alt="Read the docs"></a>
     <a href="#-sample-projects-overview"><img src="https://img.shields.io/badge/Open_samples-Unity_Package-2ea043.svg?style=for-the-badge" alt="Open samples"></a>
-    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-0.1.3--exp.5-6e7681.svg?style=for-the-badge" alt="View changelog"></a>
+    <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-0.1.3--exp.6-6e7681.svg?style=for-the-badge" alt="View changelog"></a>
   </p>
   <p align="center">
     <em>Built for voice interaction, digital humans, custom playback, and realtime audio diagnostics.</em>
@@ -552,3 +552,5 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
     </a>
   </p>
 </div>
+
+The `main` source baseline includes the directional APM bridge for EasyMic `0.1.3-exp.6` with APM `0.1.1-exp.4`. Directional pickup requires the APM experimental setting, an appropriate license and a synchronized array. The existing `upm-subtree-split` workflow synchronizes the EasyMic package subtree to `upm` after a push to `main`. The APM repository has a separate, manually dispatched package publication workflow.
