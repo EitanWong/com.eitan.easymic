@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3-exp.6] - 2026-09-17
+
+### Added
+
+- Added the opt-in `AudioProcessingOptions.EnableDirectional` option and carry it
+  through the APM worker bridge before microphone downmixing. Requires the matching
+  APM `0.1.1-exp.4` package, experimental project opt-in, a directional license and
+  synchronized multichannel array hardware.
+
 ## [0.1.3-exp.5] - 2026-09-11
 
 ### Added

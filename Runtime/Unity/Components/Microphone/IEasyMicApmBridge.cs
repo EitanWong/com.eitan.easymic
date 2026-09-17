@@ -5,8 +5,8 @@ namespace Eitan.EasyMic.Runtime.Mono
 
     public interface IEasyMicApmWorkerBridge : IAudioWorker
     {
-        void SetProcessingOptions(bool enableAEC, bool enableANS, bool enableAGC);
-        void GetProcessingOptions(out bool enableAEC, out bool enableANS, out bool enableAGC);
+        void SetProcessingOptions(bool enableAEC, bool enableANS, bool enableAGC, bool enableDirectional = false);
+        void GetProcessingOptions(out bool enableAEC, out bool enableANS, out bool enableAGC, out bool enableDirectional);
         bool TryGetDiagnostics(out object diagnostics);
     }
 
