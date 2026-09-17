@@ -133,3 +133,5 @@ Sherpa 组件需要共享同一个 EasyMic 录音 session 时，使用 `EasyMicS
 ## 许可证
 
 EasyMic 使用 [GPL-3.0-only](LICENSE.md) 许可证。第三方声明见 [THIRD PARTY NOTICES](THIRD%20PARTY%20NOTICES.md)。
+
+EasyMic `0.1.3-exp.6` 配套 APM `0.1.1-exp.4` 提供 `AudioProcessingOptions.EnableDirectional`。启用需满足 APM 实验性开关、定向拾音授权及同步多通道采集条件。IVA/BSS、MVDR、DOA 和扇区门控由原生 APM 统一处理；EasyMic 负责接入数据链路。关闭定向拾音后仍使用常规 APM 处理。
