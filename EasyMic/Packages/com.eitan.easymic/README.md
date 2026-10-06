@@ -27,6 +27,8 @@ EasyMic keeps native audio callbacks small and moves processing to explicit work
 | SherpaONNXUnity | Optional single-capture bridge for speech components |
 | AEC / ANS / AGC | Separate paid [EasyMic APM](https://github.com/EitanWong/com.eitan.easymic.apm) extension |
 
+Learn more about APM on the [EasyMic APM product site](https://eitanwong.github.io/easymic-apm-site).
+
 ## Installation
 
 In Unity, open `Window > Package Manager`, select `Add package from git URL...`, and enter:
@@ -134,4 +136,4 @@ Import samples from the Package Manager `Samples` tab.
 
 EasyMic is licensed under [GPL-3.0-only](LICENSE.md). Third-party notices are listed in [THIRD PARTY NOTICES](THIRD%20PARTY%20NOTICES.md).
 
-The directional option is available with EasyMic `0.1.3-exp.6` and matching APM `0.1.1-exp.5`. Set `AudioProcessingOptions.EnableDirectional` only with APM experimental features enabled, directional authorization and synchronized multichannel capture. The native APM owns IVA/BSS, MVDR, DOA and sector admission; EasyMic transports its output/status. Unity 6.6 (`6000.6.3f1`) source import was validated for this integration. Ordinary APM processing remains available when directional pickup is off.
+The optional EasyMic APM extension can expose `AudioProcessingOptions.EnableDirectional`. Use it only with APM experimental features enabled, directional authorization and synchronized multichannel capture. Native APM owns IVA/BSS, MVDR, DOA and sector admission; EasyMic transports its output and status. Ordinary APM processing remains available when directional pickup is off. See the [EasyMic APM product site](https://eitanwong.github.io/easymic-apm-site) for product information.

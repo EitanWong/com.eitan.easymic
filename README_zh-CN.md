@@ -18,10 +18,6 @@
   </p>
 
   <p align="center">
-    <strong>源码基线：</strong><code>0.1.3-exp.6</code> + APM <code>0.1.1-exp.5</code> · <span>2026-10-06</span>
-  </p>
-
-  <p align="center">
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/zh-CN/getting-started.md"><img src="https://img.shields.io/badge/阅读文档-入门指南-1f6feb.svg?style=for-the-badge" alt="阅读文档"></a>
     <a href="#-示例项目总览"><img src="https://img.shields.io/badge/打开示例-Unity_Package-2ea043.svg?style=for-the-badge" alt="打开示例"></a>
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/更新日志-0.1.3--exp.6-6e7681.svg?style=for-the-badge" alt="查看更新日志"></a>
@@ -33,7 +29,7 @@
 
 ---
 
-> **仓库范围说明：** 本仓库仅包含开源的 Easy Mic 核心包，**不包含 AEC、AGC、ANS 功能**。这些能力属于 **EasyMic APM**，它是单独提供的付费扩展包。如需声学回声消除、自动增益控制或自动噪声抑制，请单独联系作者获取。
+> **仓库范围说明：** 本仓库仅包含开源的 Easy Mic 核心包，**不包含 AEC、AGC、ANS 功能**。这些能力属于 **EasyMic APM**，它是单独提供的付费扩展包。可前往 [EasyMic APM 产品网站](https://eitanwong.github.io/easymic-apm-site) 了解更多，或联系作者获取商业授权。
 
 <div align="center">
   <table>
@@ -552,5 +548,3 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
     </a>
   </p>
 </div>
-
-`main` 源码基线包含 EasyMic `0.1.3-exp.6` 与 APM `0.1.1-exp.5` 的定向拾音接入。该能力需开启 APM 实验性功能、具备对应授权并使用同步阵列麦克风。Unity 6.6（`6000.6.3f1`）源码导入和包校验结果已记录在 APM 发布说明中。现有 `upm-subtree-split` 工作流会在 `main` 推送后自动同步 EasyMic 包到 `upm`；APM 仓库的包发布则需要单独手动触发。

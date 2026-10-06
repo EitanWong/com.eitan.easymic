@@ -18,10 +18,6 @@
   </p>
 
   <p align="center">
-    <strong>Source baseline:</strong> <code>0.1.3-exp.6</code> + APM <code>0.1.1-exp.5</code> · <span>2026-10-06</span>
-  </p>
-
-  <p align="center">
     <a href="EasyMic/Packages/com.eitan.easymic/Documentation~/en/getting-started.md"><img src="https://img.shields.io/badge/Read_the_docs-Getting_Started-1f6feb.svg?style=for-the-badge" alt="Read the docs"></a>
     <a href="#-sample-projects-overview"><img src="https://img.shields.io/badge/Open_samples-Unity_Package-2ea043.svg?style=for-the-badge" alt="Open samples"></a>
     <a href="EasyMic/Packages/com.eitan.easymic/CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-0.1.3--exp.6-6e7681.svg?style=for-the-badge" alt="View changelog"></a>
@@ -33,7 +29,7 @@
 
 ---
 
-> **Repository scope:** this repository contains the open-source Easy Mic core package. It does **not** include AEC, AGC, or ANS. Those features are provided by **EasyMic APM**, a separate paid extension package. If you need acoustic echo cancellation, automatic gain control, or automatic noise suppression, please contact the author separately.
+> **Repository scope:** this repository contains the open-source Easy Mic core package. It does **not** include AEC, AGC, or ANS. Those features are provided by **EasyMic APM**, a separate paid extension package. Read more on the [EasyMic APM product site](https://eitanwong.github.io/easymic-apm-site), or contact the author for commercial access.
 
 <div align="center">
   <table>
@@ -552,5 +548,3 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
     </a>
   </p>
 </div>
-
-The `main` source baseline includes the directional APM bridge for EasyMic `0.1.3-exp.6` with APM `0.1.1-exp.5`. Directional pickup requires the APM experimental setting, an appropriate license and a synchronized array. Unity 6.6 (`6000.6.3f1`) source import and package validation are recorded in the APM release notes. The existing `upm-subtree-split` workflow synchronizes the EasyMic package subtree to `upm` after a push to `main`. The APM repository has a separate, manually dispatched package publication workflow.
