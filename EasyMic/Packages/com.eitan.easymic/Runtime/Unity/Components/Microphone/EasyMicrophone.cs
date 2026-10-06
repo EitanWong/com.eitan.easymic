@@ -25,6 +25,42 @@ namespace Eitan.EasyMic.Runtime.Mono
         [Header("Logging")]
         [SerializeField] private bool _enableLog = false;
         [SerializeField] private AudioProcessingOptions _audioProcessingOptions = AudioProcessingOptions.Default;
+        [SerializeField] private DirectionalGeometry _directionalGeometry = new DirectionalGeometry();
+        [SerializeField] private System.Collections.Generic.List<DirectionalArrayDeviceProfile> _deviceProfiles = new System.Collections.Generic.List<DirectionalArrayDeviceProfile>();
+        [SerializeField] private MicrophoneDirectionalMode _beamformingMode = MicrophoneDirectionalMode.Adaptive;
+        [SerializeField, Range(0f, 360f)] private float _fixedTargetDegrees = 90f;
+        private string _directionalDeviceName;
+
+        public DirectionalGeometry DirectionalGeometry
+        {
+            get
+            {
+                string deviceName = _directionalDeviceName ?? _deviceOptions.DeviceName;
+                DirectionalArrayDeviceProfile best = null; int length = 0;
+                if (!string.IsNullOrWhiteSpace(deviceName) && _deviceProfiles != null)
+                    foreach (var profile in _deviceProfiles)
+                    {
+                        string match = profile?.DeviceNameContains;
+                        if (string.IsNullOrWhiteSpace(match) || match.Length <= length ||
+                            deviceName.IndexOf(match, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        best = profile; length = match.Length;
+                    }
+                return best?.Geometry ?? (_directionalGeometry ?? (_directionalGeometry = new DirectionalGeometry()));
+            }
+        }
+        public MicrophoneDirectionalMode DirectionalMode => _beamformingMode;
+        public float FixedTargetDegrees => _fixedTargetDegrees;
+        public void SelectDeviceGeometry(string deviceName) => _directionalDeviceName = deviceName;
+        public void ConfigureDirectionalPickup(MicrophoneDirectionalMode mode, float targetDegrees)
+        {
+            if (IsRecording) return;
+            if (mode != MicrophoneDirectionalMode.Adaptive && mode != MicrophoneDirectionalMode.Fixed)
+                throw new ArgumentOutOfRangeException(nameof(mode));
+            if (float.IsNaN(targetDegrees) || float.IsInfinity(targetDegrees))
+                throw new ArgumentOutOfRangeException(nameof(targetDegrees));
+            _beamformingMode = mode; _fixedTargetDegrees = Mathf.Repeat(targetDegrees, 360f);
+        }
+
         #endregion
 
         #region  Internal Fields
@@ -191,6 +227,9 @@ namespace Eitan.EasyMic.Runtime.Mono
         public event Action<bool> OnRecordingStateChanged;
 
         public event Action<bool> OnMicrophoneInitialized;
+
+        /// <summary>Runs after processing workers are added, before the capture sink and pipeline initialization.</summary>
+        public event Action<AudioPipeline> OnAudioPipelineBuilt;
         #endregion
 
 
@@ -846,6 +885,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                             _audioProcessingOptions.EnableANS,
                             _audioProcessingOptions.EnableAGC,
                             _audioProcessingOptions.EnableDirectional);
+                            ConfigureDirectionalWorker(apm);
                             pipeline.AddWorker(apm);
                         }
                     }
@@ -854,6 +894,7 @@ namespace Eitan.EasyMic.Runtime.Mono
                 var downmixer = new Downmixer();
                 pipeline.AddWorker(downmixer);
                 OnAudioPiplineBuild(pipeline);
+                OnAudioPipelineBuilt?.Invoke(pipeline);
 
                 if (_capturer == null)
                 {
@@ -864,6 +905,16 @@ namespace Eitan.EasyMic.Runtime.Mono
 
                 return pipeline;
             });
+        }
+
+        private void ConfigureDirectionalWorker(IEasyMicApmWorkerBridge apm)
+        {
+            if (!_audioProcessingOptions.EnableDirectional || !(apm is IEasyMicDirectionalWorkerBridge directional)) return;
+            SelectDeviceGeometry(_deviceOptions.DeviceName);
+            bool valid = DirectionalGeometry.TryGetPositions((int)_deviceOptions.Channel, out var positions, out _, out string geometryError);
+            if (_beamformingMode == MicrophoneDirectionalMode.Fixed && !valid)
+                throw new InvalidOperationException("Fixed directional pickup requires matching measured array geometry. " + geometryError);
+            directional.SetDirectionalPickup(_beamformingMode, _fixedTargetDegrees, valid ? positions : null);
         }
 
         private static bool CanUseApmProcessing()

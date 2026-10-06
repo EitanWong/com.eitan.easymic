@@ -733,7 +733,10 @@ PlayerSettings:
   webGLThreadsSupport: 0
   webGLDecompressionFallback: 0
   webGLPowerPreference: 2
-  scriptingDefineSymbols: {}
+  scriptingDefineSymbols:
+    Android: EASYMIC_APM_EXPERIMENTAL_FEATURES
+    Standalone: EASYMIC_APM_EXPERIMENTAL_FEATURES
+    iPhone: EASYMIC_APM_EXPERIMENTAL_FEATURES
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:

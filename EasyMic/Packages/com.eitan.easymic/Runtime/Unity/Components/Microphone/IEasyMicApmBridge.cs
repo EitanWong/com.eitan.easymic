@@ -10,6 +10,12 @@ namespace Eitan.EasyMic.Runtime.Mono
         bool TryGetDiagnostics(out object diagnostics);
     }
 
+    /// <summary>Optional spatial controls supplied by an installed processing integration.</summary>
+    public interface IEasyMicDirectionalWorkerBridge
+    {
+        void SetDirectionalPickup(MicrophoneDirectionalMode mode, float targetDegrees, UnityEngine.Vector2[] positionsMeters);
+    }
+
     public static class EasyMicApmBridgeRegistry
     {
         private static readonly object Sync = new object();

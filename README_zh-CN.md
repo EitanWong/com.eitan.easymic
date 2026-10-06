@@ -18,7 +18,7 @@
   </p>
 
   <p align="center">
-    <strong>源码基线：</strong><code>0.1.3-exp.6</code> · <span>2026-09-18</span>
+    <strong>源码基线：</strong><code>0.1.3-exp.6</code> + APM <code>0.1.1-exp.5</code> · <span>2026-10-06</span>
   </p>
 
   <p align="center">
@@ -553,4 +553,4 @@ EasyMic 在 `EasyMic/Packages/com.eitan.easymic/Samples~/` 提供了可直接运
   </p>
 </div>
 
-`main` 源码基线包含 EasyMic `0.1.3-exp.6` 与 APM `0.1.1-exp.4` 的定向拾音接入。该能力需开启 APM 实验性功能、具备对应授权并使用同步阵列麦克风。现有 `upm-subtree-split` 工作流会在 `main` 推送后自动同步 EasyMic 包到 `upm`；APM 仓库的包发布则需要单独手动触发。
+`main` 源码基线包含 EasyMic `0.1.3-exp.6` 与 APM `0.1.1-exp.5` 的定向拾音接入。该能力需开启 APM 实验性功能、具备对应授权并使用同步阵列麦克风。Unity 6.6（`6000.6.3f1`）源码导入和包校验结果已记录在 APM 发布说明中。现有 `upm-subtree-split` 工作流会在 `main` 推送后自动同步 EasyMic 包到 `upm`；APM 仓库的包发布则需要单独手动触发。

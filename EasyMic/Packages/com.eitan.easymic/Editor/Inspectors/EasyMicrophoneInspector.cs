@@ -8,9 +8,12 @@ using UnityEngine;
 
 namespace Eitan.EasyMic.Runtime.Mono.Editor
 {
-    [CustomEditor(typeof(EasyMicrophone))]
+    [CustomEditor(typeof(EasyMicrophone), true)]
     public class EasyMicrophoneInspector : UnityEditor.Editor
     {
+        /// <summary>Optional package sections rendered after processing switches, using pending serialized edits.</summary>
+        public static event Action<SerializedObject, EasyMicrophone> DrawIntegrationConfiguration;
+
         private const double EditModeRepaintIntervalSeconds = 0.25d;
 
         private EasyMicrophone _mic;
@@ -90,6 +93,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             serializedObject.Update();
 
             DrawConfigurationSection();
+            DrawIntegrationConfiguration?.Invoke(serializedObject, _mic);
             DrawAdditionalConfigurationSections();
 
             EditorGUILayout.Space(Styles.SectionSpacing);

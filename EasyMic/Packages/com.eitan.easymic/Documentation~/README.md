@@ -1,6 +1,6 @@
 # EasyMic Documentation
 
-EasyMic provides external audio capture and playback for Unity using a miniaudio-backed transport layer. It is intended for interactive applications that need microphone input, custom PCM playback, audio processing, and diagnostics outside Unity's built-in audio pipeline.
+EasyMic `0.1.3-exp.6` provides external audio capture and playback for Unity using a miniaudio-backed transport layer. Its matching APM `0.1.1-exp.5` adds the experimental directional pickup integration described in the package README. It is intended for interactive applications that need microphone input, custom PCM playback, audio processing, and diagnostics outside Unity's built-in audio pipeline.
 
 Start here:
 

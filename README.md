@@ -18,7 +18,7 @@
   </p>
 
   <p align="center">
-    <strong>Source baseline:</strong> <code>0.1.3-exp.6</code> · <span>2026-09-18</span>
+    <strong>Source baseline:</strong> <code>0.1.3-exp.6</code> + APM <code>0.1.1-exp.5</code> · <span>2026-10-06</span>
   </p>
 
   <p align="center">
@@ -553,4 +553,4 @@ EasyMic includes ready-to-run samples under `EasyMic/Packages/com.eitan.easymic/
   </p>
 </div>
 
-The `main` source baseline includes the directional APM bridge for EasyMic `0.1.3-exp.6` with APM `0.1.1-exp.4`. Directional pickup requires the APM experimental setting, an appropriate license and a synchronized array. The existing `upm-subtree-split` workflow synchronizes the EasyMic package subtree to `upm` after a push to `main`. The APM repository has a separate, manually dispatched package publication workflow.
+The `main` source baseline includes the directional APM bridge for EasyMic `0.1.3-exp.6` with APM `0.1.1-exp.5`. Directional pickup requires the APM experimental setting, an appropriate license and a synchronized array. Unity 6.6 (`6000.6.3f1`) source import and package validation are recorded in the APM release notes. The existing `upm-subtree-split` workflow synchronizes the EasyMic package subtree to `upm` after a push to `main`. The APM repository has a separate, manually dispatched package publication workflow.
