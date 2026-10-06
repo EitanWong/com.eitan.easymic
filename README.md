@@ -5,7 +5,7 @@
 
 **Low-latency microphone capture, playback, and extensible audio pipelines**
 
-![Version](https://img.shields.io/badge/version-0.1.3--exp.5-175cd3)
+![Version](https://img.shields.io/badge/version-0.1.3--exp.6-175cd3)
 ![Unity](https://img.shields.io/badge/Unity-2021.3%2B-101828)
 ![License](https://img.shields.io/badge/license-GPL--3.0-067647)
 
@@ -134,4 +134,4 @@ Import samples from the Package Manager `Samples` tab.
 
 EasyMic is licensed under [GPL-3.0-only](LICENSE.md). Third-party notices are listed in [THIRD PARTY NOTICES](THIRD%20PARTY%20NOTICES.md).
 
-The directional option is available with EasyMic `0.1.3-exp.6` and matching APM `0.1.1-exp.4`. Set `AudioProcessingOptions.EnableDirectional` only with APM experimental features enabled, directional authorization and synchronized multichannel capture. The native APM owns IVA/BSS, MVDR, DOA and sector admission; EasyMic transports its output/status. Ordinary APM processing remains available when directional pickup is off.
+The directional option is available with EasyMic `0.1.3-exp.6` and matching APM `0.1.1-exp.5`. Set `AudioProcessingOptions.EnableDirectional` only with APM experimental features enabled, directional authorization and synchronized multichannel capture. The native APM owns IVA/BSS, MVDR, DOA and sector admission; EasyMic transports its output/status. Unity 6.6 (`6000.6.3f1`) source import was validated for this integration. Ordinary APM processing remains available when directional pickup is off.
