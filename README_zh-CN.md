@@ -27,6 +27,8 @@ EasyMic 将原生音频回调限制为轻量传输，并把实际处理放到明
 | SherpaONNXUnity | 可选的单采集 session 语音组件桥接 |
 | AEC / ANS / AGC | 独立付费的 [EasyMic APM](https://github.com/EitanWong/com.eitan.easymic.apm) 扩展包 |
 
+可在 [EasyMic APM 产品网站](https://eitanwong.github.io/easymic-apm-site) 了解更多产品信息。
+
 ## 安装
 
 在 Unity 中打开 `Window > Package Manager`，选择 `Add package from git URL...`，输入：
@@ -134,4 +136,4 @@ Sherpa 组件需要共享同一个 EasyMic 录音 session 时，使用 `EasyMicS
 
 EasyMic 使用 [GPL-3.0-only](LICENSE.md) 许可证。第三方声明见 [THIRD PARTY NOTICES](THIRD%20PARTY%20NOTICES.md)。
 
-EasyMic `0.1.3-exp.6` 配套 APM `0.1.1-exp.5` 提供 `AudioProcessingOptions.EnableDirectional`。启用需满足 APM 实验性开关、定向拾音授权及同步多通道采集条件。IVA/BSS、MVDR、DOA 和扇区门控由原生 APM 统一处理；EasyMic 负责接入数据链路。Unity 6.6（`6000.6.3f1`）已完成该集成的源码导入验证。关闭定向拾音后仍使用常规 APM 处理。
+可选的 EasyMic APM 扩展可以提供 `AudioProcessingOptions.EnableDirectional`。启用需满足 APM 实验性开关、定向拾音授权及同步多通道采集条件。IVA/BSS、MVDR、DOA 和扇区门控由原生 APM 统一处理；EasyMic 负责接入数据链路。关闭定向拾音后仍使用常规 APM 处理。产品信息请参阅 [EasyMic APM 产品网站](https://eitanwong.github.io/easymic-apm-site)。
