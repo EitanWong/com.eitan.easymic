@@ -93,7 +93,8 @@ namespace Eitan.EasyMic.Runtime
                 string contextBackendLabel,
                 bool usingAndroidOpenSlBackendFallback,
                 string androidCaptureAttemptLabel,
-                Native.AndroidCaptureDeviceConfigProfile androidCaptureConfigProfile)
+                Native.AndroidCaptureDeviceConfigProfile androidCaptureConfigProfile,
+                bool initializeNative = true)
             {
                 _context = context;
                 _state = new AudioContext((int)channel, (int)sampleRate, Math.Max(1, (int)channel * (int)sampleRate));
@@ -113,11 +114,11 @@ namespace Eitan.EasyMic.Runtime
                 _callbackDiagnosticsEnabled = callbackDiagnosticsEnabled ? 1 : 0;
 
                 ApplyFormat(device, sampleRate, channel);
-                InitializePipeline(blueprints);
-
                 try
                 {
-                    InitializeNativeDevice();
+                    InitializePipeline(blueprints);
+                    if (initializeNative) InitializeNativeDevice();
+                    else _audioPipeline.Initialize(_state);
                 }
                 catch
                 {
@@ -269,9 +270,10 @@ namespace Eitan.EasyMic.Runtime
                     }
 
                     var worker = blueprint.Create();
+                    try { _audioPipeline.AddWorker(worker); }
+                    catch { worker?.Dispose(); throw; }
                     _workerMap[blueprint] = worker;
                     _blueprints.Add(blueprint);
-                    _audioPipeline.AddWorker(worker);
                 }
             }
 
@@ -345,9 +347,10 @@ namespace Eitan.EasyMic.Runtime
                     }
 
                     var worker = bp.Create();
+                    try { _audioPipeline.AddWorker(worker); }
+                    catch { worker?.Dispose(); throw; }
                     _workerMap[bp] = worker;
                     _blueprints.Add(bp);
-                    _audioPipeline.AddWorker(worker);
                 }
             }
 

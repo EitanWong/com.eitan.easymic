@@ -46,6 +46,15 @@ PlaybackHandle handle = AudioPlayback.PlayClip(
 
 Use `PlaybackHandle` to pause, resume, stop, change volume, or dispose.
 
+## Output Devices
+
+```csharp
+PlaybackOutputDevice[] devices = AudioPlayback.GetOutputDevices();
+AudioPlayback.SetOutputDevice(devices[1].Id); // Set before starting playback.
+```
+
+An empty ID selects the system default. On mobile, independent playback uses the media stream/session so hardware volume controls affect it; iOS defaults to the external speaker and follows the route selected by iOS. Use the iOS system audio route picker for Bluetooth or AirPlay selection. Device IDs are opaque and may change when the available endpoints change.
+
 ## Stream Interleaved PCM
 
 ```csharp
@@ -70,6 +79,24 @@ stream.CompleteStream();
 ## Component Playback
 
 `PlaybackAudioSourceBehaviour` wraps `PlaybackAudioSession` for scene use.
+
+Choose a speaker in the component Inspector's **Output Device** dropdown. **Refresh** reloads the available endpoints:
+
+- **Use Audio System Output** (default) preserves the global output selected through `AudioPlayback.SetOutputDevice(...)` or another component.
+- **System Default** explicitly selects the system default output.
+- A named device stores its endpoint ID in the scene or prefab and applies it before creating the playback session.
+
+All EasyMic sources share one output device. Select it before the playback system starts. Pausing or stopping a component does not stop the global `AudioSystem`, and changing to a different endpoint while it is running is rejected. Multiple components may select the same endpoint; conflicting selections fail without interrupting existing playback. The component runs early (default execution order -100), but scripts that start playback even earlier must configure the global output first. Unavailable saved endpoints are retained and shown with a warning; they are not silently replaced with the system default. On iOS, output routes remain managed by the system.
+
+Configure an inactive component before enabling it. Setting `OutputDeviceId` also enables `OverrideOutputDevice`:
+
+```csharp
+// The playback GameObject must be inactive at this point.
+playback.OutputDeviceId = selectedDevice.Id; // Empty selects the system default.
+playback.gameObject.SetActive(true);
+```
+
+Set `OverrideOutputDevice` to `false` to inherit the global output again. This leaves the current global device unchanged.
 
 Useful members:
 

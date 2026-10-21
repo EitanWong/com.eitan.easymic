@@ -28,6 +28,8 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Initialize(AudioContext state)
         {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            if (_native.IsValid) _native.Dispose();
             base.Initialize(state);
             _nativeReady = false;
             _loggedNativeUnavailable = false;
@@ -59,12 +61,19 @@ namespace Eitan.EasyMic.Runtime
 
         public void Fade(float from, float to, float durationSeconds)
         {
+            RequireFinite(from, nameof(from));
+            RequireFinite(to, nameof(to));
+            RequireFinite(durationSeconds, nameof(durationSeconds));
             _pendingFade = new FadeRequest { From = from, To = to, DurationSeconds = durationSeconds };
             Interlocked.Exchange(ref _fadeDirty, 1);
         }
 
         public void FadeEx(float from, float to, float durationSeconds, float startOffsetSeconds)
         {
+            RequireFinite(from, nameof(from));
+            RequireFinite(to, nameof(to));
+            RequireFinite(durationSeconds, nameof(durationSeconds));
+            RequireFinite(startOffsetSeconds, nameof(startOffsetSeconds));
             _pendingFade = new FadeRequest
             {
                 From = from,

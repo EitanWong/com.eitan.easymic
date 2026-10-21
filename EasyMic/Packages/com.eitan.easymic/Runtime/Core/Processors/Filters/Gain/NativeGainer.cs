@@ -20,7 +20,12 @@ namespace Eitan.EasyMic.Runtime
         private volatile float _pendingMasterVolume = 1f;
         private int _masterDirty;
 
-        public float SmoothTimeSeconds { get; set; } = 0.02f;
+        private float _smoothTimeSeconds = 0.02f;
+        public float SmoothTimeSeconds
+        {
+            get => _smoothTimeSeconds;
+            set => _smoothTimeSeconds = RequireFinite(value, nameof(SmoothTimeSeconds));
+        }
 
         public float Gain
         {
@@ -36,6 +41,8 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Initialize(AudioContext state)
         {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            if (_native.IsValid) _native.Dispose();
             base.Initialize(state);
             _nativeReady = false;
             _loggedNativeUnavailable = false;
@@ -59,13 +66,13 @@ namespace Eitan.EasyMic.Runtime
 
         public void SetGain(float gain)
         {
-            _pendingGain = gain;
+            _pendingGain = RequireFinite(gain, nameof(gain));
             Interlocked.Exchange(ref _gainDirty, 1);
         }
 
         public void SetMasterVolume(float volume)
         {
-            _pendingMasterVolume = volume;
+            _pendingMasterVolume = RequireFinite(volume, nameof(volume));
             Interlocked.Exchange(ref _masterDirty, 1);
         }
 

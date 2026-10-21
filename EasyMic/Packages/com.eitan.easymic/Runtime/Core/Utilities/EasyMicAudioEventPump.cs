@@ -28,6 +28,7 @@ namespace Eitan.EasyMic.Runtime
         private static AutoResetEvent s_signal;
         private static Thread s_thread;
         private static bool s_running;
+        private static int s_generation;
 
         private static SynchronizationContext s_mainContext;
         private static AudioSystem s_audioSystem;
@@ -59,6 +60,7 @@ namespace Eitan.EasyMic.Runtime
 
         internal static void Shutdown()
         {
+            Interlocked.Increment(ref s_generation);
             Volatile.Write(ref s_running, false);
             try { Volatile.Read(ref s_signal)?.Set(); } catch { }
             try
@@ -143,7 +145,7 @@ namespace Eitan.EasyMic.Runtime
                 return default;
             }
 
-            if (sampleCount < 0)
+            if (sampleCount < 0 || sampleCount > queue.WritableCount - HeaderFloats)
             {
                 RecordEventDrop();
                 return default;
@@ -280,7 +282,8 @@ namespace Eitan.EasyMic.Runtime
                 Volatile.Write(ref s_queue, new UnsafeAudioRingBuffer(DefaultQueueCapacityFloats, 1));
                 Volatile.Write(ref s_signal, new AutoResetEvent(false));
                 Volatile.Write(ref s_running, true);
-                s_thread = new Thread(ThreadLoop)
+                int generation = Volatile.Read(ref s_generation);
+                s_thread = new Thread(() => ThreadLoop(generation))
                 {
                     IsBackground = true,
                     Name = "EasyMic-AudioEventPump"
@@ -295,7 +298,7 @@ namespace Eitan.EasyMic.Runtime
             Shutdown();
         }
 
-        private static void ThreadLoop()
+        private static void ThreadLoop(int generation)
         {
             var header = new float[HeaderFloats];
 
@@ -309,7 +312,7 @@ namespace Eitan.EasyMic.Runtime
 
                 try
                 {
-                    Drain(header);
+                    Drain(header, generation);
                 }
                 catch
                 {
@@ -318,7 +321,7 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private static void Drain(float[] header)
+        private static void Drain(float[] header, int generation)
         {
             var queue = Volatile.Read(ref s_queue);
             if (queue == null)
@@ -326,12 +329,12 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
-            while (TryDrainOne(queue, header))
+            while (TryDrainOne(queue, header, generation))
             {
             }
         }
 
-        private static bool TryDrainOne(UnsafeAudioRingBuffer queue, float[] header)
+        private static bool TryDrainOne(UnsafeAudioRingBuffer queue, float[] header, int generation)
         {
             if (queue.ReadableCount < HeaderFloats)
             {
@@ -350,7 +353,7 @@ namespace Eitan.EasyMic.Runtime
             int sampleRate = (int)header[3];
             int sampleCount = (int)header[4];
 
-            if (sampleCount < 0)
+            if (sampleCount < 0 || sampleCount > queue.Capacity - HeaderFloats)
             {
                 // Corrupt stream; drop header and attempt to resync.
                 queue.Skip(HeaderFloats);
@@ -371,19 +374,24 @@ namespace Eitan.EasyMic.Runtime
                 queue.TryReadExact(payload, sampleCount);
             }
 
-            Dispatch((EventType)type, id, channels, sampleRate, payload);
+            Dispatch((EventType)type, id, channels, sampleRate, payload, generation);
             return true;
         }
 
-        private static void Dispatch(EventType type, int id, int channels, int sampleRate, float[] payload)
+        private static void Dispatch(EventType type, int id, int channels, int sampleRate, float[] payload, int generation)
         {
+            if (generation != Volatile.Read(ref s_generation))
+            {
+                ReturnPayload(payload);
+                return;
+            }
             var ctx = Volatile.Read(ref s_mainContext);
             if (ctx != null)
             {
                 DispatchItem item = null;
                 try
                 {
-                    item = RentDispatchItem(type, id, channels, sampleRate, payload);
+                    item = RentDispatchItem(type, id, channels, sampleRate, payload, generation);
                     ctx.Post(DispatchOnMainThread, item);
                     return;
                 }
@@ -414,7 +422,10 @@ namespace Eitan.EasyMic.Runtime
             {
                 try
                 {
-                    DispatchDirect(item.Type, item.Id, item.Channels, item.SampleRate, item.Payload);
+                    if (item.Generation == Volatile.Read(ref s_generation))
+                    {
+                        DispatchDirect(item.Type, item.Id, item.Channels, item.SampleRate, item.Payload);
+                    }
                 }
                 finally
                 {
@@ -505,7 +516,7 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        private static DispatchItem RentDispatchItem(EventType type, int id, int channels, int sampleRate, float[] payload)
+        private static DispatchItem RentDispatchItem(EventType type, int id, int channels, int sampleRate, float[] payload, int generation)
         {
             DispatchItem item = null;
             lock (s_dispatchItemPoolLock)
@@ -521,7 +532,7 @@ namespace Eitan.EasyMic.Runtime
                 item = new DispatchItem();
             }
 
-            item.Reset(type, id, channels, sampleRate, payload);
+            item.Reset(type, id, channels, sampleRate, payload, generation);
             return item;
         }
 
@@ -543,8 +554,9 @@ namespace Eitan.EasyMic.Runtime
 
         private sealed class DispatchItem
         {
-            public void Reset(EventType type, int id, int channels, int sampleRate, float[] payload)
+            public void Reset(EventType type, int id, int channels, int sampleRate, float[] payload, int generation)
             {
+                Generation = generation;
                 Type = type;
                 Id = id;
                 Channels = channels;
@@ -557,6 +569,7 @@ namespace Eitan.EasyMic.Runtime
                 Payload = null;
             }
 
+            public int Generation { get; private set; }
             public EventType Type { get; private set; }
             public int Id { get; private set; }
             public int Channels { get; private set; }

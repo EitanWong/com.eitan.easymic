@@ -19,6 +19,7 @@ namespace Eitan.EasyMic.Runtime
         private readonly string _name;
 
         private PlaybackAudioSource _source;
+        private AudioSystem _outputSystem;
         private AudioClip _clip;
         private bool _loop = true;
         private float _volume = 1f;
@@ -230,6 +231,7 @@ namespace Eitan.EasyMic.Runtime
             }
 
             ResetTimeline(clearQueue, clearClip);
+            if (clearClip) _clip = null;
             _source?.Pause();
             RaiseStreamIdle();
         }
@@ -383,6 +385,7 @@ namespace Eitan.EasyMic.Runtime
             }
             catch { }
 
+            _clip = null;
             FinalizeEventsOnDispose();
         }
 
@@ -571,6 +574,12 @@ namespace Eitan.EasyMic.Runtime
                         continue;
                     }
 
+                    if (_outputSystem == null || !_outputSystem.IsRunning)
+                    {
+                        src.Pause();
+                        break;
+                    }
+
                     if (!src.IsPlaying)
                     {
                         WaitFeeder();
@@ -629,9 +638,9 @@ namespace Eitan.EasyMic.Runtime
                     bool completing = !Loop && framesToCopy == framesRemaining;
                     int samplesToCopy = framesToCopy * channels;
                     var span = new ReadOnlySpan<float>(_clipCache, cursorFrames * channels, samplesToCopy);
-                    SubmitSamples(span, channels, _clipSampleRate, completing);
+                    var result = SubmitSamples(span, channels, _clipSampleRate, completing, ensureSourceReady: false);
 
-                    cursorFrames += framesToCopy;
+                    cursorFrames += result.SamplesWritten / channels;
                     Volatile.Write(ref _positionFrames, Math.Min(cursorFrames, clipFrames));
 
                     if (completing)
@@ -682,7 +691,10 @@ namespace Eitan.EasyMic.Runtime
             if (!sys.IsRunning)
             {
                 sys.PreferNativeFormat();
-                sys.Start();
+                if (!sys.Start())
+                {
+                    throw new InvalidOperationException("EasyMic could not start the native playback device. See the Unity player log for details.");
+                }
             }
         }
 
@@ -690,6 +702,7 @@ namespace Eitan.EasyMic.Runtime
         {
             EnsureAudioSystem();
             var sys = AudioSystem.Instance;
+            _outputSystem = sys;
 
             int desiredChannels = sys.IsRunning ? (int)Math.Max(1u, sys.Channels) : Mathf.Max(1, SpeakerModeToChannels(AudioSettings.speakerMode));
             int desiredSampleRate = sys.IsRunning ? (int)Math.Max(8000u, sys.SampleRate) : Math.Max(8000, AudioSettings.outputSampleRate);
@@ -812,7 +825,7 @@ namespace Eitan.EasyMic.Runtime
             return frames < 1 ? 0 : (long)frames;
         }
 
-        private EasyMicEnqueueResult SubmitSamples(ReadOnlySpan<float> samples, int channels, int sampleRate, bool markEndOfStream)
+        private EasyMicEnqueueResult SubmitSamples(ReadOnlySpan<float> samples, int channels, int sampleRate, bool markEndOfStream, bool ensureSourceReady = true)
         {
             int requestedSamples = channels > 0 ? (samples.Length / channels) * channels : samples.Length;
             if (samples.IsEmpty)
@@ -824,7 +837,15 @@ namespace Eitan.EasyMic.Runtime
                 return EasyMicEnqueueResult.InvalidFormat(requestedSamples);
             }
 
-            EnsureSourceReady();
+            if (ensureSourceReady)
+            {
+                EnsureSourceReady();
+            }
+            else if (_disposed || _outputSystem == null || !_outputSystem.IsRunning)
+            {
+                return new EasyMicEnqueueResult(EasyMicQueueStatus.Stopped, requestedSamples, 0);
+            }
+
             if (_source == null)
             {
                 return new EasyMicEnqueueResult(EasyMicQueueStatus.DeviceLost, requestedSamples, 0);

@@ -183,6 +183,10 @@ namespace Eitan.EasyMic.Runtime
             runtime.customBufferFrames = Mathf.Clamp(runtime.customBufferFrames, 64, 4096);
             runtime.defaultSampleRate = Mathf.Clamp(runtime.defaultSampleRate, 8000, 192000);
             runtime.defaultChannels = Mathf.Clamp(runtime.defaultChannels, 1, 8);
+            if (float.IsNaN(runtime.deviceRefreshIntervalSeconds) || float.IsInfinity(runtime.deviceRefreshIntervalSeconds))
+                runtime.deviceRefreshIntervalSeconds = 2f;
+            if (float.IsNaN(editor.telemetryRefreshRate) || float.IsInfinity(editor.telemetryRefreshRate))
+                editor.telemetryRefreshRate = 30f;
             runtime.deviceRefreshIntervalSeconds = Mathf.Clamp(runtime.deviceRefreshIntervalSeconds, 0.25f, 30f);
             runtime.streamingQueueMilliseconds = Mathf.Clamp(runtime.streamingQueueMilliseconds, 20, 5000);
             editor.telemetryRefreshRate = Mathf.Clamp(editor.telemetryRefreshRate, 1f, 60f);

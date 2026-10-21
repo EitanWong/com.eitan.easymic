@@ -5,9 +5,12 @@ namespace Eitan.EasyMic.Runtime
     internal static class MiniaudioDeviceConfigPolicy
     {
         private const int WasapiUsageProAudio = 2;
+        private const int OpenSlStreamMedia = 4;
         private const int OpenSlStreamVoice = 1;
         private const int OpenSlRecordingVoiceCommunication = 4;
         private const int AAudioUsageVoiceCommunication = 2;
+        private const int AAudioUsageMedia = 1;
+        private const int AAudioContentMusic = 2;
         private const int AAudioContentSpeech = 1;
         private const int AAudioInputVoiceCommunication = 4;
         private const int AAudioInputVoicePerformance = 6;
@@ -148,11 +151,11 @@ namespace Eitan.EasyMic.Runtime
             Native.AndroidCaptureDeviceConfigProfile androidCaptureProfile)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            config.OpenSl.StreamType = playback ? OpenSlStreamVoice : 0;
+            config.OpenSl.StreamType = ResolveOpenSlStreamType(playback, capture);
             config.OpenSl.RecordingPreset = capture ? OpenSlRecordingVoiceCommunication : 0;
             config.OpenSl.EnableCompatibilityWorkarounds = 1;
-            config.AAudio.Usage = AAudioUsageVoiceCommunication;
-            config.AAudio.ContentType = playback ? AAudioContentSpeech : 0;
+            config.AAudio.Usage = ResolveAAudioUsage(playback, capture);
+            config.AAudio.ContentType = playback && !capture ? AAudioContentMusic : (playback ? AAudioContentSpeech : 0);
             config.AAudio.InputPreset = capture && profile == EasyMicLatencyProfile.UltraLowLatency
                 ? AAudioInputVoicePerformance
                 : (capture ? AAudioInputVoiceCommunication : 0);
@@ -181,6 +184,20 @@ namespace Eitan.EasyMic.Runtime
                 config.NoFixedSizedCallback = 1;
             }
 #endif
+        }
+
+        internal static int ResolveOpenSlStreamType(bool playback, bool capture)
+        {
+            if (!playback)
+                return 0;
+            return capture ? OpenSlStreamVoice : OpenSlStreamMedia;
+        }
+
+        internal static int ResolveAAudioUsage(bool playback, bool capture)
+        {
+            if (!playback)
+                return AAudioUsageVoiceCommunication;
+            return capture ? AAudioUsageVoiceCommunication : AAudioUsageMedia;
         }
 
         private static bool UsesSafeStreamingCapturePeriods(

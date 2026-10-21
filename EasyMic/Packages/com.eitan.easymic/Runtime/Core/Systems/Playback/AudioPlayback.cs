@@ -39,9 +39,16 @@ namespace Eitan.EasyMic.Runtime
             {
                 sys.LatencyProfile = latencyProfile;
                 sys.PreferNativeFormat();
-                sys.Start();
+                if (!sys.Start())
+                    throw new InvalidOperationException("EasyMic could not start the native playback device. See the Unity player log for details.");
             }
         }
+
+        /// <summary>Lists output endpoints available to miniaudio on the current platform.</summary>
+        public static PlaybackOutputDevice[] GetOutputDevices() => AudioSystem.GetOutputDevices();
+
+        /// <summary>Sets the miniaudio output endpoint. Call before starting playback; an empty ID selects the system default.</summary>
+        public static void SetOutputDevice(string deviceId) => AudioSystem.Instance.SetOutputDevice(deviceId);
 
 
         public static PlaybackHandle PlayClip(AudioClip clip, bool loop = false, float volume = 1f, bool autoDisposeOnComplete = true)

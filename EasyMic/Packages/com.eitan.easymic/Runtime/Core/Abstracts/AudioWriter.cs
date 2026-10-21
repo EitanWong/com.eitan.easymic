@@ -19,6 +19,14 @@ namespace Eitan.EasyMic.Runtime
             OnAudioWrite(audiobuffer, state);
         }
 
+        // Validate control parameters before they can poison persistent native DSP state.
+        protected static float RequireFinite(float value, string parameterName)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+                throw new ArgumentOutOfRangeException(parameterName, "Audio parameters must be finite.");
+            return value;
+        }
+
         /// <summary>
         /// Implement this method to process or modify the audio data.
         /// </summary>

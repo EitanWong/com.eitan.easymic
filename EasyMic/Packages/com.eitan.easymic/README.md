@@ -5,7 +5,7 @@
 
 **Low-latency microphone capture, playback, and extensible audio pipelines**
 
-![Version](https://img.shields.io/badge/version-0.1.3--exp.6-175cd3)
+![Version](https://img.shields.io/badge/version-0.1.4--exp.1-175cd3)
 ![Unity](https://img.shields.io/badge/Unity-2021.3%2B-101828)
 ![License](https://img.shields.io/badge/license-GPL--3.0-067647)
 

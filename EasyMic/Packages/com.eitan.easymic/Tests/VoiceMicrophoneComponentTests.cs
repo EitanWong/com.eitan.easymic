@@ -11,6 +11,7 @@ using Eitan.EasyMic.Runtime.Integration.SherpaONNXUnity.Mono.TTS.Internal;
 using Eitan.SherpaONNXUnity.Runtime;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Eitan.EasyMic.Tests
 {
@@ -110,8 +111,8 @@ namespace Eitan.EasyMic.Tests
             return peak;
         }
 
-        [Test]
-        public async Task CompletedGenerationDoesNotHoldTheSessionForFourSeconds()
+        [UnityTest]
+        public System.Collections.IEnumerator CompletedGenerationDoesNotHoldTheSessionForFourSeconds()
         {
             var owner = new GameObject("Local TTS session completion test");
             owner.SetActive(false);
@@ -124,9 +125,10 @@ namespace Eitan.EasyMic.Tests
                     1L, new ConcurrentDictionary<int, SpeechSynthesisResult>(),
                     (Func<bool>)(() => true), CancellationToken.None
                 });
-                var completed = await Task.WhenAny(task, Task.Delay(200));
-                Assert.AreSame(task, completed, "A completed producer cannot add more results; release the session immediately.");
-                await task;
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                while (!task.IsCompleted && timer.ElapsedMilliseconds < 200) yield return null;
+                Assert.That(task.IsCompleted, Is.True, "A completed producer cannot add more results; release the session immediately.");
+                task.GetAwaiter().GetResult();
             }
             finally
             {
@@ -272,11 +274,30 @@ namespace Eitan.EasyMic.Tests
 
     public class KeywordGateTests
     {
-        [TearDown]
-        public void StopNativePlayback()
+        private ManagedPlaybackTestSystem _playbackSystem;
+        private HashSet<int> _previousPlaybacks;
+        private AudioClip _triggerClip;
+
+        [SetUp]
+        public void SetUpPlayback()
         {
-            Eitan.EasyMic.Runtime.AudioSystem.Instance.Stop();
+            _playbackSystem = new ManagedPlaybackTestSystem();
+            _previousPlaybacks = new HashSet<int>(PlaybackSessions.Keys);
         }
+
+        [TearDown]
+        public void ReleasePlayback()
+        {
+            foreach (int id in new List<int>(PlaybackSessions.Keys))
+                if (!_previousPlaybacks.Contains(id)) Eitan.EasyMic.Runtime.AudioPlayback.DisposeHandle(id);
+            if (_triggerClip != null) UnityEngine.Object.DestroyImmediate(_triggerClip);
+            _triggerClip = null;
+            _playbackSystem.Dispose();
+        }
+
+        private static Dictionary<int, Eitan.EasyMic.Runtime.PlaybackAudioSession> PlaybackSessions
+            => (Dictionary<int, Eitan.EasyMic.Runtime.PlaybackAudioSession>)typeof(Eitan.EasyMic.Runtime.AudioPlayback)
+                .GetField("s_playbacks", AudioTestAccess.Static).GetValue(null);
 
         [Test]
         public void ContinuousConversationTimeoutClosesGate()
@@ -309,7 +330,7 @@ namespace Eitan.EasyMic.Tests
                 Enabled = true,
                 ModelId = "model",
                 UseTriggerSound = true,
-                TriggerSoundClip = AudioClip.Create("trigger", 4410, 1, 44100, false)
+                TriggerSoundClip = _triggerClip = AudioClip.Create("trigger", 4410, 1, 44100, false)
             };
 
             var holds = new List<float>();

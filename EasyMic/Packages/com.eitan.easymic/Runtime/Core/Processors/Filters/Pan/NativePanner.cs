@@ -32,6 +32,8 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Initialize(AudioContext state)
         {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            if (_native.IsValid) _native.Dispose();
             base.Initialize(state);
             _nativeReady = false;
             _loggedNativeUnavailable = false;
@@ -57,7 +59,7 @@ namespace Eitan.EasyMic.Runtime
 
         public void SetPan(float pan)
         {
-            _pendingPan = pan;
+            _pendingPan = RequireFinite(pan, nameof(pan));
             Interlocked.Exchange(ref _panDirty, 1);
         }
 
