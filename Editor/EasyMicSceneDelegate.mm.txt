@@ -1,0 +1,81 @@
+// EasyMic UIScene bridge for the Unity 2021.3 trampoline.
+// Keep Unity's existing focus, audio, rendering and pause/resume implementation.
+#if PLATFORM_IOS
+@interface UnityAppController (EasyMicScenes)
+- (void)easymicConnectWindowScene:(UIWindowScene*)scene;
+- (void)initUnityApplicationNoGraphics;
+- (void)initUnityWithApplication:(UIApplication*)application;
+@end
+
+@interface EasyMicSceneDelegate : NSObject <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow* window;
+@end
+
+@implementation EasyMicSceneDelegate
+- (void)forwardURLContexts:(NSSet<UIOpenURLContext*>*)contexts
+{
+    UnityAppController* controller = GetAppController();
+    for (UIOpenURLContext* context in contexts)
+    {
+        [controller initUnityApplicationNoGraphics];
+        NSMutableDictionary* options = [NSMutableDictionary dictionary];
+        if (context.options.sourceApplication)
+            options[UIApplicationOpenURLOptionsSourceApplicationKey] = context.options.sourceApplication;
+        if (context.options.annotation)
+            options[UIApplicationOpenURLOptionsAnnotationKey] = context.options.annotation;
+        options[UIApplicationOpenURLOptionsOpenInPlaceKey] = @(context.options.openInPlace);
+        [controller application:UIApplication.sharedApplication openURL:context.URL options:options];
+    }
+}
+
+- (void)scene:(UIScene*)scene willConnectToSession:(UISceneSession*)session options:(UISceneConnectionOptions*)options
+{
+    if (![scene isKindOfClass:UIWindowScene.class])
+        return;
+    [self forwardURLContexts:options.URLContexts];
+    for (NSUserActivity* activity in options.userActivities)
+        [self scene:scene continueUserActivity:activity];
+    [GetAppController() easymicConnectWindowScene:(UIWindowScene*)scene];
+    self.window = GetAppController().window;
+    if (UIApplication.sharedApplication.applicationState != UIApplicationStateBackground)
+        [GetAppController() initUnityWithApplication:UIApplication.sharedApplication];
+}
+
+- (void)sceneWillEnterForeground:(UIScene*)scene
+{
+    [GetAppController() initUnityWithApplication:UIApplication.sharedApplication];
+    [GetAppController() applicationWillEnterForeground:UIApplication.sharedApplication];
+}
+
+- (void)sceneDidBecomeActive:(UIScene*)scene
+{
+    [GetAppController() applicationDidBecomeActive:UIApplication.sharedApplication];
+}
+
+- (void)sceneWillResignActive:(UIScene*)scene
+{
+    [GetAppController() applicationWillResignActive:UIApplication.sharedApplication];
+}
+
+- (void)sceneDidEnterBackground:(UIScene*)scene
+{
+    [GetAppController() applicationDidEnterBackground:UIApplication.sharedApplication];
+}
+
+- (void)sceneDidDisconnect:(UIScene*)scene
+{
+    self.window = nil;
+}
+
+- (void)scene:(UIScene*)scene openURLContexts:(NSSet<UIOpenURLContext*>*)contexts
+{
+    [self forwardURLContexts:contexts];
+}
+
+- (void)scene:(UIScene*)scene continueUserActivity:(NSUserActivity*)activity
+{
+    [GetAppController() initUnityApplicationNoGraphics];
+    [GetAppController() application:UIApplication.sharedApplication continueUserActivity:activity restorationHandler:^(NSArray<id<UIUserActivityRestoring>>* objects) {}];
+}
+@end
+#endif

@@ -46,6 +46,15 @@ PlaybackHandle handle = AudioPlayback.PlayClip(
 
 使用 `PlaybackHandle` 暂停、恢复、停止、修改音量或释放。
 
+## 输出设备
+
+```csharp
+PlaybackOutputDevice[] devices = AudioPlayback.GetOutputDevices();
+AudioPlayback.SetOutputDevice(devices[1].Id); // 必须在开始播放前设置。
+```
+
+空 ID 表示使用系统默认设备。移动端独立播放使用媒体音频流/会话，因此硬件音量键控制媒体音量；iOS 使用共享的 `PlayAndRecord` 音频会话，默认外放扬声器，同时允许录音和播放并跟随 iOS 选定的路由。停止其中一条 EasyMic 音频流不会停用另一条流使用的系统会话。蓝牙或 AirPlay 设备请使用 iOS 系统音频路由选择器。设备 ID 是不透明值，连接设备变化后可能改变。
+
 ## 流式播放 Interleaved PCM
 
 ```csharp
@@ -70,6 +79,24 @@ stream.CompleteStream();
 ## 组件播放
 
 `PlaybackAudioSourceBehaviour` 包装 `PlaybackAudioSession`，用于场景播放。
+
+在组件 Inspector 的 **Output Device** 下拉框中选择输出扬声器，使用 **Refresh** 刷新设备列表：
+
+- **Use Audio System Output**（默认）：沿用 `AudioPlayback.SetOutputDevice(...)` 或其他组件设置的全局输出；
+- **System Default**：明确使用系统默认输出；
+- 具体设备：将设备 ID 保存在场景或 Prefab 中，并在创建播放会话前应用。
+
+所有 EasyMic 播放源共用一个输出设备。请在播放系统启动前选择；运行中不能改为不同设备，暂停组件或调用组件的 `Stop()` 不会关闭全局 `AudioSystem`。多个组件可以指定同一设备，指定不同设备的组件会报错，而不会中断现有播放。组件会提前执行（默认执行顺序为 -100），但若其他脚本更早启动了播放，仍需提前配置全局输出。已保存但不可用的设备会保留并显示提示，不会自动改为系统默认设备。iOS 仅支持系统管理的输出路由。
+
+代码中可在启用组件前配置（设置 `OutputDeviceId` 会自动启用 `OverrideOutputDevice`）：
+
+```csharp
+// playback 所在 GameObject 此时应处于未激活状态。
+playback.OutputDeviceId = selectedDevice.Id; // 空字符串选择系统默认。
+playback.gameObject.SetActive(true);
+```
+
+将 `OverrideOutputDevice` 设为 `false` 可恢复沿用全局输出；这不会重置当前全局设备。
 
 常用成员：
 

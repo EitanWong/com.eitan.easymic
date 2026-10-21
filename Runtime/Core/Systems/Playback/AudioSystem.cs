@@ -59,6 +59,7 @@ namespace Eitan.EasyMic.Runtime
         private bool _previousRunInBackground;
         private readonly RealtimeAudioTelemetry _telemetry = new RealtimeAudioTelemetry();
         private EasyMicLatencyProfile _latencyProfile = EasyMicLatencyProfile.LowLatency;
+        private string _outputDeviceId = string.Empty;
 
         private sealed class HotState
         {
@@ -185,11 +186,86 @@ namespace Eitan.EasyMic.Runtime
                 _running = true;
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                UnityEngine.Debug.LogError($"EasyMic playback initialization failed: {ex}");
                 Stop();
                 return false;
             }
+        }
+
+        public void SetOutputDevice(string deviceId)
+        {
+            deviceId = deviceId ?? string.Empty;
+            if (string.Equals(_outputDeviceId, deviceId, StringComparison.Ordinal))
+                return;
+
+            if (_running)
+                throw new InvalidOperationException("Stop AudioSystem before changing the output device.");
+#if UNITY_IOS && !UNITY_EDITOR
+            if (!string.IsNullOrEmpty(deviceId))
+                throw new NotSupportedException("iOS output routes are managed by AVAudioSession. Select a route with the iOS system audio route picker.");
+#endif
+            _outputDeviceId = deviceId;
+        }
+
+        public static PlaybackOutputDevice[] GetOutputDevices()
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            // Creating a temporary miniaudio context changes the shared AVAudioSession state.
+            return new[] { new PlaybackOutputDevice(string.Empty, "System Default", true) };
+#else
+            IntPtr context = Native.AllocateContext(out var allocationSource);
+            if (context == IntPtr.Zero)
+                throw new InvalidOperationException("Unable to allocate miniaudio context for output-device enumeration.");
+
+            bool initialized = false;
+            try
+            {
+                var result = Native.ContextInit(IntPtr.Zero, 0, IntPtr.Zero, context);
+                if (result != Native.Result.Success)
+                    throw new InvalidOperationException($"miniaudio context initialization failed: {Native.FormatResult(result)}");
+                initialized = true;
+
+                try
+                {
+                    result = Native.ContextGetDevices(context, out var playbackInfos, out var playbackCount, out _, out _);
+                    if (result != Native.Result.Success)
+                        throw new InvalidOperationException($"Unable to enumerate output devices: {Native.FormatResult(result)}");
+
+                    int count = (int)Math.Min(playbackCount, 1024u);
+                    var devices = new PlaybackOutputDevice[count + 1];
+                    devices[0] = new PlaybackOutputDevice(string.Empty, "System Default", true);
+                    int deviceIndex = 1;
+                    for (int i = 0; i < count; i++)
+                    {
+                        var info = Native.ReadDeviceInfo(playbackInfos, i);
+                        if (info.IsDefault != 0)
+                        {
+                            devices[0] = new PlaybackOutputDevice(string.Empty, info.Name ?? "System Default", true);
+                            continue;
+                        }
+
+                        devices[deviceIndex++] = new PlaybackOutputDevice(
+                            Convert.ToBase64String(info.Id ?? Array.Empty<byte>()),
+                            info.Name ?? string.Empty,
+                            false);
+                    }
+                    if (deviceIndex < devices.Length)
+                        Array.Resize(ref devices, deviceIndex);
+                    return devices;
+                }
+                finally
+                {
+                    if (initialized)
+                        Native.ContextUninit(context);
+                }
+            }
+            finally
+            {
+                Native.FreeAllocated(context, allocationSource);
+            }
+#endif
         }
 
         public void Stop()
@@ -257,6 +333,8 @@ namespace Eitan.EasyMic.Runtime
         public uint SampleRate => _sampleRate;
         public uint Channels => _channels;
         public bool IsRunning => _running;
+        /// <summary>Configured output endpoint ID; empty means the system default.</summary>
+        public string OutputDeviceId => _outputDeviceId;
         public AudioMixer MasterMixer => _masterMixer;
         public EasyMicTelemetrySnapshot Telemetry => _telemetry.GetPublicSnapshot();
         public EasyMicRealtimeStats RealtimeStats => new EasyMicRealtimeStats(Telemetry);
@@ -432,18 +510,37 @@ namespace Eitan.EasyMic.Runtime
 
             _cb = OnCallback;
             IntPtr hotKey = new IntPtr(Environment.TickCount);
+            IntPtr playbackDevice = IntPtr.Zero;
+            if (!string.IsNullOrEmpty(_outputDeviceId))
+            {
+                byte[] deviceId;
+                try { deviceId = Convert.FromBase64String(_outputDeviceId); }
+                catch (FormatException ex) { throw new ArgumentException("Invalid playback output device ID.", nameof(_outputDeviceId), ex); }
+                if (deviceId.Length != Native.DeviceIdSizeInBytes)
+                    throw new ArgumentException("Invalid playback output device ID size.", nameof(_outputDeviceId));
+                playbackDevice = System.Runtime.InteropServices.Marshal.AllocHGlobal(deviceId.Length);
+                System.Runtime.InteropServices.Marshal.Copy(deviceId, 0, playbackDevice, deviceId.Length);
+            }
 
-            _deviceConfig = Native.AllocateDeviceConfig(
-                Native.DeviceType.Playback,
-                Native.SampleFormat.F32,
-                channels,
-                rate,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                _cb,
-                _latencyProfile,
-                hotKey,
-                out _);
+            try
+            {
+                _deviceConfig = Native.AllocateDeviceConfig(
+                    Native.DeviceType.Playback,
+                    Native.SampleFormat.F32,
+                    channels,
+                    rate,
+                    playbackDevice,
+                    IntPtr.Zero,
+                    _cb,
+                    _latencyProfile,
+                    hotKey,
+                    out _);
+            }
+            finally
+            {
+                if (playbackDevice != IntPtr.Zero)
+                    System.Runtime.InteropServices.Marshal.FreeHGlobal(playbackDevice);
+            }
 
             if (_deviceConfig == IntPtr.Zero)
                 return false;

@@ -17,6 +17,8 @@ namespace Eitan.EasyMic.Runtime
 
         public override void Initialize(AudioContext state)
         {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            if (_native.IsValid) _native.Dispose();
             base.Initialize(state);
             _configuredChannels = Math.Max(1, state.ChannelCount);
             _configuredSampleRate = Math.Max(1, state.SampleRate);

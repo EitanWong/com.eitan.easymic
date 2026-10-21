@@ -58,6 +58,9 @@ namespace Eitan.EasyMic.Runtime
         private int _playbackCompleted; // 0/1 guard to dispatch completion once per drain
         private int _loopBoundaryPending; // 0/1 guard to surface loop boundary callback on audio thread
         private int _resetRequested; // consumed by the render thread before touching queue state
+        private long _samplesEnqueued;
+        private long _samplesDequeued;
+        private long _resetThroughSample;
 
         // Meters (snapshot by last render)
         private float[] _meterPeak; // per-output-channel of last render
@@ -246,12 +249,13 @@ namespace Eitan.EasyMic.Runtime
             ResetCompletionGuard();
             lock (_queueMutationLock)
             {
-                return _queue.Write(interleaved.Slice(0, alignedSamples));
+                return WriteQueued(interleaved.Slice(0, alignedSamples));
             }
         }
 
         public bool TryEnqueue(ReadOnlySpan<float> interleaved, out int samplesWritten)
         {
+            if (Volatile.Read(ref _disposed) != 0) { samplesWritten = 0; return false; }
             samplesWritten = Enqueue(interleaved);
             return samplesWritten == (interleaved.Length - interleaved.Length % Channels);
         }
@@ -311,6 +315,7 @@ namespace Eitan.EasyMic.Runtime
 
         public bool TryEnqueue(ReadOnlySpan<float> interleaved, int channels, int sampleRate, out int samplesWritten, bool markEndOfStream = false)
         {
+            if (Volatile.Read(ref _disposed) != 0) { samplesWritten = 0; return false; }
             samplesWritten = Enqueue(interleaved, channels, sampleRate, markEndOfStream);
             int requestedFrames = channels > 0 ? interleaved.Length / channels : 0;
             int requestedSamples = requestedFrames * Math.Max(0, channels);
@@ -377,7 +382,7 @@ namespace Eitan.EasyMic.Runtime
                 int justWritten;
                 lock (_queueMutationLock)
                 {
-                    justWritten = _queue.Write(scratch.Slice(0, chunkSamples));
+                    justWritten = WriteQueued(scratch.Slice(0, chunkSamples));
                 }
                 if (justWritten <= 0)
                 {
@@ -403,7 +408,7 @@ namespace Eitan.EasyMic.Runtime
                 int justWritten;
                 lock (_queueMutationLock)
                 {
-                    justWritten = _queue.Write(samples.Slice(written));
+                    justWritten = WriteQueued(samples.Slice(written));
                 }
                 if (justWritten <= 0)
                 {
@@ -458,7 +463,8 @@ namespace Eitan.EasyMic.Runtime
                     fadeIndex = fadeSamples - 1;
                 }
 
-                float gain = 1f - ((fadeIndex + 1f) / fadeSamples);
+                int fadeFrames = fadeSamples / Channels;
+                float gain = 1f - ((fadeIndex / Channels + 1f) / fadeFrames);
                 if (gain < 0f)
                 {
                     gain = 0f;
@@ -525,7 +531,11 @@ namespace Eitan.EasyMic.Runtime
             System.Threading.Interlocked.Exchange(ref _pendingStreamEnd, 0);
             System.Threading.Interlocked.Exchange(ref _playbackCompleted, 0);
             System.Threading.Interlocked.Exchange(ref _loopBoundaryPending, 0);
-            System.Threading.Interlocked.Exchange(ref _resetRequested, 1);
+            lock (_queueMutationLock)
+            {
+                Interlocked.Exchange(ref _resetThroughSample, _samplesEnqueued);
+                Interlocked.Exchange(ref _resetRequested, 1);
+            }
         }
 
         /// <summary>
@@ -534,14 +544,13 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         internal void RenderAdditive(Span<float> destination, int sysChannels, int sysSampleRate, ref MixerGainEnvelope gainEnvelope, float targetGain, int rampSamples)
         {
-            ApplyPendingResetOnRenderThread();
-
             if (Volatile.Read(ref _disposed) != 0)
             {
                 UpdateGainEnvelope(ref gainEnvelope, 0f, rampSamples);
                 return;
             }
 
+            ApplyPendingResetOnRenderThread();
             int totalSamples = destination.Length;
             if (totalSamples <= 0)
             {
@@ -612,7 +621,23 @@ namespace Eitan.EasyMic.Runtime
 
             _phase = 0.0;
             _resFrames = 0;
-            _queue.Skip(_queue.ReadableCount);
+            long discard = Math.Max(0L, Interlocked.Read(ref _resetThroughSample) - _samplesDequeued);
+            _samplesDequeued += _queue.Skip((int)Math.Min(int.MaxValue, discard));
+        }
+
+        // Producers hold _queueMutationLock. The render thread is the sole reader.
+        private int WriteQueued(ReadOnlySpan<float> samples)
+        {
+            int written = _queue.Write(samples);
+            _samplesEnqueued += written;
+            return written;
+        }
+
+        private int ReadQueued(Span<float> samples)
+        {
+            int read = _queue.Read(samples);
+            _samplesDequeued += read;
+            return read;
         }
 
         private int RenderNativeRate(
@@ -654,7 +679,7 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 Span<float> workSpan = new Span<float>(_work, 0, chunkSamples);
-                int read = _queue.Read(workSpan);
+                int read = ReadQueued(workSpan);
                 read -= read % Channels;
                 if (read <= 0)
                 {
@@ -1063,7 +1088,7 @@ namespace Eitan.EasyMic.Runtime
                     break;
                 }
 
-                int read = _queue.Read(new Span<float>(_work, 0, toReadSamples));
+                int read = ReadQueued(new Span<float>(_work, 0, toReadSamples));
                 read -= read % Channels;
                 if (read <= 0)
                 {
@@ -1250,7 +1275,12 @@ namespace Eitan.EasyMic.Runtime
                 }
             }
 
-            return WriteToQueue(dest.Slice(0, targetSamples), markEndOfStream, destFadeSamples);
+            int written = WriteToQueue(dest.Slice(0, targetSamples), markEndOfStream, destFadeSamples);
+            // Public enqueue results count consumed input samples, including when
+            // channel conversion or resampling changes the output sample count.
+            return written == targetSamples
+                ? source.Length
+                : (int)((long)(written / Channels) * srcFrames / targetFrames) * srcChannels;
         }
 
         private void EnsureConvertBufferCapacity(int neededSamples)
@@ -1494,6 +1524,7 @@ namespace Eitan.EasyMic.Runtime
                 return;
             }
 
+            _isPlaying = false;
             try { EasyMicAudioEventPump.UnregisterPlaybackSource(_eventSourceId); } catch { }
             try { _pipeline.Dispose(); } catch { }
             try { _queue.Dispose(); } catch { }

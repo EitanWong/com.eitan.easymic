@@ -81,23 +81,19 @@ namespace Eitan.EasyMic.Runtime
 
             for (int i = 0; i < frameCount; i++)
             {
-                // The position to read the "future" audio for detection
-                int detectionReadPos = (_writePosition + _lookaheadFrames * _channelCount) % _bufferSize;
-
-                // The position to read the "present" audio for processing
-                int processReadPos = _writePosition;
+                int processReadPos = (_writePosition + _channelCount) % _bufferSize;
 
                 // --- Write incoming audio to the circular buffer ---
                 for (int ch = 0; ch < _channelCount; ch++)
                 {
-                    _internalBuffer[processReadPos + ch] = audioBuffer[i * _channelCount + ch];
+                    _internalBuffer[_writePosition + ch] = audioBuffer[i * _channelCount + ch];
                 }
 
                 // 1. --- Envelope Detection (using future audio) ---
                 float maxInFrame = 0f;
                 for (int ch = 0; ch < _channelCount; ch++)
                 {
-                    float sample = MathF.Abs(_internalBuffer[detectionReadPos + ch]);
+                    float sample = MathF.Abs(audioBuffer[i * _channelCount + ch]);
                     if (sample > maxInFrame)
                     {
                         maxInFrame = sample;
@@ -145,7 +141,7 @@ namespace Eitan.EasyMic.Runtime
                 }
 
                 // 5. --- Advance the write position in the circular buffer ---
-                _writePosition = (processReadPos + _channelCount) % _bufferSize;
+                _writePosition = (_writePosition + _channelCount) % _bufferSize;
             }
         }
 
@@ -215,12 +211,9 @@ namespace Eitan.EasyMic.Runtime
         /// </summary>
         private void UpdateParameters(AudioContext state)
         {
-            if (_sampleRate == state.SampleRate && _channelCount == state.ChannelCount)
-            {
-                return;
-            }
-
-
+            int lookaheadFrames = Math.Max(0, (int)(LookaheadTime * state.SampleRate));
+            bool reset = _sampleRate != state.SampleRate || _channelCount != state.ChannelCount ||
+                         _lookaheadFrames != lookaheadFrames || _internalBuffer == null;
             _sampleRate = state.SampleRate;
             _channelCount = state.ChannelCount;
 
@@ -229,11 +222,13 @@ namespace Eitan.EasyMic.Runtime
 
             // Calculate lookahead buffer size. It must be large enough to hold the lookahead data.
             // Using a power of 2 for the size can sometimes be more efficient for modulo operations, but isn't strictly necessary.
-            _lookaheadFrames = (int)(LookaheadTime * _sampleRate);
-            int requiredBufferSize = (_lookaheadFrames + 1) * _channelCount * 2; // Make it larger to be safe
-            _bufferSize = requiredBufferSize;
-            _internalBuffer = new float[_bufferSize];
-            _writePosition = 0;
+            _lookaheadFrames = lookaheadFrames;
+            if (reset)
+            {
+                _bufferSize = checked((_lookaheadFrames + 1) * _channelCount);
+                _internalBuffer = new float[_bufferSize];
+                _writePosition = 0;
+            }
 
             // Calculate per-sample increments for attack and release for sample-accurate ramps
             float attackSamples = AttackTime * _sampleRate;
@@ -246,7 +241,9 @@ namespace Eitan.EasyMic.Runtime
             float envelopeReleaseTime = 0.1f;
             _envelopeReleaseCoeff = MathF.Exp(-1.0f / (envelopeReleaseTime * _sampleRate));
 
-            // Reset state
+            if (!reset) return;
+
+            // Reset state only when the delay buffer or audio format changes.
             _gateLevel = 0.0f;
             _envelope = 0.0f;
             CurrentState = VolumeGateState.Closed;

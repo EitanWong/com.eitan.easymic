@@ -119,7 +119,7 @@ namespace Eitan.EasyMic.Runtime
             }
 
             var clamped = Math.Max(0.25d, (double)seconds);
-            var interval = (int)(clamped * 1000d);
+            var interval = (int)Math.Min(int.MaxValue, clamped * 1000d);
             return Math.Max(250, interval);
         }
 

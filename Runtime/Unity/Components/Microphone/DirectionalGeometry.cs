@@ -87,8 +87,8 @@ namespace Eitan.EasyMic.Runtime.Mono
         private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
         private static void CheckSize(float value)
         {
-            if (!IsFinite(value) || value < .005f || value > .3f)
-                throw new ArgumentOutOfRangeException(nameof(value), "Spacing must be 0.5-30 cm.");
+            if (!IsFinite(value) || value < .005f || value > 1f)
+                throw new ArgumentOutOfRangeException(nameof(value), "Spacing must be 0.5-100 cm.");
         }
 
         // Both configuration UIs and capture use this generator, including the same channel order.
@@ -199,7 +199,7 @@ namespace Eitan.EasyMic.Runtime.Mono
         public void ConfigurePreset(DirectionalGeometryPreset preset, float sizeMeters)
         {
             if ((preset != DirectionalGeometryPreset.Linear && preset != DirectionalGeometryPreset.Circular) || float.IsNaN(sizeMeters) ||
-                float.IsInfinity(sizeMeters) || sizeMeters < 0.005f || sizeMeters > 0.3f)
+                float.IsInfinity(sizeMeters) || sizeMeters < 0.005f || sizeMeters > 1f)
             {
                 throw new ArgumentOutOfRangeException(nameof(sizeMeters));
             }

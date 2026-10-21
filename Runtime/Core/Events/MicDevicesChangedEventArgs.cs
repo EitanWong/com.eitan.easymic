@@ -34,7 +34,7 @@ namespace Eitan.EasyMic.Runtime
         public MicDevice? PreviousDefault { get; }
         public MicDevice? CurrentDefault { get; }
 
-        public bool HasChanges => Added.Length > 0 || Removed.Length > 0 || Updated.Length > 0 || !HasSameDefault(PreviousDefault, CurrentDefault);
+        public bool HasChanges => (Added?.Length ?? 0) > 0 || (Removed?.Length ?? 0) > 0 || (Updated?.Length ?? 0) > 0 || !HasSameDefault(PreviousDefault, CurrentDefault);
 
         private static bool HasSameDefault(MicDevice? left, MicDevice? right)
         {

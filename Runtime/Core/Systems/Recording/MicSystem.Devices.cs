@@ -429,7 +429,10 @@ namespace Eitan.EasyMic.Runtime
                 return true;
             }
 
-            return false;
+            // Endpoint capabilities can change without its ID or display name changing.
+            var previousFormats = previous.NativeFormats ?? Array.Empty<Native.NativeDataFormat>();
+            var currentFormats = current.NativeFormats ?? Array.Empty<Native.NativeDataFormat>();
+            return !new HashSet<Native.NativeDataFormat>(previousFormats).SetEquals(currentFormats);
         }
     }
 }

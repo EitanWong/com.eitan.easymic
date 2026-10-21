@@ -59,7 +59,7 @@ namespace Eitan.EasyMic.Runtime
                 return false;
             }
 
-            int samples = Math.Min(interleaved.Length, Math.Max(0, frameCount) * _channels);
+            int samples = (int)Math.Min(interleaved.Length, (long)Math.Max(0, frameCount) * _channels);
             samples -= samples % _channels;
             if (samples <= 0)
             {
