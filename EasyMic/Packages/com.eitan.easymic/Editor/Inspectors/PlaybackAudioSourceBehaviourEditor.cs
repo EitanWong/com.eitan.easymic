@@ -1,4 +1,6 @@
 #if UNITY_EDITOR
+using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Eitan.EasyMic.Editor.Icons;
 using Eitan.EasyMic.Runtime.Mono.Components;
@@ -16,6 +18,10 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
         private SerializedProperty _loopProp;
         private SerializedProperty _volumeProp;
         private SerializedProperty _muteProp;
+        private SerializedProperty _overrideOutputDeviceProp;
+        private SerializedProperty _outputDeviceIdProp;
+        private PlaybackOutputDevice[] _outputDevices = Array.Empty<PlaybackOutputDevice>();
+        private string _outputDeviceError;
 
         private GUIStyle _headerStyle;
         private GUIStyle _controlsPanelStyle;
@@ -42,6 +48,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             _loopProp = serializedObject.FindProperty("_loop");
             _volumeProp = serializedObject.FindProperty("_volume");
             _muteProp = serializedObject.FindProperty("_mute");
+            _overrideOutputDeviceProp = serializedObject.FindProperty("_overrideOutputDevice");
+            _outputDeviceIdProp = serializedObject.FindProperty("_outputDeviceId");
+            RefreshOutputDevices();
         }
 
         public override void OnInspectorGUI()
@@ -50,6 +59,9 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             var behaviour = (PlaybackAudioSourceBehaviour)target;
 
             serializedObject.Update();
+
+            bool outputChanged = DrawOutputSection();
+            EditorGUILayout.Space(4);
 
             // Clip + playback options
             EditorGUILayout.PropertyField(_clipProp);
@@ -63,9 +75,100 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             EditorGUILayout.PropertyField(_muteProp, new GUIContent("Mute"));
 
             serializedObject.ApplyModifiedProperties();
+            if (outputChanged && Application.isPlaying)
+            {
+                behaviour.OverrideOutputDevice = _overrideOutputDeviceProp.boolValue;
+            }
 
             EditorGUILayout.Space();
             DrawRuntimeSection(behaviour);
+        }
+
+        private void RefreshOutputDevices()
+        {
+            try
+            {
+                _outputDevices = AudioPlayback.GetOutputDevices();
+                _outputDeviceError = null;
+            }
+            catch (Exception ex)
+            {
+                _outputDevices = Array.Empty<PlaybackOutputDevice>();
+                _outputDeviceError = ex.Message;
+            }
+        }
+
+        private bool DrawOutputSection()
+        {
+            EditorGUILayout.LabelField("Output", _headerStyle);
+            var labels = new List<string> { "Use Audio System Output", "System Default" };
+            var ids = new List<string> { string.Empty, string.Empty };
+            int selected = _overrideOutputDeviceProp.boolValue ? -1 : 0;
+            for (int i = 0; i < _outputDevices.Length; i++)
+            {
+                var device = _outputDevices[i];
+                if (string.IsNullOrEmpty(device.Id))
+                {
+                    labels[1] = string.IsNullOrEmpty(device.Name) || device.Name == "System Default"
+                        ? "System Default"
+                        : $"System Default ({device.Name})";
+                    continue;
+                }
+
+                labels.Add(string.IsNullOrEmpty(device.Name) ? "Unnamed Output Device" : device.Name);
+                ids.Add(device.Id);
+            }
+
+            if (_overrideOutputDeviceProp.boolValue)
+            {
+                // Retain a saved endpoint even when it is disconnected or enumeration fails.
+                selected = ids.FindIndex(1, id => string.Equals(id, _outputDeviceIdProp.stringValue, StringComparison.Ordinal));
+            }
+            bool missing = selected < 0;
+            if (missing)
+            {
+                selected = labels.Count;
+                labels.Add("Unavailable Saved Device");
+                ids.Add(_outputDeviceIdProp.stringValue);
+            }
+
+            bool locked = Application.isPlaying && AudioSystem.Instance.IsRunning;
+            bool changed = false;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(locked))
+                {
+                    EditorGUI.BeginChangeCheck();
+                    int next = EditorGUILayout.Popup(new GUIContent("Output Device"), selected, labels.ToArray());
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        _overrideOutputDeviceProp.boolValue = next != 0;
+                        _outputDeviceIdProp.stringValue = ids[next];
+                        changed = true;
+                    }
+                }
+
+                if (GUILayout.Button("Refresh", GUILayout.Width(65)))
+                {
+                    RefreshOutputDevices();
+                }
+            }
+
+            EditorGUILayout.HelpBox(
+                locked
+                    ? "All EasyMic sources share one output. Stop AudioSystem or exit Play Mode before changing the device."
+                    : "All EasyMic sources share one output. Select the device before playback starts. Use Audio System Output preserves the global selection.",
+                MessageType.Info);
+            if (!string.IsNullOrEmpty(_outputDeviceError))
+            {
+                EditorGUILayout.HelpBox($"Unable to list output devices: {_outputDeviceError}", MessageType.Warning);
+            }
+            else if (missing && !changed)
+            {
+                EditorGUILayout.HelpBox("The saved output device is unavailable. Reconnect it and refresh, or select another device.", MessageType.Warning);
+            }
+
+            return changed;
         }
 
         // Ensure live updates while playing without requiring mouse hover.
@@ -111,6 +214,20 @@ namespace Eitan.EasyMic.Runtime.Mono.Editor
             using (new EditorGUILayout.VerticalScope("box"))
             {
                 EditorGUILayout.LabelField("Runtime", _headerStyle);
+                if (Application.isPlaying && AudioSystem.Instance.IsRunning)
+                {
+                    string outputId = AudioSystem.Instance.OutputDeviceId;
+                    string outputName = string.IsNullOrEmpty(outputId) ? "System Default" : "Device not in refreshed list";
+                    for (int i = 0; i < _outputDevices.Length; i++)
+                    {
+                        if (string.Equals(_outputDevices[i].Id, outputId, StringComparison.Ordinal))
+                        {
+                            outputName = _outputDevices[i].Name;
+                            break;
+                        }
+                    }
+                    EditorGUILayout.LabelField("Active Output", outputName);
+                }
 
                 var src = behaviour.Source;
                 bool runtime = Application.isPlaying;

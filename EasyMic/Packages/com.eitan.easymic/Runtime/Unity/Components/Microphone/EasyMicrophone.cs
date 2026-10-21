@@ -1087,10 +1087,9 @@ namespace Eitan.EasyMic.Runtime.Mono
                 return false;
             }
 
-            var finalPath = RecordingPathUtility.EnsureWavExtension(destinationPath);
-
             try
             {
+                var finalPath = RecordingPathUtility.EnsureWavExtension(destinationPath);
                 var directory = Path.GetDirectoryName(finalPath);
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {

@@ -12,7 +12,8 @@ namespace Eitan.EasyMic.Runtime
         public bool Enabled =true;
         public virtual void Initialize(AudioContext state)
         {
-            IsInitialized = true; ;
+            IsDisposed = false;
+            IsInitialized = true;
         }
 
         public abstract void OnAudioPass(Span<float> audiobuffer, AudioContext state);

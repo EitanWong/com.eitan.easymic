@@ -395,6 +395,16 @@ namespace Eitan.EasyMic.Tests
                 MiniaudioDeviceConfigPolicy.EstimatePlaybackDeviceDelayMs(48000, profile));
         }
 
+        [Test]
+        public void AndroidPlaybackUsesMediaVolumeUnlessDuplexVoiceIsRequested()
+        {
+            Assert.AreEqual(4, MiniaudioDeviceConfigPolicy.ResolveOpenSlStreamType(playback: true, capture: false));
+            Assert.AreEqual(1, MiniaudioDeviceConfigPolicy.ResolveAAudioUsage(playback: true, capture: false));
+            Assert.AreEqual(1, MiniaudioDeviceConfigPolicy.ResolveOpenSlStreamType(playback: true, capture: true));
+            Assert.AreEqual(2, MiniaudioDeviceConfigPolicy.ResolveAAudioUsage(playback: true, capture: true));
+            Assert.AreEqual(0, MiniaudioDeviceConfigPolicy.ResolveOpenSlStreamType(playback: false, capture: true));
+        }
+
         [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.Default, 30)]
         [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.AAudioCompatibility, 100)]
         [TestCase((int)Native.AndroidCaptureDeviceConfigProfile.OpenSlSafe, 100)]

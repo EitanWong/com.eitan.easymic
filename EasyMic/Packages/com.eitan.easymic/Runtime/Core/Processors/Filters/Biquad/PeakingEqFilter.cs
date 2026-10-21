@@ -13,9 +13,9 @@ namespace Eitan.EasyMic.Runtime
 
         public PeakingEQ(float centerHz, float gainDb, float q = 1.0f)
         {
-            _centerHz = centerHz;
-            _gainDb = gainDb;
-            _q = q;
+            _centerHz = RequireFinite(centerHz, nameof(centerHz));
+            _gainDb = RequireFinite(gainDb, nameof(gainDb));
+            _q = RequireFinite(q, nameof(q));
         }
 
         protected override void UpdateCoefficients(int sampleRate)

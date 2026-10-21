@@ -24,14 +24,16 @@ namespace Eitan.EasyMic.Runtime
         private volatile bool _pendingDelayStart;
         private int _paramsDirty;
 
-        public float DelaySeconds { get => _pendingDelaySeconds; set { _pendingDelaySeconds = value; Interlocked.Exchange(ref _paramsDirty, 1); } }
-        public float Wet { get => _pendingWet; set { _pendingWet = value; Interlocked.Exchange(ref _paramsDirty, 1); } }
-        public float Dry { get => _pendingDry; set { _pendingDry = value; Interlocked.Exchange(ref _paramsDirty, 1); } }
-        public float Decay { get => _pendingDecay; set { _pendingDecay = value; Interlocked.Exchange(ref _paramsDirty, 1); } }
+        public float DelaySeconds { get => _pendingDelaySeconds; set { _pendingDelaySeconds = RequireFinite(value, nameof(DelaySeconds)); Interlocked.Exchange(ref _paramsDirty, 1); } }
+        public float Wet { get => _pendingWet; set { _pendingWet = RequireFinite(value, nameof(Wet)); Interlocked.Exchange(ref _paramsDirty, 1); } }
+        public float Dry { get => _pendingDry; set { _pendingDry = RequireFinite(value, nameof(Dry)); Interlocked.Exchange(ref _paramsDirty, 1); } }
+        public float Decay { get => _pendingDecay; set { _pendingDecay = RequireFinite(value, nameof(Decay)); Interlocked.Exchange(ref _paramsDirty, 1); } }
         public bool DelayStart { get => _pendingDelayStart; set { _pendingDelayStart = value; Interlocked.Exchange(ref _paramsDirty, 1); } }
 
         public override void Initialize(AudioContext state)
         {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            if (_native.IsValid) _native.Dispose();
             base.Initialize(state);
             _nativeReady = false;
             _loggedNativeUnavailable = false;

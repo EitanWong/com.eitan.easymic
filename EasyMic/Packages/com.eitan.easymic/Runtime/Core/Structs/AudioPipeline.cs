@@ -79,6 +79,11 @@ namespace Eitan.EasyMic.Runtime
 
             ValidateWorkerThreadContract(worker);
 
+            if (Array.IndexOf(Volatile.Read(ref _stagesSnap), worker) >= 0)
+            {
+                return;
+            }
+
             if (Volatile.Read(ref _isInitialized) != 0)
             {
                 var initState = _initializeState;

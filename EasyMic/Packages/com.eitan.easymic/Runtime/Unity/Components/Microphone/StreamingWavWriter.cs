@@ -77,6 +77,10 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
                 {
                     sample = -1f;
                 }
+                else if (float.IsNaN(sample))
+                {
+                    sample = 0f;
+                }
 
                 short quantized = (short)MathF.Round(sample * short.MaxValue);
                 _scratch[idx++] = (byte)(quantized & 0xFF);
@@ -157,7 +161,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Recording
         {
             if (_finalized)
             {
-                return _filePath;
+                return _headerInitialized ? _filePath : null;
             }
 
             if (_stream == null && !_headerInitialized && _dataBytesWritten == 0)

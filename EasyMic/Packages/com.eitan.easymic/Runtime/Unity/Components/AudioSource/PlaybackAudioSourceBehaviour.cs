@@ -10,8 +10,15 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
     /// playback mechanics to a pure C# session that is reusable outside Unity.
     /// </summary>
     [AddComponentMenu("Audio/EasyMic/Playback Audio Source")]
+    [DefaultExecutionOrder(-100)]
     public sealed class PlaybackAudioSourceBehaviour : MonoBehaviour
     {
+        [Header("Output")]
+        [Tooltip("Configure the shared EasyMic output before playback starts. All playback sources use this device.")]
+        [SerializeField] private bool _overrideOutputDevice;
+        [Tooltip("Opaque miniaudio endpoint ID. Empty selects the system default output.")]
+        [SerializeField] private string _outputDeviceId = string.Empty;
+
         [Header("Clip Playback")]
         [SerializeField] private AudioClip _clip;
         [SerializeField] private bool _playOnAwake = true;
@@ -28,6 +35,47 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
         private string _cachedSessionName = "Playback";
 
         public PlaybackAudioSource Source => _session?.Source;
+
+        /// <summary>
+        /// Whether this component configures the shared EasyMic output. Defaults to false
+        /// so existing scenes preserve output configured through AudioPlayback.
+        /// Disabling this option leaves the current global output unchanged.
+        /// </summary>
+        public bool OverrideOutputDevice
+        {
+            get => _overrideOutputDevice;
+            set
+            {
+                if (value && Application.isPlaying && isActiveAndEnabled)
+                {
+                    AudioPlayback.SetOutputDevice(_outputDeviceId);
+                }
+
+                _overrideOutputDevice = value;
+            }
+        }
+
+        /// <summary>
+        /// Output endpoint to use. Setting this enables OverrideOutputDevice.
+        /// Empty selects the system default. All EasyMic sources share this output;
+        /// changing it while AudioSystem is running throws InvalidOperationException.
+        /// Configure inactive components before enabling them.
+        /// </summary>
+        public string OutputDeviceId
+        {
+            get => _outputDeviceId ?? string.Empty;
+            set
+            {
+                string deviceId = value ?? string.Empty;
+                if (Application.isPlaying && isActiveAndEnabled)
+                {
+                    AudioPlayback.SetOutputDevice(deviceId);
+                }
+
+                _outputDeviceId = deviceId;
+                _overrideOutputDevice = true;
+            }
+        }
 
         /// <summary>
         /// 实时回采事件（仿 Unity OnAudioFilterRead）：在音频线程触发 但只读。
@@ -129,6 +177,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
                 if (_playOnAwake)
                 {
+                    ApplyOutputDevice();
                     if (_clip != null)
                     {
                         _session.PlayClip(_clip, _loop, true);
@@ -199,6 +248,10 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
 
         public void Resume()
         {
+            if (_session != null)
+            {
+                ApplyOutputDevice();
+            }
             _session?.Resume();
         }
 
@@ -283,6 +336,7 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
         {
             if (_session != null)
             {
+                ApplyOutputDevice();
                 return true;
             }
 
@@ -291,11 +345,22 @@ namespace Eitan.EasyMic.Runtime.Mono.Components
                 return false;
             }
 
+            ApplyOutputDevice();
             string nameForSession = string.IsNullOrWhiteSpace(_cachedSessionName) ? "Playback" : _cachedSessionName;
             _session = new PlaybackAudioSession(nameForSession);
             _session.OnAudioPlaybackRead += HandleSessionAudioPlaybackRead;
             _session.OnBatchCompleted += HandleSessionPlaybackBatchCompleted;
             return true;
+        }
+
+        private void ApplyOutputDevice()
+        {
+            if (_overrideOutputDevice)
+            {
+                // SetOutputDevice is idempotent for a shared selection, and rejects
+                // conflicting components without stopping other playback sessions.
+                AudioPlayback.SetOutputDevice(_outputDeviceId);
+            }
         }
 
         private void DisposeSession()

@@ -145,8 +145,12 @@ namespace Eitan.EasyMic.Runtime
             }
         }
 
-        public MicSystem()
+        public MicSystem() : this(initializeNative: true) { }
+
+        // Allows control-path tests to run without opening hardware or starting a watcher.
+        internal MicSystem(bool initializeNative)
         {
+            if (!initializeNative) return;
             EasyMicUnityThread.TryCaptureFromCurrentThread();
 
             try

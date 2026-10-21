@@ -83,7 +83,7 @@ namespace Eitan.EasyMic.Runtime
             {
                 int w = Volatile.Read(ref _writePos.Value);
                 int r = Volatile.Read(ref _readPos.Value);
-                return Advance(w, 1) == r;
+                return AvailableToWrite(w, r) < _frameStride;
             }
         }
 
@@ -297,7 +297,10 @@ namespace Eitan.EasyMic.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int AlignCapacity(int requested, int stride)
         {
-            return ((requested + stride - 1) / stride) * stride;
+            long aligned = ((long)requested + stride - 1) / stride * stride;
+            if (aligned >= (1L << 28))
+                throw new ArgumentOutOfRangeException(nameof(requested), "Capacity is too large for the unmanaged ring buffer.");
+            return (int)aligned;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

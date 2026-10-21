@@ -71,7 +71,10 @@ namespace Eitan.EasyMic.Runtime
         #region Context
 
         [DllImport(LibraryName, EntryPoint = "ma_context_init", CallingConvention = CallingConvention.Cdecl)]
-        public static extern Result ContextInit(IntPtr backends, uint backendCount, IntPtr config, IntPtr context);
+        private static extern Result ContextInitNative(IntPtr backends, uint backendCount, IntPtr config, IntPtr context);
+
+        [DllImport(LibraryName, EntryPoint = "EasyMicContextInitWithSharedAudioSession", CallingConvention = CallingConvention.Cdecl)]
+        private static extern Result ContextInitWithSharedAudioSession(IntPtr backends, uint backendCount, IntPtr context);
 
         [DllImport(LibraryName, EntryPoint = "ma_context_uninit", CallingConvention = CallingConvention.Cdecl)]
         public static extern void ContextUninit(IntPtr context);
@@ -163,6 +166,15 @@ namespace Eitan.EasyMic.Runtime
             {
                 Marshal.FreeHGlobal(ptr);
             }
+        }
+
+        public static Result ContextInit(IntPtr backends, uint backendCount, IntPtr config, IntPtr context)
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            if (config == IntPtr.Zero)
+                return ContextInitWithSharedAudioSession(backends, backendCount, context);
+#endif
+            return ContextInitNative(backends, backendCount, config, context);
         }
 
         public static string DescribeResult(Result result)

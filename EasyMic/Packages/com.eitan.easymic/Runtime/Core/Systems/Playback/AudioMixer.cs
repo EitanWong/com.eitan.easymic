@@ -55,6 +55,7 @@ namespace Eitan.EasyMic.Runtime
         private volatile bool _dirty;
         private int _tableVersion;
         private Action<IMixNode> _stateChanged;
+        private int _disposed;
 
         internal event Action<AudioMixer> GraphDirty;
 
@@ -114,7 +115,12 @@ namespace Eitan.EasyMic.Runtime
         public bool Mute
         {
             get => _mute;
-            set => _mute = value;
+            set
+            {
+                if (_mute == value) return;
+                _mute = value;
+                MarkDirty();
+            }
         }
 
         public bool Solo
@@ -222,12 +228,22 @@ namespace Eitan.EasyMic.Runtime
                 throw new ArgumentNullException(nameof(mixer));
             }
 
-            if (ReferenceEquals(mixer, this))
+            if (ReferenceEquals(mixer, this) || mixer.ContainsMixer(this, new HashSet<AudioMixer>()))
             {
-                throw new InvalidOperationException("Cannot add mixer to itself.");
+                throw new InvalidOperationException("Cannot create a cycle in the mixer graph.");
             }
 
             AddNode(mixer);
+        }
+
+        private bool ContainsMixer(AudioMixer target, HashSet<AudioMixer> visited)
+        {
+            if (!visited.Add(this)) return false;
+            foreach (var child in GetChildren())
+            {
+                if (ReferenceEquals(child, target) || child.ContainsMixer(target, visited)) return true;
+            }
+            return false;
         }
 
         public void RemoveMixer(AudioMixer mixer)
@@ -535,11 +551,22 @@ namespace Eitan.EasyMic.Runtime
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            NodeRegistration[] nodes;
+            lock (_graphLock)
+            {
+                nodes = _nodes.ToArray();
+                _nodes.Clear();
+                Volatile.Write(ref _activeTable, GainTable.Empty);
+                Volatile.Write(ref _runtime, Array.Empty<MixerGainEnvelope>());
+            }
+            foreach (var node in nodes) node.Node.StateChanged -= node.Handler;
             try { Pipeline.Dispose(); } catch { }
         }
 
         private void AddNode(IMixNode node)
         {
+            if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(AudioMixer));
             if (node == null)
             {
                 return;
@@ -723,7 +750,8 @@ namespace Eitan.EasyMic.Runtime
                 for (int i = 0; i < nodeCount; i++)
                 {
                     var entry = entries[i];
-                    float effective = entry.EffectiveGain > 0f ? entry.EffectiveGain * scalar : 0f;
+                    bool included = !hasSolo || _solo || entry.Solo;
+                    float effective = included && entry.EffectiveGain > 0f ? entry.EffectiveGain * scalar : 0f;
                     entries[i] = new MixNodeEntry(entry.Node, effective, entry.Solo, entry.Active);
                 }
             }

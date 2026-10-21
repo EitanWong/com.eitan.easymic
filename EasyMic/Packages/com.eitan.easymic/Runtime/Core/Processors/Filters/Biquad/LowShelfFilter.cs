@@ -13,9 +13,9 @@ namespace Eitan.EasyMic.Runtime
 
         public LowShelfFilter(float cutoffHz, float gainDb, float q = 0.707f)
         {
-            _cutoffHz = cutoffHz;
-            _gainDb = gainDb;
-            _q = q;
+            _cutoffHz = RequireFinite(cutoffHz, nameof(cutoffHz));
+            _gainDb = RequireFinite(gainDb, nameof(gainDb));
+            _q = RequireFinite(q, nameof(q));
         }
 
         protected override void UpdateCoefficients(int sampleRate)

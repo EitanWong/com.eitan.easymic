@@ -12,8 +12,8 @@ namespace Eitan.EasyMic.Runtime
 
         public HighPassFilter(float cutoffHz, float q = 0.707f)
         {
-            _cutoffHz = cutoffHz;
-            _q = q;
+            _cutoffHz = RequireFinite(cutoffHz, nameof(cutoffHz));
+            _q = RequireFinite(q, nameof(q));
         }
 
         protected override void UpdateCoefficients(int sampleRate)

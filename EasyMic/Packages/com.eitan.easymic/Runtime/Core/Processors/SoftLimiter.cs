@@ -55,12 +55,13 @@ namespace Eitan.EasyMic.Runtime
             for (int i = 0; i < buffer.Length; i++)
             {
                 float x = buffer[i] * makeup;
+                if (float.IsNaN(x)) { buffer[i] = 0f; continue; }
                 float ax = MathF.Abs(x);
                 if (ax <= t) { buffer[i] = x; continue; }
                 // Soft clip above threshold: cubic approach
                 float sign = MathF.Sign(x);
-                float z = 1f - (ax - t) * invRange;
-                float y = t + range * (1f - z * z);
+                float z = MathF.Max(0f, 1f - (ax - t) * invRange);
+                float y = range <= 0f || float.IsInfinity(ax) ? 1f : t + range * (1f - z * z);
                 buffer[i] = sign * MathF.Min(1f, y);
             }
         }

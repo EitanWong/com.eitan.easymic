@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.4-exp.1] - 2026-10-21
+
+### Added
+
+- Added an output-device selector and refresh action to `PlaybackAudioSourceBehaviour`,
+  with scene/prefab persistence, inherited global output by default, and explicit
+  rejection of conflicting selections while the shared playback device is running.
+
+### Fixed
+
+- Detect microphone endpoint format changes even when the device ID and display name stay the same, and avoid Android device-enumeration JNI calls from worker threads.
+- Correct circular-buffer bounds and reset behavior in audio buffers, pipelines, ring buffers, and streaming WAV output; preserve queued audio and format contracts across realtime callbacks.
+- Fix audio event-pump dispatch and recording/playback session lifecycle handling, including cleanup and error reporting when native device initialization fails.
+- Correct native processor parameter propagation and resource handling for delay, biquad filters, fades, gain, pan, limiter, and volume-gate processing.
+- Keep iOS capture and playback on a shared active `PlayAndRecord` session, preserve speaker routing, and add the Unity 2021.3 scene lifecycle bridge required by current iOS SDKs.
+- Rebuild the bundled miniaudio libraries for Android, Linux, macOS, and Windows with release optimization and platform hardening; route Android playback through the media stream and support output-device enumeration and selection.
+- Fix directional microphone geometry calculations and WAV finalization for streamed recordings.
+
+### Fixed
+
+- Added an iOS post-build bridge for Unity 2021.3 so projects using current iOS SDKs
+  register a UIWindowScene lifecycle and forward scene activation, URL, and activity
+  callbacks to Unity's existing app controller.
+- Keep iOS recording and playback on a shared active `PlayAndRecord` audio session,
+  defaulting output to the speaker without deactivating the session when one context closes.
+- Rebuilt Android, Linux, macOS, and Windows miniaudio plugins from the package's
+  miniaudio 0.11.25 header with release optimization and platform hardening flags.
+- Route independent Android playback through the media volume stream and expose
+  miniaudio output-device enumeration and pre-playback selection.
+- Report playback-device initialization failures in the Unity log and fail playback
+  creation instead of silently returning an unusable handle.
 
 ## [0.1.3-exp.6] - 2026-09-17
 
